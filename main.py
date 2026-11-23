@@ -1,4 +1,3 @@
-import base64
 import hashlib
 import hmac
 import html
@@ -19,8 +18,8 @@ except Exception:
 
 
 SITE_NAME = os.getenv("SITE_NAME", "ARAB SECURITY").strip() or "ARAB SECURITY"
-OWNER_NAME = os.getenv("OWNER_NAME", "كايد").strip() or "كايد"
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1395418036919468073").strip()
+OWNER_NAME = os.getenv("OWNER_NAME", "ابوسعده السويط").strip() or "كايد"
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
 
 DEFAULT_DOMAIN_URL = "https://3rabsecurity.de5.net"
 DEFAULT_REDIRECT_URI = f"{DEFAULT_DOMAIN_URL}/callback"
@@ -40,11 +39,25 @@ BOT_INVITE_URL = os.getenv(
 MONGO_URI = os.getenv("MONGO_URI", "").strip()
 MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
 
-SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip() or secrets.token_hex(24)
+SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "120") or "120")
 
+TRUST_PROXY = os.getenv("TRUST_PROXY", "true").strip().lower() in ("1", "true", "yes", "on")
+TRUSTED_PROXY_IPS = {
+    ip.strip()
+    for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",")
+    if ip.strip()
+}
+
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "Fww6a2APclzPG0ivHXRGkY15WfFMc7tD").strip()
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "H40x3e2A_gYXuFfUICKv19d51jfGm66y").strip()
+
+if not DISCORD_CLIENT_SECRET:
+    raise RuntimeError("DISCORD_CLIENT_SECRET مطلوب ويجب ضبطه في متغيرات البيئة.")
+if not SESSION_SECRET:
+    raise RuntimeError("SESSION_SECRET مطلوب ويجب ضبطه في متغيرات البيئة.")
+if not ADMIN_USER_ID or not ADMIN_USER_ID.isdigit():
+    raise RuntimeError("ADMIN_USER_ID مطلوب ويجب أن يكون رقماً صحيحاً في متغيرات البيئة.")
 
 ANTINUKE_RULE_KEYS = (
     "anti_ban",
@@ -82,72 +95,76 @@ SHIELD_TOGGLE_KEYS = (
     "voice_lock",
 )
 
-DEFAULT_GUILD_CFG = {
-    "prefix": "!",
-    "maintenance": False,
-    "mod_log_channel": "",
-    "anti_spam": True,
-    "anti_link": False,
-    "anti_invites": True,
-    "voice_lock": False,
-    "silent_mode": False,
-    "beast_mode": False,
-    "anti_raid": False,
-    "verification": False,
-    "lockdown": False,
-    "anti_new_accounts": False,
-    "min_account_age_days": 7,
-    "dangerous_perms_guard": True,
-    "alert_on_trigger": True,
-    "anti_webhook_abuse": True,
-    "anti_app_abuse": True,
-    "anti_privilege_escalation": True,
-    "anti_role_tamper": True,
-    "anti_channel_perms_tamper": True,
-    "audit_log_watch": True,
-    "anti_mass_unban": True,
-    "anti_mass_kick": True,
-    "anti_mass_timeout": True,
-    "admin_behavior_analysis": True,
-    "trusted_admins_enabled": True,
-    "perms_snapshot_enabled": True,
-    "auto_rollback_enabled": True,
-    "gradual_attack_detect": True,
-    "collusion_detect": True,
-    "false_punishment_guard": True,
-    "emergency_mode": False,
-    "auto_perms_audit": True,
-    "trusted_admins": [ADMIN_USER_ID] if ADMIN_USER_ID else [],
-    "perms_snapshots": [],
-    "antinuke": {
-        "anti_ban": {"enabled": True, "limit": 1, "punishment": "Kick"},
-        "anti_kick": {"enabled": True, "limit": 1, "punishment": "Kick"},
-        "anti_role_create": {"enabled": True, "limit": 1, "punishment": "Kick"},
-        "anti_role_delete": {"enabled": True, "limit": 1, "punishment": "Ban"},
-        "anti_channel_create": {"enabled": True, "limit": 2, "punishment": "Kick"},
-        "anti_channel_delete": {"enabled": True, "limit": 1, "punishment": "Ban"},
-        "anti_webhook_create": {"enabled": True, "limit": 1, "punishment": "Ban"},
-        "anti_bot_add": {"enabled": True, "limit": 1, "punishment": "Ban"},
-        "anti_guild_update": {"enabled": True, "limit": 1, "punishment": "Kick"},
-    },
-    "whitelist": [],
-    "guild_profile": {
-        "bio": "",
-        "avatar_url": "",
-        "banner_url": "",
-    },
-}
+
+def _fresh_default_guild_cfg() -> dict:
+    return {
+        "prefix": "!",
+        "maintenance": False,
+        "mod_log_channel": "",
+        "anti_spam": True,
+        "anti_link": False,
+        "anti_invites": True,
+        "voice_lock": False,
+        "silent_mode": False,
+        "beast_mode": False,
+        "anti_raid": False,
+        "verification": False,
+        "lockdown": False,
+        "anti_new_accounts": False,
+        "min_account_age_days": 7,
+        "dangerous_perms_guard": True,
+        "alert_on_trigger": True,
+        "anti_webhook_abuse": True,
+        "anti_app_abuse": True,
+        "anti_privilege_escalation": True,
+        "anti_role_tamper": True,
+        "anti_channel_perms_tamper": True,
+        "audit_log_watch": True,
+        "anti_mass_unban": True,
+        "anti_mass_kick": True,
+        "anti_mass_timeout": True,
+        "admin_behavior_analysis": True,
+        "trusted_admins_enabled": True,
+        "perms_snapshot_enabled": True,
+        "auto_rollback_enabled": True,
+        "gradual_attack_detect": True,
+        "collusion_detect": True,
+        "false_punishment_guard": True,
+        "emergency_mode": False,
+        "auto_perms_audit": True,
+        "trusted_admins": [ADMIN_USER_ID],
+        "perms_snapshots": [],
+        "antinuke": {
+            "anti_ban": {"enabled": True, "limit": 1, "punishment": "Kick"},
+            "anti_kick": {"enabled": True, "limit": 1, "punishment": "Kick"},
+            "anti_role_create": {"enabled": True, "limit": 1, "punishment": "Kick"},
+            "anti_role_delete": {"enabled": True, "limit": 1, "punishment": "Ban"},
+            "anti_channel_create": {"enabled": True, "limit": 2, "punishment": "Kick"},
+            "anti_channel_delete": {"enabled": True, "limit": 1, "punishment": "Ban"},
+            "anti_webhook_create": {"enabled": True, "limit": 1, "punishment": "Ban"},
+            "anti_bot_add": {"enabled": True, "limit": 1, "punishment": "Ban"},
+            "anti_guild_update": {"enabled": True, "limit": 1, "punishment": "Kick"},
+        },
+        "whitelist": [],
+        "guild_profile": {
+            "bio": "",
+            "avatar_url": "",
+            "banner_url": "",
+        },
+    }
+
 
 MEM_LOGS: deque[dict] = deque(maxlen=350)
 MEM_INCIDENTS: deque[dict] = deque(maxlen=250)
 MEM_GUILDS: dict[str, dict] = {}
-MEM_GUILD_CFG: dict[str, dict] = defaultdict(lambda: json.loads(json.dumps(DEFAULT_GUILD_CFG)))
+MEM_GUILD_CFG: dict[str, dict] = defaultdict(_fresh_default_guild_cfg)
 MEM_QUEUE: deque[dict] = deque(maxlen=200)
-MEM_PREMIUM: set[str] = {ADMIN_USER_ID} if ADMIN_USER_ID else set()
-MEM_ADMINS: set[str] = {ADMIN_USER_ID} if ADMIN_USER_ID else set()
-MEM_VISITORS: dict[str, dict] = {
+MEM_PREMIUM: set[str] = {ADMIN_USER_ID}
+MEM_ADMINS: set[str] = {ADMIN_USER_ID}
+MEM_VISITORS: dict[str, object] = {
     "total_visits": 0,
-    "unique_hashes": set(),
+    "unique_hashes": deque(maxlen=5000),
+    "unique_seen": set(),
 }
 MEM_BACKUPS: deque[dict] = deque(maxlen=25)
 MEM_BOT_HEARTBEAT: dict[str, str] = {
@@ -155,7 +172,8 @@ MEM_BOT_HEARTBEAT: dict[str, str] = {
     "last_seen": "",
     "latency_ms": "24ms",
 }
-CSRF_TOKENS: dict[str, float] = {}
+
+CSRF_TOKENS: dict[str, dict] = {}
 USED_NONCES: dict[str, float] = {}
 RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=400))
 SESSIONS: dict[str, dict] = {}
@@ -180,30 +198,37 @@ def _safe_exp(val) -> float:
 
 def _cleanup_expired() -> None:
     now = time.time()
-    for k in [k for k, exp in CSRF_TOKENS.items() if now > _safe_exp(exp)]:
-        CSRF_TOKENS.pop(k, None)
-    for n in [n for n, exp in USED_NONCES.items() if now > _safe_exp(exp)]:
-        USED_NONCES.pop(n, None)
+    for k, meta in list(CSRF_TOKENS.items()):
+        if _safe_exp(meta.get("exp", 0)) <= now:
+            CSRF_TOKENS.pop(k, None)
+    for n, exp in list(USED_NONCES.items()):
+        if _safe_exp(exp) <= now:
+            USED_NONCES.pop(n, None)
     for sid, sess in list(SESSIONS.items()):
         if _safe_exp(sess.get("exp", 0)) <= now:
             SESSIONS.pop(sid, None)
 
 
-def issue_csrf_token() -> str:
+def issue_csrf_token(session_id: str) -> str:
     _cleanup_expired()
     tok = secrets.token_hex(24)
-    CSRF_TOKENS[tok] = time.time() + 3600.0
+    CSRF_TOKENS[tok] = {
+        "sid": str(session_id or ""),
+        "exp": time.time() + 3600.0,
+    }
     return tok
 
 
-def verify_csrf_token(tok: str | None) -> bool:
+def consume_csrf_token(tok: str | None, session_id: str | None) -> bool:
     _cleanup_expired()
-    if not tok or tok not in CSRF_TOKENS:
+    clean_tok = str(tok or "").strip()
+    clean_sid = str(session_id or "").strip()
+    if not clean_tok or not clean_sid or clean_tok not in CSRF_TOKENS:
         return False
-    if time.time() > _safe_exp(CSRF_TOKENS[tok]):
-        CSRF_TOKENS.pop(tok, None)
+    meta = CSRF_TOKENS.pop(clean_tok)
+    if _safe_exp(meta.get("exp", 0)) <= time.time():
         return False
-    return True
+    return hmac.compare_digest(str(meta.get("sid", "")), clean_sid)
 
 
 def is_replay_request(nonce: str | None) -> bool:
@@ -213,21 +238,15 @@ def is_replay_request(nonce: str | None) -> bool:
         return False
     if clean in USED_NONCES:
         return True
+    if len(USED_NONCES) >= 5000:
+        oldest = next(iter(USED_NONCES))
+        USED_NONCES.pop(oldest, None)
     USED_NONCES[clean] = time.time() + 300.0
     return False
 
 
-def encrypt_secret(plain_text: str) -> str:
-    raw = str(plain_text or "").encode("utf-8")
-    key = hashlib.sha256(SESSION_SECRET.encode("utf-8")).digest()
-    stream = bytes(raw[i] ^ key[i % len(key)] for i in range(len(raw)))
-    mac = hmac.new(key, stream, hashlib.sha256).hexdigest()[:16]
-    return f"enc:{mac}:{base64.urlsafe_b64encode(stream).decode('ascii')}"
-
-
-def mask_secret_preview(plain_text: str) -> str:
-    digest = hashlib.sha256(str(plain_text or "").encode("utf-8")).hexdigest()
-    return f"sha256:{digest[:10]}...{digest[-6:]}"
+def _sign_hmac(msg: str) -> str:
+    return hmac.new(SESSION_SECRET.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 db = None
@@ -256,24 +275,28 @@ if MONGO_URI and MongoClient is not None:
         stats_col = db["site_stats"]
         backups_col = db["db_backups"]
 
-        if ADMIN_USER_ID:
-            premium_col.update_one(
-                {"user_id": ADMIN_USER_ID},
-                {"$set": {"user_id": ADMIN_USER_ID, "granted_by": "system", "updated_at": _now_str()}},
-                upsert=True,
-            )
-            admins_col.update_one(
-                {"user_id": ADMIN_USER_ID},
-                {"$set": {"user_id": ADMIN_USER_ID, "granted_by": "owner", "updated_at": _now_str()}},
-                upsert=True,
-            )
+        premium_col.update_one(
+            {"user_id": ADMIN_USER_ID},
+            {"$set": {"user_id": ADMIN_USER_ID, "granted_by": "system", "updated_at": _now_str()}},
+            upsert=True,
+        )
+        admins_col.update_one(
+            {"user_id": ADMIN_USER_ID},
+            {"$set": {"user_id": ADMIN_USER_ID, "granted_by": "owner", "updated_at": _now_str()}},
+            upsert=True,
+        )
     except Exception as exc:
         print(f"[DB] تنبيه: تشغيل بالذاكرة الاحتياطية ({exc})")
 
 
 def get_client_ip(request: web.Request) -> str:
-    xff = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-    return xff or request.remote or "unknown"
+    remote_ip = str(request.remote or "").strip()
+    can_trust_xff = TRUST_PROXY and (not TRUSTED_PROXY_IPS or remote_ip in TRUSTED_PROXY_IPS)
+    if can_trust_xff:
+        xff_parts = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",") if p.strip()]
+        if xff_parts:
+            return xff_parts[-1]
+    return remote_ip or "unknown"
 
 
 def record_site_visit(request: web.Request) -> None:
@@ -284,9 +307,15 @@ def record_site_visit(request: web.Request) -> None:
     v_hash = hashlib.sha256(f"{ip}|{ua}|{SESSION_SECRET}".encode("utf-8")).hexdigest()[:24]
 
     MEM_VISITORS["total_visits"] = int(MEM_VISITORS.get("total_visits", 0)) + 1
-    u_set = MEM_VISITORS.setdefault("unique_hashes", set())
-    is_new_unique = v_hash not in u_set
-    u_set.add(v_hash)
+    u_deque: deque = MEM_VISITORS["unique_hashes"]  # type: ignore[assignment]
+    u_seen: set = MEM_VISITORS["unique_seen"]  # type: ignore[assignment]
+    is_new_unique = v_hash not in u_seen
+    if is_new_unique:
+        if len(u_deque) == u_deque.maxlen:
+            evicted = u_deque.popleft()
+            u_seen.discard(evicted)
+        u_deque.append(v_hash)
+        u_seen.add(v_hash)
 
     if stats_col is not None:
         try:
@@ -307,7 +336,7 @@ def record_site_visit(request: web.Request) -> None:
 
 def get_visitor_stats() -> tuple[int, int]:
     mem_total = int(MEM_VISITORS.get("total_visits", 0))
-    mem_unique = len(MEM_VISITORS.get("unique_hashes", set()))
+    mem_unique = len(MEM_VISITORS.get("unique_seen", set()))  # type: ignore[arg-type]
     db_total = 0
     db_unique = 0
     if stats_col is not None:
@@ -327,9 +356,7 @@ def is_site_admin(user: dict | None) -> bool:
     uid = str(user.get("id", "")).strip()
     if not uid.isdigit():
         return False
-    if ADMIN_USER_ID and uid == ADMIN_USER_ID:
-        return True
-    if uid in MEM_ADMINS:
+    if uid == ADMIN_USER_ID or uid in MEM_ADMINS:
         return True
     if admins_col is not None:
         try:
@@ -343,9 +370,9 @@ def is_site_admin(user: dict | None) -> bool:
 
 
 def get_admin_list() -> list[dict]:
-    items: dict[str, dict] = {}
-    if ADMIN_USER_ID:
-        items[ADMIN_USER_ID] = {"user_id": ADMIN_USER_ID, "granted_by": "owner", "updated_at": "-"}
+    items: dict[str, dict] = {
+        ADMIN_USER_ID: {"user_id": ADMIN_USER_ID, "granted_by": "owner", "updated_at": "-"}
+    }
     for uid in MEM_ADMINS:
         if uid not in items:
             items[uid] = {"user_id": uid, "granted_by": "admin", "updated_at": "-"}
@@ -390,16 +417,15 @@ def set_admin_user(user_id: str, enabled: bool, granted_by: str = "") -> bool:
             except Exception:
                 pass
         return True
-    else:
-        if uid == ADMIN_USER_ID:
-            return False
-        MEM_ADMINS.discard(uid)
-        if admins_col is not None:
-            try:
-                admins_col.delete_one({"user_id": uid})
-            except Exception:
-                pass
-        return True
+    if uid == ADMIN_USER_ID:
+        return False
+    MEM_ADMINS.discard(uid)
+    if admins_col is not None:
+        try:
+            admins_col.delete_one({"user_id": uid})
+        except Exception:
+            pass
+    return True
 
 
 def is_premium_user(user: dict | None) -> bool:
@@ -408,9 +434,7 @@ def is_premium_user(user: dict | None) -> bool:
     uid = str(user.get("id", "")).strip()
     if not uid.isdigit():
         return False
-    if is_site_admin(user):
-        return True
-    if uid in MEM_PREMIUM:
+    if is_site_admin(user) or uid in MEM_PREMIUM:
         return True
     if premium_col is not None:
         try:
@@ -424,9 +448,9 @@ def is_premium_user(user: dict | None) -> bool:
 
 
 def get_premium_list() -> list[dict]:
-    items: dict[str, dict] = {}
-    if ADMIN_USER_ID:
-        items[ADMIN_USER_ID] = {"user_id": ADMIN_USER_ID, "granted_by": "owner", "updated_at": "-"}
+    items: dict[str, dict] = {
+        ADMIN_USER_ID: {"user_id": ADMIN_USER_ID, "granted_by": "owner", "updated_at": "-"}
+    }
     for uid in MEM_PREMIUM:
         if uid not in items:
             items[uid] = {"user_id": uid, "granted_by": "admin", "updated_at": "-"}
@@ -461,16 +485,15 @@ def set_premium_user(user_id: str, enabled: bool, granted_by: str = "") -> bool:
             except Exception:
                 pass
         return True
-    else:
-        if uid == ADMIN_USER_ID:
-            return False
-        MEM_PREMIUM.discard(uid)
-        if premium_col is not None:
-            try:
-                premium_col.delete_one({"user_id": uid})
-            except Exception:
-                pass
-        return True
+    if uid == ADMIN_USER_ID:
+        return False
+    MEM_PREMIUM.discard(uid)
+    if premium_col is not None:
+        try:
+            premium_col.delete_one({"user_id": uid})
+        except Exception:
+            pass
+    return True
 
 
 def record_incident(guild_id: str, category: str, summary: str, severity: str = "HIGH") -> None:
@@ -554,78 +577,73 @@ def get_all_guilds() -> list[dict]:
 
 
 def get_user_visible_guilds(user: dict | None) -> tuple[list[dict], bool]:
-    all_bot_guilds = get_all_guilds()
-    bot_map = {g["id"]: g for g in all_bot_guilds}
     if not user:
         return [], False
 
     user_guilds = user.get("guilds")
-    if isinstance(user_guilds, list) and user_guilds:
-        matched = []
-        seen = set()
-        for ug in user_guilds:
-            gid = str(ug.get("id", "")).strip()
-            if not gid.isdigit() or gid in seen:
-                continue
-            perms = int(ug.get("permissions", 0) or 0)
-            is_owner = bool(ug.get("owner", False))
-            has_admin_or_manage = is_owner or bool(perms & 0x8) or bool(perms & 0x20)
-            if not has_admin_or_manage:
-                continue
-            seen.add(gid)
-            if gid in bot_map:
-                info = dict(bot_map[gid])
-                if ug.get("icon"):
-                    info["icon"] = str(ug["icon"])
-                matched.append(info)
-            else:
-                matched.append(
-                    {
-                        "id": gid,
-                        "name": str(ug.get("name", f"Server {gid}"))[:100],
-                        "icon": str(ug.get("icon", "")).strip(),
-                        "member_count": 0,
-                        "bot_missing": True,
-                    }
-                )
-        return matched, True
+    if not isinstance(user_guilds, list) or not user_guilds:
+        return [], False
 
-    return all_bot_guilds, False
+    bot_map = {g["id"]: g for g in get_all_guilds()}
+    matched: list[dict] = []
+    seen: set[str] = set()
+    for ug in user_guilds:
+        gid = str(ug.get("id", "")).strip()
+        if not gid.isdigit() or gid in seen:
+            continue
+        perms = int(ug.get("permissions", 0) or 0)
+        is_owner = bool(ug.get("owner", False))
+        has_admin_or_manage = is_owner or bool(perms & 0x8) or bool(perms & 0x20)
+        if not has_admin_or_manage:
+            continue
+        seen.add(gid)
+        if gid in bot_map:
+            info = dict(bot_map[gid])
+            if ug.get("icon"):
+                info["icon"] = str(ug["icon"])
+            matched.append(info)
+        else:
+            matched.append(
+                {
+                    "id": gid,
+                    "name": str(ug.get("name", f"Server {gid}"))[:100],
+                    "icon": str(ug.get("icon", "")).strip(),
+                    "member_count": 0,
+                    "bot_missing": True,
+                }
+            )
+    return matched, True
+
+
+def user_can_manage_guild(guild_id: str, user: dict | None, require_bot_present: bool = False) -> dict | None:
+    gid = str(guild_id or "").strip()
+    if not gid.isdigit() or not user:
+        return None
+    visible, _ = get_user_visible_guilds(user)
+    for g in visible:
+        if g["id"] == gid:
+            if require_bot_present and g.get("bot_missing"):
+                return None
+            return g
+    return None
 
 
 def resolve_guild_info(guild_id: str, user: dict | None = None) -> dict | None:
-    gid = str(guild_id or "").strip()
-    if not gid.isdigit():
-        return None
-    for g in get_all_guilds():
-        if g["id"] == gid:
-            return g
-    if user:
-        visible, _ = get_user_visible_guilds(user)
-        for g in visible:
-            if g["id"] == gid:
-                return g
-    return None
+    return user_can_manage_guild(guild_id, user, require_bot_present=False)
 
 
 def resolve_guild_id_from_input(raw_input: str, user: dict | None = None) -> str:
     val = str(raw_input or "").strip()
-    if not val:
+    if not val or not user:
         return ""
+    visible, _ = get_user_visible_guilds(user)
     if val.isdigit():
-        return val
-    candidates = list(get_all_guilds())
-    if user:
-        visible, _ = get_user_visible_guilds(user)
-        seen = {c["id"] for c in candidates}
-        for g in visible:
-            if g["id"] not in seen:
-                candidates.append(g)
+        return val if any(g["id"] == val for g in visible) else ""
     low = val.lower()
-    for g in candidates:
+    for g in visible:
         if str(g.get("name", "")).strip().lower() == low:
             return g["id"]
-    for g in candidates:
+    for g in visible:
         if low in str(g.get("name", "")).strip().lower():
             return g["id"]
     return ""
@@ -633,7 +651,7 @@ def resolve_guild_id_from_input(raw_input: str, user: dict | None = None) -> str
 
 def get_guild_cfg(guild_id: str) -> dict:
     gid = str(guild_id or "").strip()
-    cfg = json.loads(json.dumps(DEFAULT_GUILD_CFG))
+    cfg = _fresh_default_guild_cfg()
     if not gid.isdigit():
         return cfg
     mem = MEM_GUILD_CFG[gid]
@@ -650,7 +668,7 @@ def get_guild_cfg(guild_id: str) -> dict:
         try:
             doc = guild_settings_col.find_one({"guild_id": gid}, {"_id": 0})
             if doc:
-                for k in DEFAULT_GUILD_CFG:
+                for k in cfg:
                     if k == "antinuke" and isinstance(doc.get("antinuke"), dict):
                         for ak, av in doc["antinuke"].items():
                             if ak in cfg["antinuke"] and isinstance(av, dict):
@@ -667,7 +685,7 @@ def get_guild_cfg(guild_id: str) -> dict:
 def save_guild_cfg(guild_id: str, updates: dict) -> dict:
     gid = str(guild_id or "").strip()
     if updates.get("reset_defaults"):
-        fresh = json.loads(json.dumps(DEFAULT_GUILD_CFG))
+        fresh = _fresh_default_guild_cfg()
         if gid.isdigit():
             MEM_GUILD_CFG[gid] = json.loads(json.dumps(fresh))
             if guild_settings_col is not None:
@@ -829,7 +847,7 @@ def create_db_backup() -> dict:
         "admins_count": len(get_admin_list()),
         "premium_count": len(get_premium_list()),
         "logs_count": len(get_recent_logs(100)),
-        "signature": hashlib.sha256(f"{_now_str()}|{SESSION_SECRET}".encode("utf-8")).hexdigest()[:16],
+        "signature": _sign_hmac(f"backup|{_now_str()}")[:16],
     }
     MEM_BACKUPS.appendleft(dict(snapshot))
     if backups_col is not None:
@@ -875,12 +893,13 @@ def enqueue_remote_action(guild_id: str, action: str, target: str, extra: dict |
         "status": "pending",
         "created_at": datetime.now(timezone.utc),
     }
-    MEM_QUEUE.append(payload)
     if queue_col is not None:
         try:
             queue_col.insert_one(dict(payload))
         except Exception:
-            pass
+            MEM_QUEUE.append(payload)
+    else:
+        MEM_QUEUE.append(payload)
 
 
 def detect_base_url(request: web.Request) -> str:
@@ -888,11 +907,13 @@ def detect_base_url(request: web.Request) -> str:
         return EXPLICIT_WEB_URL
     if EXPLICIT_MAIN_URL:
         return EXPLICIT_MAIN_URL
+    remote_ip = str(request.remote or "").strip()
+    can_trust = TRUST_PROXY and (not TRUSTED_PROXY_IPS or remote_ip in TRUSTED_PROXY_IPS)
     host = (
-        request.headers.get("X-Forwarded-Host", "").split(",")[0].strip()
+        (request.headers.get("X-Forwarded-Host", "").split(",")[0].strip() if can_trust else "")
         or request.headers.get("Host", "").strip()
     )
-    proto = request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip() or "https"
+    proto = (request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip() if can_trust else "https") or "https"
     if host:
         return f"{proto}://{host}".rstrip("/")
     return DEFAULT_DOMAIN_URL
@@ -909,20 +930,61 @@ def detect_redirect_uri(request: web.Request) -> str:
 
 
 def sign_session(payload: dict) -> str:
-    sid = secrets.token_urlsafe(32)
-    SESSIONS[sid] = payload
-    return sid
+    sid = secrets.token_urlsafe(24)
+    exp_val = float(payload.get("exp", time.time() + 86400 * 7))
+    record = {
+        "sid": sid,
+        "id": str(payload.get("id", "")),
+        "username": str(payload.get("username", "User"))[:40],
+        "avatar": str(payload.get("avatar", "") or "")[:40],
+        "guilds": payload.get("guilds") or [],
+        "exp": exp_val,
+    }
+    SESSIONS[sid] = record
+    raw_b64 = json.dumps({"sid": sid, "exp": exp_val}, separators=(",", ":")).encode("utf-8")
+    import base64 as _b64
+    token_body = _b64.urlsafe_b64encode(raw_b64).decode("ascii")
+    sig = _sign_hmac(token_body)
+    return f"{token_body}.{sig}"
 
 
-def verify_session(token):
-    d = SESSIONS.get(token or "")
-    return d if d and _safe_exp(d.get("exp", 0)) > time.time() else None
+def verify_session(token: str | None) -> tuple[str, dict] | None:
+    _cleanup_expired()
+    if not token or "." not in token:
+        return None
+    parts = token.rsplit(".", 1)
+    if len(parts) != 2:
+        return None
+    token_body, sig = parts
+    expected_sig = _sign_hmac(token_body)
+    if not hmac.compare_digest(sig, expected_sig):
+        return None
+    try:
+        import base64 as _b64
+        padded = token_body + "=" * (-len(token_body) % 4)
+        meta = json.loads(_b64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except Exception:
+        return None
+    sid = str(meta.get("sid", "")).strip()
+    exp_val = _safe_exp(meta.get("exp", 0))
+    if not sid or exp_val <= time.time():
+        SESSIONS.pop(sid, None)
+        return None
+    sess = SESSIONS.get(sid)
+    if not sess or _safe_exp(sess.get("exp", 0)) <= time.time():
+        SESSIONS.pop(sid, None)
+        return None
+    return sid, sess
+
+
+def get_discord_session_with_id(request: web.Request) -> tuple[str, dict] | None:
+    tok = request.cookies.get("arab_sec_session") or request.headers.get("X-Arab-Session")
+    return verify_session(tok)
 
 
 def get_discord_session(request: web.Request) -> dict | None:
-    _cleanup_expired()
-    tok = request.cookies.get("arab_sec_session") or request.headers.get("X-Arab-Session")
-    return verify_session(tok)
+    pair = get_discord_session_with_id(request)
+    return pair[1] if pair else None
 
 
 def get_lang(request: web.Request) -> str:
@@ -1703,7 +1765,6 @@ function toggleDrawer(open) {{
 function switchLang(targetLang) {{
   try {{
     document.cookie = "arab_sec_lang=" + encodeURIComponent(targetLang) + "; path=/; max-age=" + (86400 * 365);
-    localStorage.setItem("arab_sec_lang", targetLang);
   }} catch (e) {{}}
   var url = new URL(window.location.href);
   url.searchParams.set("lang", targetLang);
@@ -1711,10 +1772,7 @@ function switchLang(targetLang) {{
 }}
 (function() {{
   try {{
-    var t = localStorage.getItem("arab_sec_tok");
-    if (t && document.cookie.indexOf("arab_sec_session=") === -1) {{
-      document.cookie = "arab_sec_session=" + encodeURIComponent(t) + "; path=/; max-age=" + (86400 * 7);
-    }}
+    localStorage.removeItem("arab_sec_tok");
   }} catch (e) {{}}
   document.querySelectorAll(".feature-card, .server-card, .nuke-card, .stat-box").forEach(function(el, idx) {{
     el.style.animationDelay = Math.min(idx * 55, 280) + "ms";
@@ -1866,13 +1924,13 @@ async def handle_servers(request: web.Request) -> web.Response:
 
     if not cards:
         note = (
-            "No manageable servers found or the bot is not added yet."
+            "No servers with Administrator/Manage Server permissions were found for your account."
             if is_en
-            else "لم يتم العثور على سيرفرات تملك فيها صلاحية الإدارة أو البوت غير مضاف فيها بعد."
+            else "لا توجد سيرفرات تملك فيها صلاحية الإدارة (Administrator أو Manage Server) أو لم يتم جلب قائمة سيرفراتك."
         ) if has_oauth_guilds else (
-            "Account connected. Invite the bot or re-login to refresh servers."
+            "No manageable servers available for this session. Try logging in again."
             if is_en
-            else "تم ربط حسابك بنجاح، أضف البوت إلى سيرفرك أو أعد تسجيل الدخول لتحديث السيرفرات."
+            else "لا توجد سيرفرات متاحة لحسابك في هذه الجلسة. أعد تسجيل الدخول لتحديث القائمة."
         )
         cards = f"""
         <div class="card" style="text-align:center;">
@@ -1895,12 +1953,13 @@ async def handle_servers(request: web.Request) -> web.Response:
 
 async def handle_guild(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
-    user = get_discord_session(request)
-    if not user:
+    sess_pair = get_discord_session_with_id(request)
+    if not sess_pair:
         return web.Response(
             text=render_page("Security Panel" if is_en else "لوحة الحماية", "guild", "", request, require_auth_view=True),
             content_type="text/html",
         )
+    session_id, user = sess_pair
 
     guilds, _ = get_user_visible_guilds(user)
     gid = str(request.query.get("id", "")).strip()
@@ -1913,29 +1972,38 @@ async def handle_guild(request: web.Request) -> web.Response:
     flash = ""
     if request.method == "GET" and request.query.get("id") is not None:
         raw_q = str(request.query.get("id", "")).strip()
-        if raw_q and not raw_q.isdigit():
+        if raw_q:
             matched_id = resolve_guild_id_from_input(raw_q, user)
             if matched_id:
                 gid = matched_id
             else:
+                gid = ""
                 flash = (
-                    f"Server '{raw_q}' not found."
+                    "Server not found or you lack Manage Server / Administrator permission."
                     if is_en
-                    else f"لم يتم العثور على سيرفر بالاسم «{raw_q}»."
+                    else "السيرفر غير موجود أو لا تملك صلاحية الإدارة (Manage Server / Administrator) عليه."
                 )
 
     if request.method == "POST":
         form = await request.post()
         csrf_val = str(form.get("csrf_token", "")).strip()
         nonce_val = str(form.get("req_nonce", "")).strip()
-        if not verify_csrf_token(csrf_val):
-            flash = "Session expired, please try again." if is_en else "انتهت صلاحية الجلسة أو الرمز الأمني، أعد المحاولة."
+        if not consume_csrf_token(csrf_val, session_id):
+            flash = "Session or CSRF token invalid/expired, please try again." if is_en else "انتهت صلاحية الجلسة أو رمز CSRF، أعد المحاولة."
         elif is_replay_request(nonce_val):
             flash = "Duplicate request blocked." if is_en else "تم منع إعادة إرسال طلب مكرر (Replay Guard)."
         else:
-            posted_gid = resolve_guild_id_from_input(str(form.get("guild_id", gid)), user) or str(form.get("guild_id", gid)).strip()
-            if posted_gid.isdigit():
-                gid = posted_gid
+            raw_posted_gid = str(form.get("guild_id", gid)).strip()
+            posted_gid = resolve_guild_id_from_input(raw_posted_gid, user)
+            authorized_guild = user_can_manage_guild(posted_gid, user) if posted_gid else None
+            if not authorized_guild:
+                flash = (
+                    "Unauthorized: you do not have Manage Server / Administrator permission for this server."
+                    if is_en
+                    else "غير مصرح: لا تملك صلاحية الإدارة على هذا السيرفر."
+                )
+            else:
+                gid = authorized_guild["id"]
                 section = str(form.get("section", active_tab)).strip().lower()
 
                 if section == "antinuke":
@@ -2030,7 +2098,8 @@ async def handle_guild(request: web.Request) -> web.Response:
                         save_guild_cfg(gid, {"trusted_remove": tr_rem})
                         flash = f"Removed {tr_rem} from trusted admins." if is_en else f"تمت إزالة {tr_rem} من الإداريين الموثوقين."
 
-    guild_info = resolve_guild_info(gid, user) if gid.isdigit() else None
+    guild_info = user_can_manage_guild(gid, user) if gid.isdigit() else None
+    valid_gid = guild_info["id"] if guild_info else ""
     guild_display_name = (
         str(guild_info.get("name", "")).strip()
         if guild_info
@@ -2038,14 +2107,14 @@ async def handle_guild(request: web.Request) -> web.Response:
     )
     guild_icon_hash = str(guild_info.get("icon", "")).strip() if guild_info else ""
     guild_icon_html = (
-        f"<img src='https://cdn.discordapp.com/icons/{esc(gid)}/{esc(guild_icon_hash)}.png?size=96' alt='' style='width:44px;height:44px;border-radius:12px;object-fit:cover;border:1px solid var(--border);'>"
-        if gid.isdigit() and guild_icon_hash
+        f"<img src='https://cdn.discordapp.com/icons/{esc(valid_gid)}/{esc(guild_icon_hash)}.png?size=96' alt='' style='width:44px;height:44px;border-radius:12px;object-fit:cover;border:1px solid var(--border);'>"
+        if valid_gid and guild_icon_hash
         else f"<div style='width:44px;height:44px;border-radius:12px;background:var(--purple);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;color:#fff;'>{esc((guild_display_name[:2] or 'SV').upper())}</div>"
     )
 
-    cfg = get_guild_cfg(gid) if gid.isdigit() else json.loads(json.dumps(DEFAULT_GUILD_CFG))
+    cfg = get_guild_cfg(valid_gid) if valid_gid else _fresh_default_guild_cfg()
     sec_score, sec_grade = calculate_security_score(cfg)
-    csrf_token = issue_csrf_token()
+    csrf_token = issue_csrf_token(session_id)
     req_nonce = secrets.token_hex(12)
 
     tabs = [
@@ -2059,11 +2128,18 @@ async def handle_guild(request: web.Request) -> web.Response:
         ("logs", "Logs & Timeline" if is_en else "السجلات والحوادث"),
     ]
     tabs_html = "".join(
-        f"<a class='tab-btn {'active' if key == active_tab else ''}' href='/guild?id={esc(gid)}&tab={key}'>{label}</a>"
+        f"<a class='tab-btn {'active' if key == active_tab else ''}' href='/guild?id={esc(valid_gid)}&tab={key}'>{label}</a>"
         for key, label in tabs
     )
 
-    if active_tab == "antinuke":
+    if not valid_gid:
+        panel_html = f"""
+        <div class="card" style="text-align:center;">
+          <p class="muted">{('Select a server where you have Manage Server or Administrator permission.' if is_en else 'اختر سيرفراً تملك فيه صلاحية الإدارة (Manage Server أو Administrator) للتحكم بإعداداته.')}</p>
+          <a class="btn ghost" href="/servers">{('Go to My Servers' if is_en else 'الذهاب إلى سيرفراتي')}</a>
+        </div>
+        """
+    elif active_tab == "antinuke":
         an = cfg.get("antinuke", {})
         cards_spec = [
             ("anti_ban", "ANTI BAN"),
@@ -2131,10 +2207,10 @@ async def handle_guild(request: web.Request) -> web.Response:
         )
 
         panel_html = f"""
-        <form method="POST" action="/guild?id={esc(gid)}&tab=antinuke">
+        <form method="POST" action="/guild?id={esc(valid_gid)}&tab=antinuke">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="req_nonce" value="{req_nonce}">
-          <input type="hidden" name="guild_id" value="{esc(gid)}">
+          <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
           <input type="hidden" name="section" value="antinuke">
           {nuke_cards}
           <div class="card">
@@ -2171,10 +2247,10 @@ async def handle_guild(request: web.Request) -> web.Response:
 
     elif active_tab == "general":
         panel_html = f"""
-        <form class="card" method="POST" action="/guild?id={esc(gid)}&tab=general">
+        <form class="card" method="POST" action="/guild?id={esc(valid_gid)}&tab=general">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="req_nonce" value="{req_nonce}">
-          <input type="hidden" name="guild_id" value="{esc(gid)}">
+          <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
           <input type="hidden" name="section" value="general">
           <h3>{('General Settings' if is_en else 'الإعدادات العامة للسيرفر')}</h3>
           <span class="field-label">Prefix</span>
@@ -2239,10 +2315,10 @@ async def handle_guild(request: web.Request) -> web.Response:
             <input class="ctrl" type="number" min="1" max="365" name="min_account_age_days" value="{int(cfg.get('min_account_age_days', 7))}">
             """
         panel_html = f"""
-        <form class="card" style="text-align:center;" method="POST" action="/guild?id={esc(gid)}&tab={active_tab}">
+        <form class="card" style="text-align:center;" method="POST" action="/guild?id={esc(valid_gid)}&tab={active_tab}">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="req_nonce" value="{req_nonce}">
-          <input type="hidden" name="guild_id" value="{esc(gid)}">
+          <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
           <input type="hidden" name="section" value="{active_tab}">
           <h3>{t_label}</h3>
           <p class="muted">{desc}</p>
@@ -2258,10 +2334,10 @@ async def handle_guild(request: web.Request) -> web.Response:
 
     elif active_tab == "mod":
         panel_html = f"""
-        <form class="card" method="POST" action="/guild?id={esc(gid)}&tab=mod">
+        <form class="card" method="POST" action="/guild?id={esc(valid_gid)}&tab=mod">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="req_nonce" value="{req_nonce}">
-          <input type="hidden" name="guild_id" value="{esc(gid)}">
+          <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
           <input type="hidden" name="section" value="mod">
           <h3>{('Remote Moderation' if is_en else 'Moderation عن بُعد')}</h3>
           <span class="field-label">{('Action' if is_en else 'الإجراء')}</span>
@@ -2282,10 +2358,10 @@ async def handle_guild(request: web.Request) -> web.Response:
         wl_items = "".join(
             f"<div class='log-row' style='display:flex;justify-content:space-between;align-items:center;'>"
             f"<code>{esc(uid)}</code>"
-            f"<form method='POST' action='/guild?id={esc(gid)}&tab=whitelist' style='margin:0;'>"
+            f"<form method='POST' action='/guild?id={esc(valid_gid)}&tab=whitelist' style='margin:0;'>"
             f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
             f"<input type='hidden' name='req_nonce' value='{req_nonce}'>"
-            f"<input type='hidden' name='guild_id' value='{esc(gid)}'>"
+            f"<input type='hidden' name='guild_id' value='{esc(valid_gid)}'>"
             f"<input type='hidden' name='section' value='whitelist'>"
             f"<input type='hidden' name='wl_remove' value='{esc(uid)}'>"
             f"<button class='btn ghost' type='submit'>{'Remove' if is_en else 'إزالة'}</button></form></div>"
@@ -2296,10 +2372,10 @@ async def handle_guild(request: web.Request) -> web.Response:
         tr_items = "".join(
             f"<div class='log-row' style='display:flex;justify-content:space-between;align-items:center;'>"
             f"<code>{esc(uid)}</code>"
-            f"<form method='POST' action='/guild?id={esc(gid)}&tab=whitelist' style='margin:0;'>"
+            f"<form method='POST' action='/guild?id={esc(valid_gid)}&tab=whitelist' style='margin:0;'>"
             f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
             f"<input type='hidden' name='req_nonce' value='{req_nonce}'>"
-            f"<input type='hidden' name='guild_id' value='{esc(gid)}'>"
+            f"<input type='hidden' name='guild_id' value='{esc(valid_gid)}'>"
             f"<input type='hidden' name='section' value='whitelist'>"
             f"<input type='hidden' name='tr_remove' value='{esc(uid)}'>"
             f"<button class='btn ghost' type='submit'>{'Remove' if is_en else 'إزالة'}</button></form></div>"
@@ -2309,10 +2385,10 @@ async def handle_guild(request: web.Request) -> web.Response:
         panel_html = f"""
         <div class="card">
           <h3>Whitelist</h3>
-          <form method="POST" action="/guild?id={esc(gid)}&tab=whitelist" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+          <form method="POST" action="/guild?id={esc(valid_gid)}&tab=whitelist" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <input type="hidden" name="req_nonce" value="{req_nonce}">
-            <input type="hidden" name="guild_id" value="{esc(gid)}">
+            <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
             <input type="hidden" name="section" value="whitelist">
             <input class="ctrl" type="text" name="wl_add" placeholder="User ID">
             <button class="btn" type="submit">{('Add' if is_en else 'إضافة')}</button>
@@ -2321,10 +2397,10 @@ async def handle_guild(request: web.Request) -> web.Response:
         </div>
         <div class="card">
           <h3>الإداريون الموثوقون (Trusted Admins)</h3>
-          <form method="POST" action="/guild?id={esc(gid)}&tab=whitelist" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+          <form method="POST" action="/guild?id={esc(valid_gid)}&tab=whitelist" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <input type="hidden" name="req_nonce" value="{req_nonce}">
-            <input type="hidden" name="guild_id" value="{esc(gid)}">
+            <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
             <input type="hidden" name="section" value="whitelist">
             <input class="ctrl" type="text" name="tr_add" placeholder="Trusted Admin User ID">
             <button class="btn" type="submit">إضافة موثوق</button>
@@ -2334,25 +2410,25 @@ async def handle_guild(request: web.Request) -> web.Response:
         """
 
     else:
-        incidents = get_incidents(gid if gid.isdigit() else "", 20)
+        incidents = get_incidents(valid_gid, 20)
         inc_html = "".join(
             f"<div class='log-row'><code>{esc(x.get('time',''))}</code> [{esc(x.get('severity','INFO'))} • {esc(x.get('category',''))}] {esc(x.get('summary',''))}</div>"
             for x in incidents
         ) or "<p class='muted'>لا توجد حوادث مسجلة في التسلسل الزمني.</p>"
 
-        logs = get_recent_logs(25)
+        logs = [item for item in get_recent_logs(60) if item.get("guild_id") == valid_gid][:25]
         log_html = "".join(
             f"<div class='log-row'><code>{esc(item.get('time',''))}</code> [{esc(item.get('level','LOG'))}] {esc(item.get('message',''))}</div>"
             for item in logs
-        ) or f"<p class='muted'>{'No logs yet.' if is_en else 'لا توجد سجلات بعد.'}</p>"
+        ) or f"<p class='muted'>{'No logs for this server yet.' if is_en else 'لا توجد سجلات لهذا السيرفر بعد.'}</p>"
         panel_html = f"""
         <div class="card"><h3>التسلسل الزمني للحوادث (Incident Timeline)</h3>{inc_html}</div>
         <div class="card"><h3>{'Logs' if is_en else 'السجلات'}</h3>{log_html}</div>
         """
 
     prem_shortcut = (
-        f"<div style='margin-top:12px;'><a class='btn gold' href='/premium?id={esc(gid)}'>{('Customize Bot Profile for Server (Premium)' if is_en else 'تخصيص صورة/بنر/بايو البوت لهذا السيرفر (Premium)')}</a></div>"
-        if is_premium_user(user) and gid.isdigit()
+        f"<div style='margin-top:12px;'><a class='btn gold' href='/premium?id={esc(valid_gid)}'>{('Customize Bot Profile for Server (Premium)' if is_en else 'تخصيص صورة/بنر/بايو البوت لهذا السيرفر (Premium)')}</a></div>"
+        if is_premium_user(user) and valid_gid
         else ""
     )
 
@@ -2366,7 +2442,7 @@ async def handle_guild(request: web.Request) -> web.Response:
       <div class="muted" style="margin-bottom:12px;">تقييم أمان السيرفر: <strong>{sec_score}/100</strong> • <span style="color:#c4b5fd;">{esc(sec_grade)}</span></div>
       <form method="GET" action="/guild" style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;">
         <input type="hidden" name="tab" value="{active_tab}">
-        <input class="ctrl" type="text" name="id" value="{esc(guild_display_name if guild_info else gid)}" placeholder="{('Server name or ID' if is_en else 'اسم السيرفر أو ID')}">
+        <input class="ctrl" type="text" name="id" value="{esc(guild_display_name if guild_info else valid_gid)}" placeholder="{('Server name or ID' if is_en else 'اسم السيرفر أو ID')}">
         <button class="btn" type="submit">{('Switch Server' if is_en else 'تبديل السيرفر')}</button>
       </form>
       {prem_shortcut}
@@ -2381,12 +2457,13 @@ async def handle_guild(request: web.Request) -> web.Response:
 
 async def handle_premium(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
-    user = get_discord_session(request)
-    if not user:
+    sess_pair = get_discord_session_with_id(request)
+    if not sess_pair:
         return web.Response(
             text=render_page("Premium" if is_en else "مزايا البريميوم", "premium", "", request, require_auth_view=True),
             content_type="text/html",
         )
+    session_id, user = sess_pair
     if not is_premium_user(user):
         body = f"""
         <div class="page-title">
@@ -2409,12 +2486,15 @@ async def handle_premium(request: web.Request) -> web.Response:
     flash = ""
     if request.method == "POST":
         form = await request.post()
-        if not verify_csrf_token(str(form.get("csrf_token", "")).strip()):
+        if not consume_csrf_token(str(form.get("csrf_token", "")).strip(), session_id):
             flash = "Session expired, please try again." if is_en else "انتهت صلاحية الجلسة، أعد المحاولة."
         else:
             posted_gid = str(form.get("guild_id", gid)).strip()
-            if posted_gid.isdigit():
-                gid = posted_gid
+            authorized = user_can_manage_guild(posted_gid, user, require_bot_present=True)
+            if not authorized:
+                flash = "Unauthorized or bot is not in this server." if is_en else "غير مصرح أو البوت غير متواجد في هذا السيرفر."
+            else:
+                gid = authorized["id"]
                 bio_val = str(form.get("bio", "")).strip()[:190]
                 avatar_val = str(form.get("avatar_url", "")).strip()[:400]
                 banner_val = str(form.get("banner_url", "")).strip()[:400]
@@ -2450,21 +2530,22 @@ async def handle_premium(request: web.Request) -> web.Response:
                     else "تم حفظ وإرسال طلب تحديث صورة/بنر/بايو البوت لهذا السيرفر فقط."
                 )
 
-    cfg = get_guild_cfg(gid) if gid.isdigit() else json.loads(json.dumps(DEFAULT_GUILD_CFG))
+    valid_prem_gid = gid if any(g["id"] == gid for g in usable_guilds) else (usable_guilds[0]["id"] if usable_guilds else "")
+    cfg = get_guild_cfg(valid_prem_gid) if valid_prem_gid else _fresh_default_guild_cfg()
     gprof = cfg.get("guild_profile", {})
-    csrf_token = issue_csrf_token()
+    csrf_token = issue_csrf_token(session_id)
 
     options_html = "".join(
-        f"<option value='{esc(g['id'])}' {'selected' if g['id'] == gid else ''}>{esc(g['name'])}</option>"
+        f"<option value='{esc(g['id'])}' {'selected' if g['id'] == valid_prem_gid else ''}>{esc(g['name'])}</option>"
         for g in usable_guilds
-    ) or f"<option value='{esc(gid)}'>{esc(gid)}</option>"
+    ) or "<option value=''>No eligible servers</option>"
 
     body = f"""
     <div class="page-title">
       <div class="sub">PER-SERVER CUSTOMIZATION</div>
       <h1>{('Premium Panel' if is_en else 'لوحة البريميوم (Premium)')}</h1>
     </div>
-    <form class="card" method="POST" action="/premium?id={esc(gid)}" style="text-align:center;">
+    <form class="card" method="POST" action="/premium?id={esc(valid_prem_gid)}" style="text-align:center;">
       <input type="hidden" name="csrf_token" value="{csrf_token}">
       <p class="muted">{('Changes apply only to this selected server.' if is_en else 'التعديلات هنا تطبق على بروفايل البوت داخل السيرفر المحدد فقط ولا تؤثر على باقي السيرفرات.')}</p>
 
@@ -2492,12 +2573,13 @@ async def handle_premium(request: web.Request) -> web.Response:
 
 async def handle_admin(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
-    user = get_discord_session(request)
-    if not user:
+    sess_pair = get_discord_session_with_id(request)
+    if not sess_pair:
         return web.Response(
             text=render_page("Admin Panel" if is_en else "لوحة الإدارة", "admin", "", request, require_auth_view=True),
             content_type="text/html",
         )
+    session_id, user = sess_pair
     if not is_site_admin(user):
         body = f"""
         <div class="page-title">
@@ -2514,7 +2596,7 @@ async def handle_admin(request: web.Request) -> web.Response:
     flash = ""
     if request.method == "POST":
         form = await request.post()
-        if not verify_csrf_token(str(form.get("csrf_token", "")).strip()):
+        if not consume_csrf_token(str(form.get("csrf_token", "")).strip(), session_id):
             flash = "Session expired, please try again." if is_en else "انتهت صلاحية الجلسة، أعد المحاولة."
         else:
             action = str(form.get("admin_action", "")).strip()
@@ -2614,7 +2696,7 @@ async def handle_admin(request: web.Request) -> web.Response:
                 enqueue_remote_action("0", "heartbeat_check", "bot")
                 flash = f"حالة تشغيل البوت: {MEM_BOT_HEARTBEAT['status']} • آخر فحص: {MEM_BOT_HEARTBEAT['last_seen']}"
 
-    csrf_token = issue_csrf_token()
+    csrf_token = issue_csrf_token(session_id)
     all_guilds = get_all_guilds()
     prem_users = get_premium_list()
     admin_users = get_admin_list()
@@ -2738,7 +2820,7 @@ async def handle_admin(request: web.Request) -> web.Response:
         <div>
           <span class="pill-tag pill-purple">COMMAND CENTER</span>
           <h1 style="margin:6px 0 2px;font-size:24px;font-weight:900;">{('Admin Control Panel' if is_en else 'لوحة الإدارة المتقدمة')}</h1>
-          <div class="muted">{esc(db_state)} • حالة البوت: <strong>{esc(MEM_BOT_HEARTBEAT['status'])}</strong> • تشفير الأسرار: <code>{esc(mask_secret_preview(SESSION_SECRET))}</code></div>
+          <div class="muted">{esc(db_state)} • حالة البوت: <strong>{esc(MEM_BOT_HEARTBEAT['status'])}</strong></div>
         </div>
       </div>
       <div class="admin-kpis">
@@ -2864,10 +2946,12 @@ async def handle_updates(request: web.Request) -> web.Response:
 
 async def handle_links(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
+    user = get_discord_session(request)
     main_url = esc(detect_main_url(request))
     web_url = esc(detect_base_url(request))
-    gid = esc(str(request.query.get("id", "")).strip())
-    guild_url = f"{web_url}/guild?id={gid}&tab=antinuke" if gid else f"{web_url}/guild?tab=antinuke"
+    raw_gid = str(request.query.get("id", "")).strip()
+    allowed_g = user_can_manage_guild(raw_gid, user) if raw_gid else None
+    guild_url = f"{web_url}/guild?id={esc(allowed_g['id'])}&tab=antinuke" if allowed_g else f"{web_url}/guild?tab=antinuke"
     body = f"""
     <div class="page-title">
       <div class="sub">QUICK LINKS</div>
@@ -2904,9 +2988,9 @@ async def handle_callback(request: web.Request) -> web.Response:
         raise web.HTTPFound(f"/?msg={quote('تم إلغاء أو رفض الربط من ديسكورد: ' + oauth_err)}")
 
     code = str(request.query.get("code", "")).strip()
-    if not code or not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
+    if not code:
         log_event(f"محاولة دخول ناقصة من IP {get_client_ip(request)}", level="WARN")
-        raise web.HTTPFound(f"/?msg={quote('بيانات OAuth2 ناقصة أو لم يتم استلام رمز الدخول.')}")
+        raise web.HTTPFound(f"/?msg={quote('لم يتم استلام رمز الدخول من ديسكورد.')}")
 
     try:
         async with ClientSession() as session:
@@ -2962,29 +3046,14 @@ async def handle_callback(request: web.Request) -> web.Response:
             "exp": float(time.time() + 86400 * 7),
         }
         signed_tok = sign_session(payload)
-        log_event(f"تم تسجيل دخول الحساب {payload['username']} ({payload['id']}) [{encrypt_secret(payload['id'])[:18]}]", level="AUTH")
+        log_event(f"تم تسجيل دخول الحساب {payload['username']} ({payload['id']})", level="AUTH")
 
-        html_out = f"""<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head><meta charset="utf-8"><title>جاري الدخول...</title></head>
-<body style="background:#080a12;color:#f8fafc;font-family:sans-serif;text-align:center;padding-top:60px;">
-<p>تم ربط الحساب بنجاح، جاري فتح الداشبورد...</p>
-<script>
-try {{
-  var t = {json.dumps(signed_tok)};
-  localStorage.setItem("arab_sec_tok", t);
-  document.cookie = "arab_sec_session=" + encodeURIComponent(t) + "; path=/; max-age=" + (86400 * 7);
-}} catch (e) {{}}
-window.location.href = "/servers";
-</script>
-</body>
-</html>"""
-        resp = web.Response(text=html_out, content_type="text/html")
+        resp = web.HTTPFound("/servers")
         resp.set_cookie(
             "arab_sec_session",
             signed_tok,
             max_age=86400 * 7,
-            httponly=False,
+            httponly=True,
             secure=True,
             samesite="Lax",
             path="/",
@@ -2998,9 +3067,9 @@ window.location.href = "/servers";
 
 
 async def handle_logout(request: web.Request) -> web.Response:
-    tok = request.cookies.get("arab_sec_session") or request.headers.get("X-Arab-Session")
-    if tok:
-        SESSIONS.pop(tok, None)
+    pair = get_discord_session_with_id(request)
+    if pair:
+        SESSIONS.pop(pair[0], None)
     resp = web.HTTPFound("/")
     resp.del_cookie("arab_sec_session", path="/")
     return resp
@@ -3024,8 +3093,8 @@ async def security_middleware(request: web.Request, handler):
     ip = get_client_ip(request)
     if is_rate_limited(ip):
         return web.Response(status=429, text="تم تجاوز الحد المسموح من الطلبات.", content_type="text/plain")
-    if request.path.startswith("/api/") or request.path == "/health":
-        if request.headers.get("X-Replay-Check") == "1" and is_replay_request(request.headers.get("X-Request-Nonce")):
+    if request.method == "POST" and request.headers.get("X-Replay-Check") == "1":
+        if is_replay_request(request.headers.get("X-Request-Nonce")):
             return web.Response(status=409, text="طلب مكرر مرفوض.", content_type="text/plain")
     record_site_visit(request)
     try:
