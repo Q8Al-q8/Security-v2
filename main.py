@@ -23,11 +23,12 @@ except Exception:
 
 
 SITE_NAME = os.getenv("SITE_NAME", "ARAB SECURITY").strip() or "ARAB SECURITY"
-OWNER_NAME = os.getenv("OWNER_NAME", "كايد").strip() or "كايد"
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1573635674551357550").strip() or "1573635674551357550"
+OWNER_NAME = os.getenv("OWNER_NAME", "سعود الظفيري").strip() or "كايد"
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1395418036919468073").strip() or "1395418036919468073"
 
 DEFAULT_DOMAIN_URL = "https://3rabsecurity.de5.net"
 DEFAULT_REDIRECT_URI = f"{DEFAULT_DOMAIN_URL}/callback"
+SUPPORT_SERVER_URL = os.getenv("SUPPORT_SERVER_URL", "https://discord.gg/khQXQCtjMS").strip()
 
 HOST = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
 PORT = int(os.getenv("PORT", "8080") or "8080")
@@ -54,8 +55,8 @@ if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     MONGO_URI = f"mongodb+srv://{safe_user}:{safe_pass}@{clean_host}/{MONGO_DB_NAME}?retryWrites=true&w=majority"
 
 SESSION_SECRET = (
-    os.getenv("SESSION_SECRET")
-    or "uo6vvo4GZ_xCzTx9qLDUijEEiv2Gifj1"
+    os.getenv("r3XExuDfsR_NMXxL_5wtP85tpT26yjRd")
+    or "r3XExuDfsR_NMXxL_5wtP85tpT26yjRd"
 ).strip()
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "120") or "120")
 AUTH_RATE_LIMIT_PER_MIN = int(os.getenv("AUTH_RATE_LIMIT_PER_MIN", "25") or "25")
@@ -67,8 +68,8 @@ TRUSTED_PROXY_IPS = {
     if ip.strip()
 }
 
-DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "").strip()
+DISCORD_CLIENT_ID = os.getenv("1573635674551357550", "1573635674551357550").strip()
+DISCORD_CLIENT_SECRET = os.getenv("r3XExuDfsR_NMXxL_5wtP85tpT26yjRd", "r3XExuDfsR_NMXxL_5wtP85tpT26yjRd").strip()
 
 if not SESSION_SECRET or len(SESSION_SECRET) < 16:
     raise RuntimeError("SESSION_SECRET مطلوب ويجب أن يكون بطول 16 حرفاً على الأقل.")
@@ -194,8 +195,11 @@ MEM_BACKUPS: deque[dict] = deque(maxlen=25)
 MEM_BOT_HEARTBEAT: dict[str, str] = {
     "status": "ONLINE",
     "last_seen": "",
-    "latency_ms": "22ms",
+    "latency_ms": "8ms",
 }
+
+_CFG_CACHE: dict[str, tuple[float, dict]] = {}
+_CFG_TTL = 2.0
 
 CSRF_TOKENS: dict[str, dict] = {}
 OAUTH_STATES: dict[str, float] = {}
@@ -331,7 +335,12 @@ backups_col = None
 
 if MONGO_URI and MongoClient is not None:
     try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2500, connectTimeoutMS=2500)
+        client = MongoClient(
+            MONGO_URI,
+            serverSelectionTimeoutMS=1200,
+            connectTimeoutMS=1200,
+            maxPoolSize=25,
+        )
         client.admin.command("ping")
         db = client[MONGO_DB_NAME]
         logs_col = db["activity_logs"]
@@ -723,6 +732,12 @@ def get_guild_cfg(guild_id: str) -> dict:
     cfg = _fresh_default_guild_cfg()
     if not gid.isdigit():
         return cfg
+
+    now = time.time()
+    cached = _CFG_CACHE.get(gid)
+    if cached and (now - cached[0]) < _CFG_TTL:
+        return json.loads(json.dumps(cached[1]))
+
     mem = MEM_GUILD_CFG[gid]
     for k, v in mem.items():
         if k == "antinuke" and isinstance(v, dict):
@@ -748,11 +763,14 @@ def get_guild_cfg(guild_id: str) -> dict:
                         cfg[k] = doc[k]
         except PyMongoError:
             pass
+
+    _CFG_CACHE[gid] = (now, json.loads(json.dumps(cfg)))
     return cfg
 
 
 def save_guild_cfg(guild_id: str, updates: dict) -> dict:
     gid = str(guild_id or "").strip()
+    _CFG_CACHE.pop(gid, None)
     if updates.get("reset_defaults"):
         fresh = _fresh_default_guild_cfg()
         if gid.isdigit():
@@ -766,6 +784,7 @@ def save_guild_cfg(guild_id: str, updates: dict) -> dict:
                     )
                 except PyMongoError:
                     pass
+        _CFG_CACHE[gid] = (time.time(), json.loads(json.dumps(fresh)))
         return fresh
 
     cfg = get_guild_cfg(gid)
@@ -861,6 +880,7 @@ def save_guild_cfg(guild_id: str, updates: dict) -> dict:
                 )
             except PyMongoError:
                 pass
+        _CFG_CACHE[gid] = (time.time(), json.loads(json.dumps(cfg)))
     return cfg
 
 
@@ -1171,12 +1191,10 @@ def render_page(
 
     if require_auth_view and not user:
         final_content = f"""
-        <div class="page-head anim-card">
-          <div class="eyebrow">{L['auth_sub']}</div>
-          <h1>{L['auth_title']}</h1>
-        </div>
-        <div class="glass-card anim-card" style="text-align:center;">
-          <p class="muted" style="margin-bottom:20px;">{L['auth_desc']}</p>
+        <div class="auth-gate glass-card anim-card">
+          <div class="hero-chip">🔐 {L['auth_sub']}</div>
+          <h1 style="margin:6px 0 10px;font-size:26px;font-weight:900;">{L['auth_title']}</h1>
+          <p class="muted" style="margin:0 auto 22px;max-width:520px;line-height:1.7;">{L['auth_desc']}</p>
           <a class="btn-discord anim-btn" href="/login">{L['login_discord']}</a>
         </div>
         """
@@ -1264,13 +1282,13 @@ def render_page(
     background: linear-gradient(90deg, #22d3ee, #8b5cf6, #10b981);
     box-shadow: 0 0 14px rgba(34, 211, 238, 0.75);
     opacity: 0;
-    transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+    transition: width 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
     pointer-events: none;
   }}
   .nav-progress.active {{ opacity: 1; width: 80%; }}
 
   @keyframes cyberRise {{
-    0% {{ opacity: 0; transform: translate3d(0, 18px, 0) scale(0.985); }}
+    0% {{ opacity: 0; transform: translate3d(0, 14px, 0) scale(0.99); }}
     100% {{ opacity: 1; transform: translate3d(0, 0, 0) scale(1); }}
   }}
   @keyframes haloPulse {{
@@ -1282,11 +1300,11 @@ def render_page(
     100% {{ transform: translateX(250%) skewX(-22deg); }}
   }}
 
-  .anim-card {{ animation: cyberRise 0.44s cubic-bezier(0.22, 1, 0.36, 1) both; }}
+  .anim-card {{ animation: cyberRise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }}
   .glass-card, .metric-card, .server-tile, .rule-box, .btn-v, .btn-g, .btn-c, .btn-discord, .pill-btn, .lang-btn, .burger {{
     position: relative;
     overflow: hidden;
-    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.22s ease, box-shadow 0.25s ease, background 0.22s ease;
+    transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.16s ease, box-shadow 0.18s ease, background 0.16s ease;
   }}
   .btn-v::after, .btn-c::after, .btn-discord::after, .launch-btn::after {{
     content: "";
@@ -1304,7 +1322,7 @@ def render_page(
   }}
   @media (hover: hover) {{
     .glass-card:hover, .metric-card:hover, .server-tile:hover, .rule-box:hover {{
-      transform: translateY(-4px);
+      transform: translateY(-3px);
       border-color: var(--border-glow);
       box-shadow: 0 18px 38px rgba(15, 23, 42, 0.65), 0 0 20px rgba(124, 58, 237, 0.18);
     }}
@@ -1313,14 +1331,13 @@ def render_page(
       border-color: var(--border-glow);
     }}
     .btn-v:hover::after, .btn-c:hover::after, .btn-discord:hover::after, .launch-btn:hover::after {{
-      animation: sheenSlide 0.75s ease forwards;
+      animation: sheenSlide 0.55s ease forwards;
     }}
   }}
   @media (prefers-reduced-motion: reduce) {{
     *, *::before, *::after {{ animation: none !important; transition-duration: 0.05s !important; }}
   }}
 
-  /* Desktop Fixed Glass Sidebar + Mobile Drawer */
   .app-shell {{
     display: flex;
     min-height: 100vh;
@@ -1340,7 +1357,7 @@ def render_page(
     gap: 8px;
     z-index: 65;
     overflow-y: auto;
-    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
   }}
   .main-stage {{
     flex: 1;
@@ -1540,6 +1557,13 @@ def render_page(
     .content-wrap {{ padding: 18px 14px 48px; }}
   }}
 
+  .auth-gate {{
+    text-align: center;
+    padding: 36px 24px;
+    background: linear-gradient(145deg, rgba(22, 26, 56, 0.86), rgba(11, 14, 30, 0.94));
+    animation: cyberRise 0.3s cubic-bezier(0.22, 1, 0.36, 1) both, haloPulse 5s ease-in-out infinite;
+  }}
+
   .cyber-hero {{
     background: linear-gradient(145deg, rgba(22, 26, 56, 0.84), rgba(11, 14, 30, 0.92));
     backdrop-filter: blur(20px);
@@ -1547,7 +1571,7 @@ def render_page(
     border-radius: 24px;
     padding: 32px 24px;
     margin-bottom: 20px;
-    animation: cyberRise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both, haloPulse 5s ease-in-out infinite;
+    animation: cyberRise 0.3s cubic-bezier(0.22, 1, 0.36, 1) both, haloPulse 5s ease-in-out infinite;
   }}
   .hero-chip {{
     display: inline-flex;
@@ -1633,7 +1657,8 @@ def render_page(
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 13px 24px;
+    gap: 8px;
+    padding: 13px 26px;
     border-radius: 13px;
     background: linear-gradient(135deg, #2563eb, #4f46e5);
     color: #fff;
@@ -1641,6 +1666,7 @@ def render_page(
     font-weight: 800;
     font-size: 15px;
     border: 1px solid rgba(96, 165, 250, 0.5);
+    box-shadow: 0 10px 24px rgba(37, 99, 235, 0.36);
   }}
   .btn-sm {{ padding: 8px 14px; font-size: 12.5px; border-radius: 10px; }}
   .btn-danger {{ background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.55); color: #fca5a5; }}
@@ -1661,7 +1687,7 @@ def render_page(
     border: 1px solid var(--border);
     border-radius: 20px;
     padding: 20px;
-    animation: cyberRise 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: cyberRise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .metric-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }}
   .metric-ico {{
@@ -1693,7 +1719,7 @@ def render_page(
     border-radius: 20px;
     padding: 20px;
     margin-bottom: 16px;
-    animation: cyberRise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: cyberRise 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .feature-head {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }}
   .feature-left {{ display: flex; align-items: center; gap: 14px; }}
@@ -1741,7 +1767,7 @@ def render_page(
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, #7c3aed, #06b6d4, #10b981);
-    transition: width 0.45s ease;
+    transition: width 0.35s ease;
   }}
 
   .grid-2 {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
@@ -1771,7 +1797,7 @@ def render_page(
     padding: 18px;
     text-align: center;
     margin-bottom: 14px;
-    animation: cyberRise 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: cyberRise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .rule-box h3 {{ margin: 0 0 10px; font-size: 15px; font-weight: 900; color: #e0e7ff; }}
   .lbl {{ display: block; font-size: 12.5px; color: var(--muted); margin: 10px 0 6px; font-weight: 700; }}
@@ -1822,7 +1848,7 @@ def render_page(
     color: var(--text);
     text-decoration: none;
     display: block;
-    animation: cyberRise 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: cyberRise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .server-banner {{
     width: 100%;
@@ -1878,7 +1904,7 @@ def render_page(
     margin-bottom: 16px;
     font-weight: 800;
     font-size: 13.5px;
-    animation: cyberRise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: cyberRise 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .muted {{ color: var(--muted); font-size: 13px; }}
   code {{ background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border); padding: 2px 6px; border-radius: 6px; font-size: 12px; }}
@@ -1970,7 +1996,7 @@ function filterServers() {{
 (function() {{
   try {{ localStorage.removeItem("arab_sec_tok"); }} catch (e) {{}}
   document.querySelectorAll(".glass-card, .metric-card, .server-tile, .rule-box").forEach(function(el, idx) {{
-    el.style.animationDelay = Math.min(idx * 55, 300) + "ms";
+    el.style.animationDelay = Math.min(idx * 35, 180) + "ms";
   }});
   document.querySelectorAll("a[href^='/']").forEach(function(a) {{
     a.addEventListener("click", function(ev) {{
@@ -1993,9 +2019,22 @@ async def home_handler(request: web.Request) -> web.Response:
     user = get_discord_session(request)
     flash = sanitize_flash_msg(request.query.get("msg"))
 
+    if not user:
+        guest_body = f"""
+        <section class="auth-gate glass-card">
+          <div class="hero-chip">✦ {('ARAB SECURITY COMMAND' if is_en else 'منظومة ARAB SECURITY المطورة')}</div>
+          <h1 class="hero-h1" style="margin-bottom:10px;">{esc(SITE_NAME)}</h1>
+          <p class="muted" style="margin:0 auto 24px;max-width:540px;line-height:1.7;">{('Sign in with your Discord account to manage protected servers, configure Anti-Nuke & snapshots, and unlock per-server Premium perks.' if is_en else 'سجل دخولك بحساب ديسكورد للوصول إلى لوحة السيرفرات، ضبط أنظمة Anti-Nuke ولقطات الصلاحيات، وتفعيل مزايا البريميوم.')}</p>
+          <a class="btn-discord" href="/login">Login with Discord</a>
+        </section>
+        """
+        return web.Response(
+            text=render_page("Login" if is_en else "تسجيل الدخول", "home", guest_body, request, flash=flash),
+            content_type="text/html",
+        )
+
     bot_servers_count = len(get_all_guilds())
     total_visits, unique_visitors = get_visitor_stats()
-    dash_href = "/servers" if user else "/login"
     safe_invite = esc(sanitize_http_url(BOT_INVITE_URL) or "https://discord.com")
 
     hero_html = f"""
@@ -2004,7 +2043,7 @@ async def home_handler(request: web.Request) -> web.Response:
       <h1 class="hero-h1">{esc(SITE_NAME)}</h1>
       <p class="hero-p">{('Real-time Anti-Nuke defense, behavior intelligence, permission snapshots, attack simulations, DB backups, and per-server Premium automation.' if is_en else 'حماية فورية ضد النيوك والتلاعب بالصلاحيات، تحليل سلوك الإداريين، لقطات الصلاحيات والاسترجاع، محاكاة الهجمات، نسخ قاعدة البيانات، ومزايا بريميوم متقدمة لكل سيرفر.')}</p>
       <div class="cta-row">
-        <a class="btn-v" href="{dash_href}">{('Launch Command Center' if is_en else 'دخول لوحة التحكم')}</a>
+        <a class="btn-v" href="/servers">{('Launch Command Center' if is_en else 'دخول لوحة التحكم')}</a>
         <a class="btn-c" href="{safe_invite}" target="_blank" rel="noopener noreferrer">{('Invite Bot' if is_en else 'إضافة البوت للسيرفر')}</a>
         <a class="btn-g" href="/services">{('Explore Plans' if is_en else 'الخدمات والمزايا')}</a>
       </div>
@@ -2036,7 +2075,7 @@ async def home_handler(request: web.Request) -> web.Response:
           <span class="chip-g">LATENCY</span>
           <div class="metric-ico">⚡</div>
         </div>
-        <div class="metric-val">{esc(MEM_BOT_HEARTBEAT.get('latency_ms', '22ms'))}</div>
+        <div class="metric-val">{esc(MEM_BOT_HEARTBEAT.get('latency_ms', '8ms'))}</div>
         <div class="metric-lbl">{('Core Shield Response' if is_en else 'استجابة منظومة الحماية')}</div>
       </div>
     </section>
@@ -3286,26 +3325,43 @@ async def handle_updates(request: web.Request) -> web.Response:
 
 async def handle_links(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
-    user = get_discord_session(request)
     main_url = esc(detect_main_url(request))
-    web_url = esc(detect_base_url(request))
-    safe_invite = esc(sanitize_http_url(BOT_INVITE_URL) or "https://discord.com")
-    raw_gid = str(request.query.get("id", "")).strip()
-    allowed_g = user_can_manage_guild(raw_gid, user) if raw_gid else None
-    guild_url = f"{web_url}/guild?id={esc(allowed_g['id'])}&tab=antinuke" if allowed_g else f"{web_url}/guild?tab=antinuke"
+    support_url = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.gg/khQXQCtjMS")
+
     body = f"""
     <div class="page-head">
-      <div class="eyebrow">QUICK LINKS</div>
+      <div class="eyebrow">{('OFFICIAL LINKS' if is_en else 'الروابط الرسمية')}</div>
       <h1>{('Links' if is_en else 'الروابط')}</h1>
     </div>
-    <div class="glass-card">
-      <div class="log-line"><strong>{('Main Site' if is_en else 'الموقع الرئيسي')}:</strong> <a href="{main_url}/" style="color:#67e8f9;">{main_url}/</a></div>
-      <div class="log-line"><strong>{('Servers' if is_en else 'السيرفرات')}:</strong> <a href="{web_url}/servers" style="color:#67e8f9;">{web_url}/servers</a></div>
-      <div class="log-line"><strong>{('Security Panel' if is_en else 'لوحة الحماية')}:</strong> <a href="{guild_url}" style="color:#67e8f9;">{guild_url}</a></div>
-      <div class="log-line"><strong>{('Bot Invite' if is_en else 'دعوة البوت')}:</strong> <a href="{safe_invite}" target="_blank" rel="noopener noreferrer" style="color:#67e8f9;">{safe_invite}</a></div>
+
+    <div class="grid-cards">
+      <div class="glass-card" style="margin-bottom:0;display:flex;flex-direction:column;justify-content:space-between;gap:14px;">
+        <div>
+          <span class="chip-c">{('MAIN WEBSITE' if is_en else 'الموقع الرئيسي')}</span>
+          <h3 style="margin:10px 0 6px;font-size:18px;font-weight:900;">{esc(SITE_NAME)}</h3>
+          <div class="muted" style="word-break:break-all;"><code>{main_url}/</code></div>
+        </div>
+        <div>
+          <a class="btn-v btn-sm" href="{main_url}/">{('Open Website' if is_en else 'دخول الموقع')} →</a>
+        </div>
+      </div>
+
+      <div class="glass-card" style="margin-bottom:0;display:flex;flex-direction:column;justify-content:space-between;gap:14px;">
+        <div>
+          <span class="chip-v">{('SUPPORT SERVER' if is_en else 'سيرفر الدعم الفني')}</span>
+          <h3 style="margin:10px 0 6px;font-size:18px;font-weight:900;">{('Discord Support' if is_en else 'دعم ARAB SECURITY')}</h3>
+          <div class="muted" style="word-break:break-all;"><code>{support_url}</code></div>
+        </div>
+        <div>
+          <a class="btn-c btn-sm" href="{support_url}" target="_blank" rel="noopener noreferrer">{('Join Support' if is_en else 'انضم للدعم الفني')} →</a>
+        </div>
+      </div>
     </div>
     """
-    return web.Response(text=render_page("Links" if is_en else "الروابط", "links", body, request), content_type="text/html")
+    return web.Response(
+        text=render_page("Links" if is_en else "الروابط", "links", body, request),
+        content_type="text/html",
+    )
 
 
 async def handle_login(request: web.Request) -> web.Response:
@@ -3357,7 +3413,7 @@ async def handle_callback(request: web.Request) -> web.Response:
                     "redirect_uri": detect_redirect_uri(request),
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=10,
+                timeout=8,
             ) as resp:
                 if resp.status != 200:
                     log_event(f"فشل تبادل التوكن من ديسكورد ({resp.status})", level="OAUTH")
@@ -3369,13 +3425,13 @@ async def handle_callback(request: web.Request) -> web.Response:
                 raise web.HTTPFound(f"/?msg={quote('لم يتم استلام رمز وصول صالح من ديسكورد.')}")
             headers = {"Authorization": f"Bearer {access_token}"}
 
-            async with session.get("https://discord.com/api/users/@me", headers=headers, timeout=10) as uresp:
+            async with session.get("https://discord.com/api/users/@me", headers=headers, timeout=8) as uresp:
                 if uresp.status != 200:
                     raise web.HTTPFound(f"/?msg={quote('تعذر جلب بيانات الحساب من ديسكورد.')}")
                 u = await uresp.json()
 
             compact_guilds = []
-            async with session.get("https://discord.com/api/users/@me/guilds", headers=headers, timeout=10) as gresp:
+            async with session.get("https://discord.com/api/users/@me/guilds", headers=headers, timeout=8) as gresp:
                 if gresp.status == 200:
                     gdata = await gresp.json()
                     if isinstance(gdata, list):
