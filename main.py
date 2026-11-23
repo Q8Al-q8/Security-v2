@@ -81,9 +81,9 @@ MAX_IMAGE_BYTES = 1_500_000
 MAX_IMAGE_DATA_URL_LEN = 2_100_000
 
 if not SESSION_SECRET or len(SESSION_SECRET) < 16:
-    raise RuntimeError("A1234567890112314566") 
+    raise RuntimeError("SESSION_SECRET مطلوب ويجب أن يكون بطول 16 حرفاً على الأقل.")
 if not ADMIN_USER_ID.isdigit():
-    raise RuntimeError("A1234567890112314566")
+    raise RuntimeError("ADMIN_USER_ID يجب أن يكون رقماً صحيحاً.")
 
 MANAGE_GUILD_PERM = 0x20
 ADMIN_PERM = 0x8
