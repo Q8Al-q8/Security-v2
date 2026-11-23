@@ -2524,7 +2524,7 @@ async def handle_premium(request: web.Request) -> web.Response:
                 save_guild_cfg(gid, {"guild_profile": prof_data, "premium_perks": perks_data}, is_premium=True)
                 enqueue_remote_action(
                     gid,
-                    "update_bot_profile",
+                    "update_server_bot_profile",
                     gid,
                     extra={
                         "bio": prof_data["bio"],
@@ -2532,8 +2532,8 @@ async def handle_premium(request: web.Request) -> web.Response:
                         "banner_data_url": prof_data["banner_data_url"],
                     },
                 )
-                log_event(f"تحديث إعدادات البريميوم وصورة/بنر البوت للسيرفر {gid}", guild_id=gid, level="ADMIN")
-                flash = "Premium settings & bot profile queued." if is_en else "تم حفظ إعدادات البريميوم وإرسال طلب تحديث صورة/بنر البوت."
+                log_event(f"تحديث بروفايل البوت داخل السيرفر {gid} من البريميوم", guild_id=gid, level="ADMIN")
+                flash = "Premium settings & server bot profile queued." if is_en else "تم حفظ إعدادات البريميوم وإرسال طلب تحديث بروفايل البوت داخل السيرفر."
 
     cfg = get_guild_cfg(gid)
     prof = cfg.get("guild_profile") or {}
@@ -2564,18 +2564,18 @@ async def handle_premium(request: web.Request) -> web.Response:
       <label class="lbl">{('Server (Bot Inside)' if is_en else 'السيرفر (البوت متواجد داخله)')}</label>
       <select class="inp" name="guild_id" onchange="window.location='/premium?id='+encodeURIComponent(this.value)">{options_html}</select>
 
-      <label class="lbl">{('Bot Bio' if is_en else 'نبذة البوت (Bio)')}</label>
-      <input class="inp" type="text" name="bio" value="{esc(prof.get('bio', ''))}" placeholder="نبذة البوت">
+      <label class="lbl">{('Server Bot Bio' if is_en else 'نبذة البوت داخل السيرفر (Bio)')}</label>
+      <input class="inp" type="text" name="bio" value="{esc(prof.get('bio', ''))}" placeholder="نبذة البوت في هذا السيرفر">
 
       <div class="album-box">
-        <label class="lbl" style="margin-top:0;">{('Bot Avatar From Gallery' if is_en else 'صورة البوت من ألبوم الصور')}</label>
+        <label class="lbl" style="margin-top:0;">{('Server Bot Avatar From Gallery' if is_en else 'صورة البوت في السيرفر من ألبوم الصور')}</label>
         <input class="inp" style="margin-bottom:4px;" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="readAlbumFile(this, 'avatar_data_url', 'ava_preview', 'avatar_name')">
         <span class="muted">{esc(prof.get('avatar_name') or 'لم يتم اختيار ملف')}</span>
         {ava_img_tag}
       </div>
 
       <div class="album-box">
-        <label class="lbl" style="margin-top:0;">{('Bot Banner From Gallery' if is_en else 'بنر البوت من ألبوم الصور')}</label>
+        <label class="lbl" style="margin-top:0;">{('Server Bot Banner From Gallery' if is_en else 'بنر البوت في السيرفر من ألبوم الصور')}</label>
         <input class="inp" style="margin-bottom:4px;" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="readAlbumFile(this, 'banner_data_url', 'ban_preview', 'banner_name')">
         <span class="muted">{esc(prof.get('banner_name') or 'لم يتم اختيار ملف')}</span>
         {ban_img_tag}
