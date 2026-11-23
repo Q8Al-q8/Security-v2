@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -13,10 +14,11 @@ from urllib.parse import quote, urlencode, urlparse
 from aiohttp import ClientError, ClientSession, web
 
 try:
-    from pymongo import MongoClient
+    from pymongo import MongoClient, UpdateOne
     from pymongo.errors import PyMongoError
 except Exception:
     MongoClient = None
+    UpdateOne = None
 
     class PyMongoError(Exception):
         pass
@@ -55,11 +57,12 @@ if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     MONGO_URI = f"mongodb+srv://{safe_user}:{safe_pass}@{clean_host}/{MONGO_DB_NAME}?retryWrites=true&w=majority"
 
 SESSION_SECRET = (
-    os.getenv("r3XExuDfsR_NMXxL_5wtP85tpT26yjRd")
-    or "r3XExuDfsR_NMXxL_5wtP85tpT26yjRd"
+    os.getenv("SESSION_SECRET")
+    or "sOQnMK8W9_sc2dG43DfyS4U2opgODUaM"
 ).strip()
-RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "120") or "120")
-AUTH_RATE_LIMIT_PER_MIN = int(os.getenv("AUTH_RATE_LIMIT_PER_MIN", "25") or "25")
+BOT_SYNC_SECRET = (os.getenv("BOT_SYNC_SECRET") or SESSION_SECRET).strip()
+RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "180") or "180")
+AUTH_RATE_LIMIT_PER_MIN = int(os.getenv("AUTH_RATE_LIMIT_PER_MIN", "35") or "35")
 
 TRUST_PROXY = os.getenv("TRUST_PROXY", "true").strip().lower() in ("1", "true", "yes", "on")
 TRUSTED_PROXY_IPS = {
@@ -69,7 +72,7 @@ TRUSTED_PROXY_IPS = {
 }
 
 DISCORD_CLIENT_ID = os.getenv("1573635674551357550", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("r3XExuDfsR_NMXxL_5wtP85tpT26yjRd", "r3XExuDfsR_NMXxL_5wtP85tpT26yjRd").strip()
+DISCORD_CLIENT_SECRET = os.getenv("sOQnMK8W9_sc2dG43DfyS4U2opgODUaM", "sOQnMK8W9_sc2dG43DfyS4U2opgODUaM").strip()
 
 if not SESSION_SECRET or len(SESSION_SECRET) < 16:
     raise RuntimeError("SESSION_SECRET مطلوب ويجب أن يكون بطول 16 حرفاً على الأقل.")
@@ -179,8 +182,8 @@ def _fresh_default_guild_cfg() -> dict:
     }
 
 
-MEM_LOGS: deque[dict] = deque(maxlen=350)
-MEM_INCIDENTS: deque[dict] = deque(maxlen=250)
+MEM_LOGS: deque[dict] = deque(maxlen=300)
+MEM_INCIDENTS: deque[dict] = deque(maxlen=200)
 MEM_GUILDS: dict[str, dict] = {}
 MEM_GUILD_CFG: dict[str, dict] = defaultdict(_fresh_default_guild_cfg)
 MEM_QUEUE: deque[dict] = deque(maxlen=200)
@@ -195,11 +198,24 @@ MEM_BACKUPS: deque[dict] = deque(maxlen=25)
 MEM_BOT_HEARTBEAT: dict[str, str] = {
     "status": "ONLINE",
     "last_seen": "",
-    "latency_ms": "8ms",
+    "latency_ms": "6ms",
 }
 
 _CFG_CACHE: dict[str, tuple[float, dict]] = {}
-_CFG_TTL = 2.0
+_CFG_TTL = 10.0
+
+_PERM_CACHE: dict[str, tuple[float, bool]] = {}
+_PERM_TTL = 15.0
+
+_GUILDS_CACHE: tuple[float, list[dict]] = (0.0, [])
+_GUILDS_TTL = 2.0
+
+_VISIT_STATS_CACHE: tuple[float, int, int] = (0.0, 0, 0)
+_VISIT_STATS_TTL = 8.0
+
+_PENDING_VISITS = 0
+_PENDING_UNIQUE: list[str] = []
+_LAST_VISIT_FLUSH = 0.0
 
 CSRF_TOKENS: dict[str, dict] = {}
 OAUTH_STATES: dict[str, float] = {}
@@ -337,9 +353,10 @@ if MONGO_URI and MongoClient is not None:
     try:
         client = MongoClient(
             MONGO_URI,
-            serverSelectionTimeoutMS=1200,
-            connectTimeoutMS=1200,
-            maxPoolSize=25,
+            serverSelectionTimeoutMS=900,
+            connectTimeoutMS=900,
+            socketTimeoutMS=1200,
+            maxPoolSize=30,
         )
         client.admin.command("ping")
         db = client[MONGO_DB_NAME]
@@ -367,6 +384,20 @@ if MONGO_URI and MongoClient is not None:
         print(f"[DB] تنبيه: تشغيل بالذاكرة الاحتياطية ({type(exc).__name__})")
 
 
+def _invalidate_perm_cache(uid: str = "") -> None:
+    if uid:
+        for k in list(_PERM_CACHE.keys()):
+            if k.endswith(f":{uid}"):
+                _PERM_CACHE.pop(k, None)
+    else:
+        _PERM_CACHE.clear()
+
+
+def _invalidate_guilds_cache() -> None:
+    global _GUILDS_CACHE
+    _GUILDS_CACHE = (0.0, [])
+
+
 def get_client_ip(request: web.Request) -> str:
     remote_ip = str(request.remote or "").strip()
     can_trust_xff = TRUST_PROXY and (not TRUSTED_PROXY_IPS or remote_ip in TRUSTED_PROXY_IPS)
@@ -377,55 +408,81 @@ def get_client_ip(request: web.Request) -> str:
     return (remote_ip or "unknown")[:64]
 
 
+def flush_visits_if_needed(force: bool = False) -> None:
+    global _PENDING_VISITS, _PENDING_UNIQUE, _LAST_VISIT_FLUSH
+    now = time.time()
+    if not force and (now - _LAST_VISIT_FLUSH) < 6.0 and _PENDING_VISITS < 30:
+        return
+    if stats_col is None or (_PENDING_VISITS == 0 and not _PENDING_UNIQUE):
+        _LAST_VISIT_FLUSH = now
+        return
+    inc_v = _PENDING_VISITS
+    uniq_batch = list(_PENDING_UNIQUE)
+    _PENDING_VISITS = 0
+    _PENDING_UNIQUE = []
+    _LAST_VISIT_FLUSH = now
+    try:
+        if inc_v > 0:
+            stats_col.update_one(
+                {"_id": "visitors"},
+                {"$inc": {"total_visits": inc_v}, "$set": {"updated_at": _now_str()}},
+                upsert=True,
+            )
+        for vh in uniq_batch[:40]:
+            stats_col.update_one(
+                {"_id": f"uv_{vh}"},
+                {"$set": {"hash": vh, "seen_at": _now_str()}},
+                upsert=True,
+            )
+    except PyMongoError:
+        pass
+
+
 def record_site_visit(request: web.Request) -> None:
-    if request.path.startswith("/health"):
+    global _PENDING_VISITS, _PENDING_UNIQUE
+    if request.path.startswith(("/health", "/api/")):
         return
     ip = get_client_ip(request)
     ua = request.headers.get("User-Agent", "")
     v_hash = hashlib.sha256(f"{ip}|{ua}|{SESSION_SECRET}".encode("utf-8")).hexdigest()[:24]
 
     MEM_VISITORS["total_visits"] = int(MEM_VISITORS.get("total_visits", 0)) + 1
+    _PENDING_VISITS += 1
+
     u_deque: deque = MEM_VISITORS["unique_hashes"]  # type: ignore[assignment]
     u_seen: set = MEM_VISITORS["unique_seen"]  # type: ignore[assignment]
-    is_new_unique = v_hash not in u_seen
-    if is_new_unique:
+    if v_hash not in u_seen:
         if len(u_deque) == u_deque.maxlen:
             evicted = u_deque.popleft()
             u_seen.discard(evicted)
         u_deque.append(v_hash)
         u_seen.add(v_hash)
+        _PENDING_UNIQUE.append(v_hash)
 
-    if stats_col is not None:
-        try:
-            stats_col.update_one(
-                {"_id": "visitors"},
-                {"$inc": {"total_visits": 1}, "$set": {"updated_at": _now_str()}},
-                upsert=True,
-            )
-            if is_new_unique:
-                stats_col.update_one(
-                    {"_id": "unique_visitors"},
-                    {"$set": {"hash": v_hash, "seen_at": _now_str()}},
-                    upsert=True,
-                )
-        except PyMongoError:
-            pass
+    flush_visits_if_needed(force=False)
 
 
 def get_visitor_stats() -> tuple[int, int]:
+    global _VISIT_STATS_CACHE
+    now = time.time()
+    if (now - _VISIT_STATS_CACHE[0]) < _VISIT_STATS_TTL:
+        return _VISIT_STATS_CACHE[1], _VISIT_STATS_CACHE[2]
+
     mem_total = int(MEM_VISITORS.get("total_visits", 0))
     mem_unique = len(MEM_VISITORS.get("unique_seen", set()))  # type: ignore[arg-type]
     db_total = 0
-    db_unique = 0
+    db_unique = mem_unique
     if stats_col is not None:
         try:
-            vdoc = stats_col.find_one({"_id": "visitors"})
+            vdoc = stats_col.find_one({"_id": "visitors"}, {"total_visits": 1})
             if vdoc:
                 db_total = int(vdoc.get("total_visits", 0) or 0)
-            db_unique = int(stats_col.count_documents({"_id": {"$ne": "visitors"}}) or 0)
         except PyMongoError:
             pass
-    return max(mem_total, db_total), max(mem_unique, db_unique)
+    tot = max(mem_total, db_total)
+    uniq = max(mem_unique, db_unique, 1 if tot > 0 else 0)
+    _VISIT_STATS_CACHE = (now, tot, uniq)
+    return tot, uniq
 
 
 def is_site_admin(user: dict | None) -> bool:
@@ -436,15 +493,20 @@ def is_site_admin(user: dict | None) -> bool:
         return False
     if uid == ADMIN_USER_ID or uid in MEM_ADMINS:
         return True
+    cache_key = f"admin:{uid}"
+    cached = _PERM_CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < _PERM_TTL:
+        return cached[1]
+    res = False
     if admins_col is not None:
         try:
-            doc = admins_col.find_one({"user_id": uid})
-            if doc:
+            if admins_col.find_one({"user_id": uid}, {"_id": 1}) is not None:
                 MEM_ADMINS.add(uid)
-                return True
+                res = True
         except PyMongoError:
             pass
-    return False
+    _PERM_CACHE[cache_key] = (time.time(), res)
+    return res
 
 
 def get_admin_list() -> list[dict]:
@@ -456,7 +518,7 @@ def get_admin_list() -> list[dict]:
             items[uid] = {"user_id": uid, "granted_by": "admin", "updated_at": "-"}
     if admins_col is not None:
         try:
-            for doc in admins_col.find({}, {"_id": 0}):
+            for doc in admins_col.find({}, {"_id": 0}).limit(100):
                 uid = str(doc.get("user_id", "")).strip()
                 if uid.isdigit():
                     items[uid] = {
@@ -473,6 +535,7 @@ def set_admin_user(user_id: str, enabled: bool, granted_by: str = "") -> bool:
     uid = str(user_id or "").strip()
     if not uid.isdigit():
         return False
+    _invalidate_perm_cache(uid)
     if enabled:
         MEM_ADMINS.add(uid)
         MEM_PREMIUM.add(uid)
@@ -514,15 +577,20 @@ def is_premium_user(user: dict | None) -> bool:
         return False
     if is_site_admin(user) or uid in MEM_PREMIUM:
         return True
+    cache_key = f"prem:{uid}"
+    cached = _PERM_CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < _PERM_TTL:
+        return cached[1]
+    res = False
     if premium_col is not None:
         try:
-            doc = premium_col.find_one({"user_id": uid})
-            if doc:
+            if premium_col.find_one({"user_id": uid}, {"_id": 1}) is not None:
                 MEM_PREMIUM.add(uid)
-                return True
+                res = True
         except PyMongoError:
             pass
-    return False
+    _PERM_CACHE[cache_key] = (time.time(), res)
+    return res
 
 
 def get_premium_list() -> list[dict]:
@@ -534,7 +602,7 @@ def get_premium_list() -> list[dict]:
             items[uid] = {"user_id": uid, "granted_by": "admin", "updated_at": "-"}
     if premium_col is not None:
         try:
-            for doc in premium_col.find({}, {"_id": 0}):
+            for doc in premium_col.find({}, {"_id": 0}).limit(150):
                 uid = str(doc.get("user_id", "")).strip()
                 if uid.isdigit():
                     items[uid] = {
@@ -551,6 +619,7 @@ def set_premium_user(user_id: str, enabled: bool, granted_by: str = "") -> bool:
     uid = str(user_id or "").strip()
     if not uid.isdigit():
         return False
+    _invalidate_perm_cache(uid)
     if enabled:
         MEM_PREMIUM.add(uid)
         if premium_col is not None:
@@ -613,7 +682,6 @@ def log_event(msg: str, guild_id: str = "", level: str = "WEB") -> None:
         "message": str(msg)[:300],
     }
     MEM_LOGS.appendleft(dict(entry))
-    print(f"[{entry['level']}] {entry['message']}")
     if logs_col is not None:
         try:
             logs_col.insert_one(dict(entry))
@@ -634,11 +702,60 @@ def get_recent_logs(limit: int = 50) -> list[dict]:
     return list(MEM_LOGS)[:limit]
 
 
+def upsert_bot_guilds(guilds_payload: list[dict], replace_missing: bool = False) -> list[dict]:
+    stamp = _now_str()
+    cleaned: dict[str, dict] = {}
+    for item in guilds_payload or []:
+        if not isinstance(item, dict):
+            continue
+        gid = str(item.get("id", "")).strip()
+        if not gid.isdigit():
+            continue
+        cleaned[gid] = {
+            "id": gid,
+            "name": str(item.get("name", f"Server {gid}"))[:100],
+            "icon": str(item.get("icon", "") or "").strip()[:60],
+            "member_count": int(item.get("member_count", 0) or 0),
+            "owner_id": str(item.get("owner_id", "") or "").strip(),
+            "updated_at": stamp,
+        }
+
+    if replace_missing:
+        MEM_GUILDS.clear()
+    for gid, doc in cleaned.items():
+        MEM_GUILDS[gid] = dict(doc)
+
+    if bot_guilds_col is not None:
+        try:
+            if replace_missing:
+                active_ids = list(cleaned.keys())
+                if active_ids:
+                    bot_guilds_col.delete_many({"id": {"$nin": active_ids}})
+                else:
+                    bot_guilds_col.delete_many({})
+            if cleaned and UpdateOne is not None:
+                ops = [
+                    UpdateOne({"id": gid}, {"$set": doc}, upsert=True)
+                    for gid, doc in cleaned.items()
+                ]
+                bot_guilds_col.bulk_write(ops, ordered=False)
+        except PyMongoError:
+            pass
+
+    _invalidate_guilds_cache()
+    return get_all_guilds()
+
+
 def get_all_guilds() -> list[dict]:
+    global _GUILDS_CACHE
+    now = time.time()
+    if (now - _GUILDS_CACHE[0]) < _GUILDS_TTL and (_GUILDS_CACHE[1] or not MEM_GUILDS):
+        return [dict(x) for x in _GUILDS_CACHE[1]]
+
     result: dict[str, dict] = {k: dict(v) for k, v in MEM_GUILDS.items()}
     if bot_guilds_col is not None:
         try:
-            for g in bot_guilds_col.find({}, {"_id": 0}):
+            for g in bot_guilds_col.find({}, {"_id": 0}).limit(500):
                 gid = str(g.get("id", "")).strip()
                 if gid.isdigit():
                     result[gid] = {
@@ -651,7 +768,9 @@ def get_all_guilds() -> list[dict]:
                     }
         except PyMongoError:
             pass
-    return list(result.values())
+    out = list(result.values())
+    _GUILDS_CACHE = (now, out)
+    return [dict(x) for x in out]
 
 
 def get_user_visible_guilds(user: dict | None) -> tuple[list[dict], bool]:
@@ -659,38 +778,54 @@ def get_user_visible_guilds(user: dict | None) -> tuple[list[dict], bool]:
         return [], False
 
     user_guilds = user.get("guilds")
-    if not isinstance(user_guilds, list) or not user_guilds:
-        return [], False
+    bot_guilds = get_all_guilds()
+    bot_map = {g["id"]: g for g in bot_guilds}
+    uid = str(user.get("id", "")).strip()
 
-    bot_map = {g["id"]: g for g in get_all_guilds()}
     matched: list[dict] = []
     seen: set[str] = set()
-    for ug in user_guilds:
-        gid = str(ug.get("id", "")).strip()
-        if not gid.isdigit() or gid in seen:
+
+    if isinstance(user_guilds, list) and user_guilds:
+        for ug in user_guilds:
+            gid = str(ug.get("id", "")).strip()
+            if not gid.isdigit() or gid in seen:
+                continue
+            perms = int(ug.get("permissions", 0) or 0)
+            is_owner = bool(ug.get("owner", False))
+            has_admin_or_manage = is_owner or bool(perms & 0x8) or bool(perms & 0x20) or is_site_admin(user)
+            if not has_admin_or_manage:
+                continue
+            seen.add(gid)
+            if gid in bot_map:
+                info = dict(bot_map[gid])
+                info["bot_missing"] = False
+                if ug.get("icon"):
+                    info["icon"] = str(ug["icon"])
+                matched.append(info)
+            else:
+                matched.append(
+                    {
+                        "id": gid,
+                        "name": str(ug.get("name", f"Server {gid}"))[:100],
+                        "icon": str(ug.get("icon", "")).strip(),
+                        "member_count": 0,
+                        "bot_missing": True,
+                    }
+                )
+        return matched, True
+
+    # في حال عدم توفر قائمة سيرفرات OAuth بعد أو عند الدخول المباشر، اعرض السيرفرات المسجلة للبوت
+    for bg in bot_guilds:
+        gid = bg["id"]
+        if gid in seen:
             continue
-        perms = int(ug.get("permissions", 0) or 0)
-        is_owner = bool(ug.get("owner", False))
-        has_admin_or_manage = is_owner or bool(perms & 0x8) or bool(perms & 0x20)
-        if not has_admin_or_manage:
-            continue
-        seen.add(gid)
-        if gid in bot_map:
-            info = dict(bot_map[gid])
-            if ug.get("icon"):
-                info["icon"] = str(ug["icon"])
+        if is_site_admin(user) or (uid and bg.get("owner_id") == uid):
+            seen.add(gid)
+            info = dict(bg)
+            info["bot_missing"] = False
             matched.append(info)
-        else:
-            matched.append(
-                {
-                    "id": gid,
-                    "name": str(ug.get("name", f"Server {gid}"))[:100],
-                    "icon": str(ug.get("icon", "")).strip(),
-                    "member_count": 0,
-                    "bot_missing": True,
-                }
-            )
-    return matched, True
+
+    return matched, bool(matched)
 
 
 def user_can_manage_guild(guild_id: str, user: dict | None, require_bot_present: bool = False) -> dict | None:
@@ -703,6 +838,12 @@ def user_can_manage_guild(guild_id: str, user: dict | None, require_bot_present:
             if require_bot_present and g.get("bot_missing"):
                 return None
             return g
+    if is_site_admin(user):
+        bot_map = {g["id"]: g for g in get_all_guilds()}
+        if gid in bot_map:
+            info = dict(bot_map[gid])
+            info["bot_missing"] = False
+            return info
     return None
 
 
@@ -716,7 +857,11 @@ def resolve_guild_id_from_input(raw_input: str, user: dict | None = None) -> str
         return ""
     visible, _ = get_user_visible_guilds(user)
     if val.isdigit():
-        return val if any(g["id"] == val for g in visible) else ""
+        if any(g["id"] == val for g in visible):
+            return val
+        if is_site_admin(user) and any(g["id"] == val for g in get_all_guilds()):
+            return val
+        return ""
     low = val.lower()
     for g in visible:
         if str(g.get("name", "")).strip().lower() == low:
@@ -956,7 +1101,7 @@ def create_db_backup() -> dict:
         "guilds_count": len(get_all_guilds()),
         "admins_count": len(get_admin_list()),
         "premium_count": len(get_premium_list()),
-        "logs_count": len(get_recent_logs(100)),
+        "logs_count": len(get_recent_logs(60)),
         "signature": _sign_hmac(f"backup|{_now_str()}")[:16],
     }
     MEM_BACKUPS.appendleft(dict(snapshot))
@@ -1131,6 +1276,80 @@ async def read_post_safe(request: web.Request, max_bytes: int = 131072) -> dict 
         return None
 
 
+def _is_valid_bot_sync_request(request: web.Request) -> bool:
+    provided = str(
+        request.headers.get("X-Bot-Secret")
+        or request.headers.get("Authorization", "").replace("Bearer ", "")
+        or ""
+    ).strip()
+    if not provided or not BOT_SYNC_SECRET:
+        return False
+    return hmac.compare_digest(provided, BOT_SYNC_SECRET)
+
+
+async def api_bot_sync_guilds(request: web.Request) -> web.Response:
+    if not _is_valid_bot_sync_request(request):
+        return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    guilds_raw = body.get("guilds") if isinstance(body, dict) else None
+    if not isinstance(guilds_raw, list):
+        return web.json_response({"ok": False, "error": "guilds list required"}, status=400)
+
+    replace_missing = bool(body.get("replace_missing", True))
+    synced = upsert_bot_guilds(guilds_raw, replace_missing=replace_missing)
+    MEM_BOT_HEARTBEAT["status"] = "ONLINE"
+    MEM_BOT_HEARTBEAT["last_seen"] = _now_str()
+    if isinstance(body, dict) and body.get("latency_ms") is not None:
+        MEM_BOT_HEARTBEAT["latency_ms"] = (
+            f"{int(body['latency_ms'])}ms"
+            if str(body["latency_ms"]).isdigit()
+            else str(body["latency_ms"])[:12]
+        )
+
+    return web.json_response({"ok": True, "count": len(synced)})
+
+
+async def api_bot_pending_commands(request: web.Request) -> web.Response:
+    if not _is_valid_bot_sync_request(request):
+        return web.json_response({"ok": False, "error": "Unauthorized"}, status=401)
+
+    items: list[dict] = []
+    if queue_col is not None:
+        try:
+            docs = list(queue_col.find({"status": "pending"}).sort("_id", 1).limit(20))
+            for d in docs:
+                queue_col.update_one({"_id": d["_id"]}, {"$set": {"status": "done", "done_at": _now_str()}})
+                items.append(
+                    {
+                        "id": str(d.get("_id")),
+                        "guild_id": str(d.get("guild_id", "")),
+                        "action": str(d.get("action", "")),
+                        "target": str(d.get("target", "")),
+                        "extra": d.get("extra") or {},
+                    }
+                )
+        except PyMongoError:
+            pass
+
+    while MEM_QUEUE and len(items) < 20:
+        d = MEM_QUEUE.popleft()
+        items.append(
+            {
+                "id": "mem",
+                "guild_id": str(d.get("guild_id", "")),
+                "action": str(d.get("action", "")),
+                "target": str(d.get("target", "")),
+                "extra": d.get("extra") or {},
+            }
+        )
+
+    return web.json_response({"ok": True, "commands": items})
+
+
 def render_page(
     title: str,
     active_nav: str,
@@ -1162,9 +1381,9 @@ def render_page(
         "auth_sub": "DISCORD ACCOUNT REQUIRED" if is_en else "ربط حساب ديسكورد مطلوب",
         "auth_title": "Connect Your Discord Account" if is_en else "ربط الحساب بديسكورد",
         "auth_desc": (
-            "To access the Cyber Command Center, manage your servers, and unlock protection tools, sign in with Discord."
+            "Sign in with Discord to manage your servers, configure protection systems, and unlock Premium perks."
             if is_en
-            else "للدخول إلى مركز القيادة وعرض السيرفرات والتحكم بأنظمة الحماية والبريميوم، سجل دخولك عبر ديسكورد."
+            else "سجّل دخولك عبر ديسكورد للوصول إلى السيرفرات، ضبط أنظمة الحماية، وتفعيل مزايا البريميوم."
         ),
         "supervised": "Supervised by" if is_en else "بإشراف",
         "menu": "Menu" if is_en else "القائمة",
@@ -1187,21 +1406,34 @@ def render_page(
             f"<a class='nav-item danger' href='/logout'><span>⎋</span><span>{L['logout']}</span></a>"
         )
     else:
-        account_block = f"<a class='login-btn anim-btn' href='/login'>{L['login_discord']}</a>"
+        account_block = f"<a class='login-btn' href='/login'>{L['login_discord']}</a>"
 
     if require_auth_view and not user:
+        bot_servers_count = len(get_all_guilds())
+        total_visits, unique_visitors = get_visitor_stats()
         final_content = f"""
-        <div class="auth-gate glass-card anim-card">
+        <div class="auth-gate glass-card">
           <div class="hero-chip">🔐 {L['auth_sub']}</div>
           <h1 style="margin:6px 0 10px;font-size:26px;font-weight:900;">{L['auth_title']}</h1>
-          <p class="muted" style="margin:0 auto 22px;max-width:520px;line-height:1.7;">{L['auth_desc']}</p>
-          <a class="btn-discord anim-btn" href="/login">{L['login_discord']}</a>
+          <p class="muted" style="margin:0 auto 20px;max-width:520px;line-height:1.7;">{L['auth_desc']}</p>
+          <a class="btn-discord" href="/login">{L['login_discord']}</a>
+
+          <div class="start-stats-stack">
+            <div class="start-stat-box">
+              <div class="start-stat-val">{bot_servers_count:,}</div>
+              <div class="start-stat-lbl">{('Servers With Bot Inside' if is_en else 'عدد السيرفرات التي البوت داخلها')}</div>
+            </div>
+            <div class="start-stat-box">
+              <div class="start-stat-val">{unique_visitors:,}</div>
+              <div class="start-stat-lbl">{(f'Website Visitors ({total_visits:,} visits)' if is_en else f'عدد الأشخاص الذين زاروا الموقع ({total_visits:,} زيارة)')}</div>
+            </div>
+          </div>
         </div>
         """
     else:
         final_content = content_html
 
-    flash_banner = f"<div class='flash anim-card' role='status'>{esc(safe_flash)}</div>" if safe_flash else ""
+    flash_banner = f"<div class='flash' role='status'>{esc(safe_flash)}</div>" if safe_flash else ""
 
     nav_items = [
         ("home", "/", "◈", L["home"]),
@@ -1240,22 +1472,16 @@ def render_page(
   :root {{
     --bg-void: #050711;
     --bg-mesh:
-      radial-gradient(circle at 12% 8%, rgba(124, 58, 237, 0.28), transparent 42%),
-      radial-gradient(circle at 88% 14%, rgba(6, 182, 212, 0.20), transparent 40%),
-      radial-gradient(circle at 50% 95%, rgba(16, 185, 129, 0.12), transparent 48%),
+      radial-gradient(circle at 12% 8%, rgba(124, 58, 237, 0.25), transparent 42%),
+      radial-gradient(circle at 88% 14%, rgba(6, 182, 212, 0.18), transparent 40%),
       #050711;
-    --glass: rgba(16, 19, 38, 0.72);
-    --glass-strong: rgba(21, 25, 50, 0.88);
+    --glass: rgba(16, 19, 38, 0.86);
+    --glass-strong: rgba(21, 25, 50, 0.94);
     --glass-soft: rgba(255, 255, 255, 0.03);
     --border: rgba(148, 163, 184, 0.16);
     --border-glow: rgba(139, 92, 246, 0.65);
-    --cyan-glow: rgba(34, 211, 238, 0.55);
-    --violet: #7c3aed;
-    --violet-2: #9333ea;
     --cyan: #06b6d4;
     --emerald: #10b981;
-    --gold: #f59e0b;
-    --danger: #ef4444;
     --text: #f8fafc;
     --muted: #94a3b8;
     --sidebar-w: 268px;
@@ -1266,7 +1492,6 @@ def render_page(
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     background: var(--bg-void);
     background-image: var(--bg-mesh);
-    background-attachment: fixed;
     color: var(--text);
     min-height: 100vh;
     overflow-x: hidden;
@@ -1280,76 +1505,37 @@ def render_page(
     width: 0%;
     z-index: 95;
     background: linear-gradient(90deg, #22d3ee, #8b5cf6, #10b981);
-    box-shadow: 0 0 14px rgba(34, 211, 238, 0.75);
     opacity: 0;
-    transition: width 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
+    transition: width 0.14s ease, opacity 0.16s ease;
     pointer-events: none;
   }}
-  .nav-progress.active {{ opacity: 1; width: 80%; }}
+  .nav-progress.active {{ opacity: 1; width: 85%; }}
 
-  @keyframes cyberRise {{
-    0% {{ opacity: 0; transform: translate3d(0, 14px, 0) scale(0.99); }}
-    100% {{ opacity: 1; transform: translate3d(0, 0, 0) scale(1); }}
-  }}
-  @keyframes haloPulse {{
-    0%, 100% {{ box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.22), 0 20px 44px rgba(0, 0, 0, 0.45); }}
-    50% {{ box-shadow: 0 0 34px 4px rgba(34, 211, 238, 0.16), 0 24px 52px rgba(76, 29, 149, 0.35); }}
-  }}
-  @keyframes sheenSlide {{
-    0% {{ transform: translateX(-150%) skewX(-22deg); }}
-    100% {{ transform: translateX(250%) skewX(-22deg); }}
-  }}
-
-  .anim-card {{ animation: cyberRise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }}
   .glass-card, .metric-card, .server-tile, .rule-box, .btn-v, .btn-g, .btn-c, .btn-discord, .pill-btn, .lang-btn, .burger {{
-    position: relative;
-    overflow: hidden;
-    transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.16s ease, box-shadow 0.18s ease, background 0.16s ease;
-  }}
-  .btn-v::after, .btn-c::after, .btn-discord::after, .launch-btn::after {{
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 42%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
-    transform: translateX(-160%) skewX(-22deg);
-    pointer-events: none;
+    transition: transform 0.1s ease, border-color 0.12s ease, background 0.12s ease;
+    will-change: transform;
   }}
   .btn-v:active, .btn-g:active, .btn-c:active, .btn-discord:active, .pill-btn:active, .lang-btn:active, .burger:active {{
-    transform: scale(0.95) !important;
+    transform: scale(0.96);
   }}
   @media (hover: hover) {{
     .glass-card:hover, .metric-card:hover, .server-tile:hover, .rule-box:hover {{
-      transform: translateY(-3px);
-      border-color: var(--border-glow);
-      box-shadow: 0 18px 38px rgba(15, 23, 42, 0.65), 0 0 20px rgba(124, 58, 237, 0.18);
-    }}
-    .btn-v:hover, .btn-g:hover, .btn-c:hover, .btn-discord:hover, .pill-btn:hover, .lang-btn:hover, .burger:hover {{
       transform: translateY(-2px);
       border-color: var(--border-glow);
     }}
-    .btn-v:hover::after, .btn-c:hover::after, .btn-discord:hover::after, .launch-btn:hover::after {{
-      animation: sheenSlide 0.55s ease forwards;
+    .btn-v:hover, .btn-g:hover, .btn-c:hover, .btn-discord:hover, .pill-btn:hover, .lang-btn:hover, .burger:hover {{
+      border-color: var(--border-glow);
     }}
   }}
-  @media (prefers-reduced-motion: reduce) {{
-    *, *::before, *::after {{ animation: none !important; transition-duration: 0.05s !important; }}
-  }}
 
-  .app-shell {{
-    display: flex;
-    min-height: 100vh;
-  }}
+  .app-shell {{ display: flex; min-height: 100vh; }}
   .sidebar {{
     position: fixed;
     top: 0;
     {('left' if is_en else 'right')}: 0;
     width: var(--sidebar-w);
     height: 100vh;
-    background: rgba(9, 12, 26, 0.86);
-    backdrop-filter: blur(20px);
+    background: rgba(9, 12, 26, 0.96);
     border-{('right' if is_en else 'left')}: 1px solid var(--border);
     padding: 18px 14px;
     display: flex;
@@ -1357,7 +1543,7 @@ def render_page(
     gap: 8px;
     z-index: 65;
     overflow-y: auto;
-    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform 0.16s ease;
   }}
   .main-stage {{
     flex: 1;
@@ -1375,8 +1561,7 @@ def render_page(
     justify-content: space-between;
     gap: 10px;
     padding: 12px 16px;
-    background: rgba(9, 12, 26, 0.82);
-    backdrop-filter: blur(18px);
+    background: rgba(9, 12, 26, 0.94);
     border-bottom: 1px solid var(--border);
   }}
   .overlay {{
@@ -1384,7 +1569,6 @@ def render_page(
     position: fixed;
     inset: 0;
     background: rgba(2, 6, 23, 0.72);
-    backdrop-filter: blur(4px);
     z-index: 60;
   }}
   .overlay.open {{ display: block; }}
@@ -1395,15 +1579,9 @@ def render_page(
       width: 278px;
       max-width: 86vw;
     }}
-    .sidebar.open {{
-      transform: translateX(0);
-    }}
-    .main-stage {{
-      {('margin-left' if is_en else 'margin-right')}: 0;
-    }}
-    .mobile-bar {{
-      display: flex;
-    }}
+    .sidebar.open {{ transform: translateX(0); }}
+    .main-stage {{ {('margin-left' if is_en else 'margin-right')}: 0; }}
+    .mobile-bar {{ display: flex; }}
   }}
 
   .brand-row {{
@@ -1425,10 +1603,9 @@ def render_page(
     font-weight: 900;
     font-size: 15px;
     color: #fff;
-    box-shadow: 0 6px 20px rgba(124, 58, 237, 0.42);
     flex-shrink: 0;
   }}
-  .brand-name {{ font-weight: 900; font-size: 15px; letter-spacing: 0.3px; }}
+  .brand-name {{ font-weight: 900; font-size: 15px; }}
   .brand-owner {{ font-size: 11px; color: var(--muted); }}
 
   .status-strip {{
@@ -1448,7 +1625,6 @@ def render_page(
     height: 8px;
     border-radius: 999px;
     background: var(--emerald);
-    box-shadow: 0 0 10px var(--emerald);
     display: inline-block;
     margin-{('right' if is_en else 'left')}: 6px;
   }}
@@ -1501,7 +1677,6 @@ def render_page(
     font-weight: 800;
     font-size: 13px;
     margin-bottom: 6px;
-    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.32);
   }}
   .nav-item {{
     display: flex;
@@ -1515,15 +1690,11 @@ def render_page(
     font-weight: 700;
     border: 1px solid transparent;
   }}
-  .nav-item:hover {{
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
-  }}
+  .nav-item:hover {{ background: rgba(255, 255, 255, 0.05); color: #fff; }}
   .nav-item.active {{
     background: linear-gradient(135deg, rgba(124, 58, 237, 0.28), rgba(6, 182, 212, 0.14));
     border-color: rgba(139, 92, 246, 0.5);
     color: #fff;
-    box-shadow: inset 0 0 16px rgba(124, 58, 237, 0.18);
   }}
   .nav-item.danger {{ color: #fca5a5; }}
   .sep {{ height: 1px; background: var(--border); margin: 8px 0; }}
@@ -1542,7 +1713,7 @@ def render_page(
     width: 100%;
     max-width: 980px;
     margin: 0 auto;
-    padding: 26px 20px 56px;
+    padding: 24px 20px 52px;
   }}
   .top-toolbar {{
     display: flex;
@@ -1554,24 +1725,45 @@ def render_page(
   }}
   @media (max-width: 900px) {{
     .top-toolbar {{ display: none; }}
-    .content-wrap {{ padding: 18px 14px 48px; }}
+    .content-wrap {{ padding: 16px 14px 44px; }}
   }}
 
   .auth-gate {{
     text-align: center;
-    padding: 36px 24px;
-    background: linear-gradient(145deg, rgba(22, 26, 56, 0.86), rgba(11, 14, 30, 0.94));
-    animation: cyberRise 0.3s cubic-bezier(0.22, 1, 0.36, 1) both, haloPulse 5s ease-in-out infinite;
+    padding: 32px 22px;
+    background: linear-gradient(145deg, rgba(22, 26, 56, 0.92), rgba(11, 14, 30, 0.96));
+  }}
+  .start-stats-stack {{
+    max-width: 440px;
+    margin: 22px auto 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }}
+  .start-stat-box {{
+    background: rgba(9, 12, 28, 0.85);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px 16px;
+  }}
+  .start-stat-val {{
+    font-size: 26px;
+    font-weight: 900;
+    color: #fff;
+  }}
+  .start-stat-lbl {{
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 700;
+    margin-top: 3px;
   }}
 
   .cyber-hero {{
-    background: linear-gradient(145deg, rgba(22, 26, 56, 0.84), rgba(11, 14, 30, 0.92));
-    backdrop-filter: blur(20px);
+    background: linear-gradient(145deg, rgba(22, 26, 56, 0.9), rgba(11, 14, 30, 0.96));
     border: 1px solid var(--border);
     border-radius: 24px;
-    padding: 32px 24px;
+    padding: 30px 24px;
     margin-bottom: 20px;
-    animation: cyberRise 0.3s cubic-bezier(0.22, 1, 0.36, 1) both, haloPulse 5s ease-in-out infinite;
   }}
   .hero-chip {{
     display: inline-flex;
@@ -1601,11 +1793,7 @@ def render_page(
     font-size: 14.5px;
     line-height: 1.7;
   }}
-  .cta-row {{
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-  }}
+  .cta-row {{ display: flex; flex-wrap: wrap; gap: 12px; }}
   .btn-v {{
     display: inline-flex;
     align-items: center;
@@ -1619,7 +1807,6 @@ def render_page(
     font-weight: 800;
     font-size: 14px;
     border: 1px solid rgba(167, 139, 250, 0.45);
-    box-shadow: 0 10px 24px rgba(109, 40, 217, 0.38);
     cursor: pointer;
   }}
   .btn-g {{
@@ -1650,7 +1837,6 @@ def render_page(
     font-weight: 800;
     font-size: 14px;
     border: 1px solid rgba(34, 211, 238, 0.45);
-    box-shadow: 0 10px 24px rgba(8, 145, 178, 0.32);
     cursor: pointer;
   }}
   .btn-discord {{
@@ -1666,7 +1852,6 @@ def render_page(
     font-weight: 800;
     font-size: 15px;
     border: 1px solid rgba(96, 165, 250, 0.5);
-    box-shadow: 0 10px 24px rgba(37, 99, 235, 0.36);
   }}
   .btn-sm {{ padding: 8px 14px; font-size: 12.5px; border-radius: 10px; }}
   .btn-danger {{ background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.55); color: #fca5a5; }}
@@ -1678,16 +1863,12 @@ def render_page(
     gap: 14px;
     margin-bottom: 22px;
   }}
-  @media (max-width: 720px) {{
-    .metrics-grid {{ grid-template-columns: 1fr; }}
-  }}
+  @media (max-width: 720px) {{ .metrics-grid {{ grid-template-columns: 1fr; }} }}
   .metric-card {{
     background: var(--glass);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
     border-radius: 20px;
     padding: 20px;
-    animation: cyberRise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .metric-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }}
   .metric-ico {{
@@ -1714,12 +1895,10 @@ def render_page(
 
   .glass-card {{
     background: var(--glass);
-    backdrop-filter: blur(18px);
     border: 1px solid var(--border);
     border-radius: 20px;
     padding: 20px;
     margin-bottom: 16px;
-    animation: cyberRise 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .feature-head {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }}
   .feature-left {{ display: flex; align-items: center; gap: 14px; }}
@@ -1767,7 +1946,6 @@ def render_page(
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, #7c3aed, #06b6d4, #10b981);
-    transition: width 0.35s ease;
   }}
 
   .grid-2 {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
@@ -1791,20 +1969,18 @@ def render_page(
   }}
   .rule-box {{
     background: var(--glass);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
     border-radius: 18px;
     padding: 18px;
     text-align: center;
     margin-bottom: 14px;
-    animation: cyberRise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .rule-box h3 {{ margin: 0 0 10px; font-size: 15px; font-weight: 900; color: #e0e7ff; }}
   .lbl {{ display: block; font-size: 12.5px; color: var(--muted); margin: 10px 0 6px; font-weight: 700; }}
   .inp {{
     width: 100%;
     max-width: 360px;
-    background: rgba(9, 12, 28, 0.85);
+    background: rgba(9, 12, 28, 0.9);
     border: 1px solid var(--border);
     color: #fff;
     border-radius: 12px;
@@ -1812,7 +1988,7 @@ def render_page(
     font-size: 14px;
     text-align: center;
   }}
-  .inp:focus {{ outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2); }}
+  .inp:focus {{ outline: none; border-color: var(--cyan); }}
   .check-wrap {{ margin-top: 12px; display: flex; justify-content: center; }}
   .check-sq {{
     width: 42px;
@@ -1840,7 +2016,6 @@ def render_page(
   }}
   .server-tile {{
     background: var(--glass);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
     border-radius: 20px;
     padding: 16px;
@@ -1848,7 +2023,6 @@ def render_page(
     color: var(--text);
     text-decoration: none;
     display: block;
-    animation: cyberRise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .server-banner {{
     width: 100%;
@@ -1872,7 +2046,7 @@ def render_page(
   }}
   @media (max-width: 640px) {{ .kpi-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
   .kpi-box {{
-    background: rgba(9, 12, 28, 0.72);
+    background: rgba(9, 12, 28, 0.8);
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 12px 10px;
@@ -1896,7 +2070,7 @@ def render_page(
   .log-line {{ padding: 10px 0; border-bottom: 1px solid rgba(148, 163, 184, 0.12); font-size: 13px; }}
   .log-line:last-child {{ border-bottom: none; }}
   .flash {{
-    background: linear-gradient(135deg, rgba(124, 58, 237, 0.26), rgba(6, 182, 212, 0.18));
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.28), rgba(6, 182, 212, 0.2));
     border: 1px solid rgba(34, 211, 238, 0.55);
     color: #f8fafc;
     padding: 12px 16px;
@@ -1904,7 +2078,6 @@ def render_page(
     margin-bottom: 16px;
     font-weight: 800;
     font-size: 13.5px;
-    animation: cyberRise 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .muted {{ color: var(--muted); font-size: 13px; }}
   code {{ background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border); padding: 2px 6px; border-radius: 6px; font-size: 12px; }}
@@ -1940,9 +2113,7 @@ def render_page(
     <header class="mobile-bar">
       <a class="brand-row" href="/" style="padding:0;">
         <div class="brand-mark" style="width:34px;height:34px;font-size:13px;">AS</div>
-        <div>
-          <div class="brand-name" style="font-size:14px;">{esc(SITE_NAME)}</div>
-        </div>
+        <div><div class="brand-name" style="font-size:14px;">{esc(SITE_NAME)}</div></div>
       </a>
       <div style="display:flex;align-items:center;gap:8px;">
         <button class="lang-btn" type="button" onclick="switchLang('{next_lang}')">{lang_label}</button>
@@ -1952,7 +2123,7 @@ def render_page(
 
     <main class="content-wrap">
       <div class="top-toolbar">
-        <div class="muted"><strong>{esc(SITE_NAME)}</strong> • {('Cyber Security & Server Management' if is_en else 'منصة الحماية وإدارة السيرفرات المطورة')}</div>
+        <div class="muted"><strong>{esc(SITE_NAME)}</strong> • {('Cyber Security & Server Management' if is_en else 'منظومة الحماية وإدارة السيرفرات')}</div>
         <div style="display:flex;align-items:center;gap:8px;">
           <a class="btn-g btn-sm" href="{safe_invite_url}" target="_blank" rel="noopener noreferrer">{L['invite']}</a>
           <button class="lang-btn" type="button" onclick="switchLang('{next_lang}')">{lang_label}</button>
@@ -1995,9 +2166,6 @@ function filterServers() {{
 }}
 (function() {{
   try {{ localStorage.removeItem("arab_sec_tok"); }} catch (e) {{}}
-  document.querySelectorAll(".glass-card, .metric-card, .server-tile, .rule-box").forEach(function(el, idx) {{
-    el.style.animationDelay = Math.min(idx * 35, 180) + "ms";
-  }});
   document.querySelectorAll("a[href^='/']").forEach(function(a) {{
     a.addEventListener("click", function(ev) {{
       if (!ev.ctrlKey && !ev.metaKey && !ev.shiftKey && a.target !== "_blank") {{
@@ -2018,14 +2186,27 @@ async def home_handler(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
     user = get_discord_session(request)
     flash = sanitize_flash_msg(request.query.get("msg"))
+    bot_servers_count = len(get_all_guilds())
+    total_visits, unique_visitors = get_visitor_stats()
 
     if not user:
         guest_body = f"""
         <section class="auth-gate glass-card">
-          <div class="hero-chip">✦ {('ARAB SECURITY COMMAND' if is_en else 'منظومة ARAB SECURITY المطورة')}</div>
+          <div class="hero-chip">✦ {('ARAB SECURITY COMMAND' if is_en else 'منظومة ARAB SECURITY')}</div>
           <h1 class="hero-h1" style="margin-bottom:10px;">{esc(SITE_NAME)}</h1>
-          <p class="muted" style="margin:0 auto 24px;max-width:540px;line-height:1.7;">{('Sign in with your Discord account to manage protected servers, configure Anti-Nuke & snapshots, and unlock per-server Premium perks.' if is_en else 'سجل دخولك بحساب ديسكورد للوصول إلى لوحة السيرفرات، ضبط أنظمة Anti-Nuke ولقطات الصلاحيات، وتفعيل مزايا البريميوم.')}</p>
+          <p class="muted" style="margin:0 auto 22px;max-width:540px;line-height:1.7;">{('Sign in with Discord to manage your servers, configure protection systems, and unlock Premium perks.' if is_en else 'سجّل دخولك عبر ديسكورد للتحكم بالسيرفرات، ضبط أنظمة الحماية، وتفعيل مزايا البريميوم.')}</p>
           <a class="btn-discord" href="/login">Login with Discord</a>
+
+          <div class="start-stats-stack">
+            <div class="start-stat-box">
+              <div class="start-stat-val">{bot_servers_count:,}</div>
+              <div class="start-stat-lbl">{('Servers With Bot Inside' if is_en else 'عدد السيرفرات التي البوت داخلها')}</div>
+            </div>
+            <div class="start-stat-box">
+              <div class="start-stat-val">{unique_visitors:,}</div>
+              <div class="start-stat-lbl">{(f'Website Visitors ({total_visits:,} visits)' if is_en else f'عدد الأشخاص الذين زاروا الموقع ({total_visits:,} زيارة)')}</div>
+            </div>
+          </div>
         </section>
         """
         return web.Response(
@@ -2033,8 +2214,6 @@ async def home_handler(request: web.Request) -> web.Response:
             content_type="text/html",
         )
 
-    bot_servers_count = len(get_all_guilds())
-    total_visits, unique_visitors = get_visitor_stats()
     safe_invite = esc(sanitize_http_url(BOT_INVITE_URL) or "https://discord.com")
 
     hero_html = f"""
@@ -2058,16 +2237,16 @@ async def home_handler(request: web.Request) -> web.Response:
           <div class="metric-ico">🛡</div>
         </div>
         <div class="metric-val">{bot_servers_count:,}</div>
-        <div class="metric-lbl">{('Protected Servers' if is_en else 'السيرفرات المرتبطة بالبوت')}</div>
+        <div class="metric-lbl">{('Servers With Bot Inside' if is_en else 'عدد السيرفرات التي البوت داخلها')}</div>
       </div>
 
       <div class="metric-card">
         <div class="metric-top">
-          <span class="chip-c">UNIQUE VISITORS</span>
+          <span class="chip-c">VISITORS</span>
           <div class="metric-ico">◈</div>
         </div>
         <div class="metric-val">{unique_visitors:,}</div>
-        <div class="metric-lbl">{(f'{total_visits:,} total requests' if is_en else f'{total_visits:,} إجمالي الزيارات')}</div>
+        <div class="metric-lbl">{(f'Website Visitors ({total_visits:,} visits)' if is_en else f'عدد الأشخاص الذين زاروا الموقع ({total_visits:,} زيارة)')}</div>
       </div>
 
       <div class="metric-card">
@@ -2075,7 +2254,7 @@ async def home_handler(request: web.Request) -> web.Response:
           <span class="chip-g">LATENCY</span>
           <div class="metric-ico">⚡</div>
         </div>
-        <div class="metric-val">{esc(MEM_BOT_HEARTBEAT.get('latency_ms', '8ms'))}</div>
+        <div class="metric-val">{esc(MEM_BOT_HEARTBEAT.get('latency_ms', '6ms'))}</div>
         <div class="metric-lbl">{('Core Shield Response' if is_en else 'استجابة منظومة الحماية')}</div>
       </div>
     </section>
@@ -2084,7 +2263,7 @@ async def home_handler(request: web.Request) -> web.Response:
     modules_html = f"""
     <div class="section-bar">
       <h2>{('Core Modules' if is_en else 'الأنظمة الرئيسية')}</h2>
-      <span class="muted">{('Glass Control Suite' if is_en else 'واجهة تحكم مطورة')}</span>
+      <span class="muted">{('Fast Control Suite' if is_en else 'واجهة تحكم سريعة')}</span>
     </div>
 
     <div class="glass-card">
@@ -2264,7 +2443,7 @@ async def handle_guild(request: web.Request) -> web.Response:
                     if section == "antinuke":
                         if form.get("reset_defaults") == "on":
                             save_guild_cfg(gid, {"reset_defaults": True})
-                            flash = "تمت استعادة الإعدادات الافتراضية للحماية."
+                            flash = "Default shield settings restored." if is_en else "تمت استعادة الإعدادات الافتراضية للحماية."
                             log_event(f"إعادة ضبط إعدادات الحماية الافتراضية للسيرفر {gid}", guild_id=gid, level="SEC")
                         else:
                             an_updates = {}
@@ -2336,379 +2515,238 @@ async def handle_guild(request: web.Request) -> web.Response:
                     elif section == "whitelist":
                         add_id = str(form.get("wl_add", "")).strip()
                         rem_id = str(form.get("wl_remove", "")).strip()
-                        tr_add = str(form.get("tr_add", "")).strip()
-                        tr_rem = str(form.get("tr_remove", "")).strip()
+                        tr_add = str(form.get("trusted_add", "")).strip()
+                        tr_rem = str(form.get("trusted_remove", "")).strip()
                         if add_id.isdigit():
                             save_guild_cfg(gid, {"whitelist_add": add_id})
-                            log_event(f"إضافة {add_id} للوايت لست في السيرفر {gid}", guild_id=gid, level="WL")
-                            flash = f"Added {add_id} to whitelist." if is_en else f"تمت إضافة {add_id} إلى Whitelist."
-                        elif rem_id:
+                            flash = f"Added {add_id} to whitelist." if is_en else f"تمت إضافة {add_id} إلى القائمة البيضاء."
+                        if rem_id.isdigit():
                             save_guild_cfg(gid, {"whitelist_remove": rem_id})
-                            flash = f"Removed {rem_id} from whitelist." if is_en else f"تمت إزالة {rem_id} من Whitelist."
-                        elif tr_add.isdigit():
+                            flash = f"Removed {rem_id} from whitelist." if is_en else f"تمت إزالة {rem_id} من القائمة البيضاء."
+                        if tr_add.isdigit():
                             save_guild_cfg(gid, {"trusted_add": tr_add})
-                            log_event(f"إضافة {tr_add} لقائمة الإداريين الموثوقين للسيرفر {gid}", guild_id=gid, level="SEC")
                             flash = f"Added {tr_add} to trusted admins." if is_en else f"تمت إضافة {tr_add} إلى الإداريين الموثوقين."
-                        elif tr_rem:
+                        if tr_rem.isdigit():
                             save_guild_cfg(gid, {"trusted_remove": tr_rem})
                             flash = f"Removed {tr_rem} from trusted admins." if is_en else f"تمت إزالة {tr_rem} من الإداريين الموثوقين."
 
-    guild_info = user_can_manage_guild(gid, user) if gid.isdigit() else None
-    valid_gid = guild_info["id"] if guild_info else ""
-    guild_display_name = (
-        str(guild_info.get("name", "")).strip()
-        if guild_info
-        else ("Not Selected" if is_en else "لم يتم التحديد")
-    )
-    guild_icon_hash = str(guild_info.get("icon", "")).strip() if guild_info else ""
-    guild_icon_html = (
-        f"<img src='https://cdn.discordapp.com/icons/{esc(valid_gid)}/{esc(guild_icon_hash)}.png?size=96' alt='' loading='lazy' referrerpolicy='no-referrer' style='width:46px;height:46px;border-radius:14px;object-fit:cover;border:1px solid var(--border);'>"
-        if valid_gid and guild_icon_hash
-        else f"<div style='width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#06b6d4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;color:#fff;'>{esc((guild_display_name[:2] or 'SV').upper())}</div>"
-    )
-
-    cfg = get_guild_cfg(valid_gid) if valid_gid else _fresh_default_guild_cfg()
-    sec_score, sec_grade = calculate_security_score(cfg)
-    csrf_token = issue_csrf_token(session_id)
+    cfg = get_guild_cfg(gid) if gid else _fresh_default_guild_cfg()
+    score, grade = calculate_security_score(cfg)
+    csrf_tok = issue_csrf_token(session_id)
     req_nonce = secrets.token_hex(12)
 
-    tabs = [
-        ("general", "General" if is_en else "عام"),
-        ("antinuke", "Anti Nuke"),
-        ("beast", "Beast Mode"),
-        ("raid", "Anti Raid"),
-        ("verify", "Verification"),
-        ("mod", "Moderation"),
-        ("whitelist", "Whitelist & Trusted"),
-        ("logs", "Logs & Timeline" if is_en else "السجلات والحوادث"),
-    ]
-    tabs_html = "".join(
-        f"<a class='pill-btn {'active' if key == active_tab else ''}' href='/guild?id={esc(valid_gid)}&tab={key}'>{label}</a>"
-        for key, label in tabs
+    guild_options_html = "".join(
+        f"<option value='{esc(g['id'])}' {'selected' if g['id'] == gid else ''}>{esc(g['name'])} ({esc(g['id'])})</option>"
+        for g in guilds
     )
 
-    if not valid_gid:
-        panel_html = f"""
-        <div class="glass-card" style="text-align:center;">
-          <p class="muted">{('Select a server where you have Manage Server or Administrator permission.' if is_en else 'اختر سيرفراً تملك فيه صلاحية الإدارة (Manage Server أو Administrator) للتحكم بإعداداته.')}</p>
-          <a class="btn-g" href="/servers">{('Go to My Servers' if is_en else 'الذهاب إلى سيرفراتي')}</a>
-        </div>
-        """
-    elif active_tab == "antinuke":
-        an = cfg.get("antinuke", {})
-        cards_spec = [
-            ("anti_ban", "ANTI BAN"),
-            ("anti_kick", "ANTI KICK"),
-            ("anti_role_create", "ANTI ROLE CREATE"),
-            ("anti_role_delete", "ANTI ROLE DELETE"),
-            ("anti_channel_create", "ANTI CHANNEL CREATE"),
-            ("anti_channel_delete", "ANTI CHANNEL DELETE"),
-            ("anti_webhook_create", "ANTI WEBHOOK CREATE"),
-            ("anti_bot_add", "ANTI BOT ADD"),
-            ("anti_guild_update", "ANTI SERVER ICON / UPDATE"),
-        ]
-        nuke_cards = ""
-        for k, heading in cards_spec:
-            item = an.get(k, {"enabled": True, "limit": 1, "punishment": "Kick"})
-            pun_val = item.get("punishment", "Kick")
-            nuke_cards += f"""
+    tabs = [
+        ("antinuke", "🛡 Anti-Nuke"),
+        ("general", "⚙ العام" if not is_en else "⚙ General"),
+        ("beast", "⚡ Beast Mode"),
+        ("raid", "🚨 Anti-Raid"),
+        ("verify", "✓ التحقق" if not is_en else "✓ Verify"),
+        ("mod", "🔨 الإدارة" if not is_en else "🔨 Mod"),
+        ("whitelist", "📋 البيضاء والموثوقون" if not is_en else "📋 Whitelist & Trusted"),
+        ("logs", "📜 الحوادث" if not is_en else "📜 Incidents"),
+    ]
+    tabs_html = "".join(
+        f"<a class='pill-btn {'active' if active_tab == t_key else ''}' href='/guild?id={esc(gid)}&tab={t_key}'>{t_lbl}</a>"
+        for t_key, t_lbl in tabs
+    )
+
+    section_html = ""
+    if active_tab == "antinuke":
+        rules_cards = ""
+        for rk in ANTINUKE_RULE_KEYS:
+            rcfg = (cfg.get("antinuke") or {}).get(rk, {})
+            r_en = bool(rcfg.get("enabled", True))
+            r_lim = int(rcfg.get("limit", 1) or 1)
+            r_pun = str(rcfg.get("punishment", "Kick") or "Kick")
+            rules_cards += f"""
             <div class="rule-box">
-              <h3>{heading}</h3>
-              <span class="lbl">Limit</span>
-              <input class="inp" type="number" min="1" max="50" name="{k}_limit" value="{int(item.get('limit', 1))}">
-              <span class="lbl">PUNISHMENT TYPE</span>
-              <select class="inp" name="{k}_punishment">
-                <option value="Kick" {'selected' if pun_val == 'Kick' else ''}>Kick</option>
-                <option value="Ban" {'selected' if pun_val == 'Ban' else ''}>Ban</option>
-                <option value="Remove Roles" {'selected' if pun_val == 'Remove Roles' else ''}>Remove Roles</option>
+              <h3>{esc(rk)}</h3>
+              <label class="lbl">{('Limit' if is_en else 'الحد الأقصى')}</label>
+              <input class="inp" type="number" min="1" max="50" name="{rk}_limit" value="{r_lim}">
+              <label class="lbl">{('Punishment' if is_en else 'العقوبة')}</label>
+              <select class="inp" name="{rk}_punishment">
+                <option value="Kick" {'selected' if r_pun == 'Kick' else ''}>Kick</option>
+                <option value="Ban" {'selected' if r_pun == 'Ban' else ''}>Ban</option>
+                <option value="Remove Roles" {'selected' if r_pun == 'Remove Roles' else ''}>Remove Roles</option>
               </select>
               <div class="check-wrap">
-                <label class="check-sq" title="{'Enable / Disable' if is_en else 'تفعيل أو إطفاء'}">
-                  <input type="checkbox" name="{k}_enabled" {'checked' if item.get('enabled', True) else ''}>
+                <label class="check-sq" title="{('Enabled' if is_en else 'تفعيل')}">
+                  <input type="checkbox" name="{rk}_enabled" {'checked' if r_en else ''}>
                 </label>
               </div>
             </div>
             """
 
-        shield_items = [
-            ("anti_webhook_abuse", "مكافحة إساءة استخدام الويب هوك"),
-            ("anti_app_abuse", "مكافحة إساءة استخدام التطبيقات"),
-            ("anti_privilege_escalation", "منع تصعيد الصلاحيات"),
-            ("anti_role_tamper", "منع التلاعب بالرتب"),
-            ("anti_channel_perms_tamper", "منع التلاعب بصلاحيات القنوات"),
-            ("audit_log_watch", "مراقبة سجلات التدقيق"),
-            ("anti_mass_unban", "منع فك الحظر الجماعي"),
-            ("anti_mass_kick", "منع الطرد الجماعي"),
-            ("anti_mass_timeout", "منع التايم أوت الجماعي"),
-            ("admin_behavior_analysis", "تحليل سلوك الإداريين"),
-            ("trusted_admins_enabled", "تفعيل نظام الإداريين الموثوقين"),
-            ("perms_snapshot_enabled", "تفعيل حفظ نسخة من الصلاحيات"),
-            ("auto_rollback_enabled", "الاسترجاع التلقائي"),
-            ("gradual_attack_detect", "كشف الهجمات المتدرجة"),
-            ("collusion_detect", "كشف الحسابات المتعاونة"),
-            ("false_punishment_guard", "منع العقوبات الخاطئة"),
-            ("auto_perms_audit", "التدقيق التلقائي للصلاحيات"),
-        ]
         toggles_html = "".join(
-            f"<label class='switch-row'><span>{esc(lbl)}</span><input type='checkbox' name='{k}' {'checked' if cfg.get(k) else ''}></label>"
-            for k, lbl in shield_items
-        )
-        snaps = cfg.get("perms_snapshots", [])
-        last_snap = snaps[0] if snaps else None
-        snap_info = (
-            f"آخر نسخة محفوظة: <code>{esc(last_snap.get('id'))}</code> ({esc(last_snap.get('saved_at'))}) • Hash: <code>{esc(last_snap.get('snapshot_hash'))}</code>"
-            if last_snap
-            else "لم يتم حفظ نسخة من الصلاحيات بعد."
+            f"<label class='switch-row'><span>{esc(sk)}</span><input type='checkbox' name='{sk}' {'checked' if cfg.get(sk) else ''}></label>"
+            for sk in SHIELD_TOGGLE_KEYS
         )
 
-        panel_html = f"""
-        <form method="POST" action="/guild?id={esc(valid_gid)}&tab=antinuke">
-          <input type="hidden" name="csrf_token" value="{csrf_token}">
-          <input type="hidden" name="req_nonce" value="{req_nonce}">
-          <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
+        section_html = f"""
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          <input type="hidden" name="guild_id" value="{esc(gid)}">
           <input type="hidden" name="section" value="antinuke">
-          {nuke_cards}
+          <div class="grid-cards">{rules_cards}</div>
           <div class="glass-card">
-            <h3 style="margin:0 0 6px;">أنظمة الحماية والتدقيق المتقدمة</h3>
-            <div class="muted" style="margin-bottom:8px;">{snap_info}</div>
-            <div class="switch-list">
-              {toggles_html}
-              <label class="switch-row">
-                <span>حفظ نسخة جديدة من الصلاحيات الآن</span>
-                <input type="checkbox" name="save_snapshot">
-              </label>
-              <label class="switch-row">
-                <span>تشغيل التدقيق التلقائي للصلاحيات عند الحفظ</span>
-                <input type="checkbox" name="run_audit">
-              </label>
-              <label class="switch-row">
-                <span>إعادة ضبط الإعدادات الافتراضية للسيرفر</span>
-                <input type="checkbox" name="reset_defaults">
-              </label>
-            </div>
-            <span class="lbl">محاكاة هجوم (اختياري)</span>
-            <select class="inp" name="sim_scenario">
-              <option value="">بدون محاكاة</option>
-              <option value="Mass Ban & Kick">محاكاة حظر وطرد جماعي</option>
-              <option value="Webhook & Role Escalation">محاكاة تصعيد صلاحيات وويب هوك</option>
-              <option value="Gradual Collusion Attack">محاكاة هجوم متدرج وحسابات متعاونة</option>
-            </select>
+            <h3 style="margin:0 0 8px;">{('Advanced Shield Systems' if is_en else 'أنظمة الحماية المتقدمة')}</h3>
+            <div class="switch-list">{toggles_html}</div>
           </div>
-          <div style="text-align:center;">
-            <button class="btn-v" type="submit">{('Save Anti Nuke Settings' if is_en else 'حفظ وتشغيل الأنظمة')}</button>
+          <div class="glass-card">
+            <div class="cta-row">
+              <button class="btn-v" type="submit">{('Save Protection Settings' if is_en else 'حفظ إعدادات الحماية')}</button>
+              <button class="btn-c" type="submit" name="save_snapshot" value="on">{('Save Snapshot' if is_en else 'حفظ لقطة صلاحيات')}</button>
+              <button class="btn-g" type="submit" name="run_audit" value="on">{('Run Audit' if is_en else 'فحص الصلاحيات')}</button>
+              <button class="btn-g btn-danger" type="submit" name="reset_defaults" value="on">{('Reset Defaults' if is_en else 'استعادة الافتراضي')}</button>
+            </div>
           </div>
         </form>
         """
-
     elif active_tab == "general":
-        panel_html = f"""
-        <form class="glass-card" method="POST" action="/guild?id={esc(valid_gid)}&tab=general">
-          <input type="hidden" name="csrf_token" value="{csrf_token}">
-          <input type="hidden" name="req_nonce" value="{req_nonce}">
-          <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
+        section_html = f"""
+        <form method="post" class="glass-card">
+          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          <input type="hidden" name="guild_id" value="{esc(gid)}">
           <input type="hidden" name="section" value="general">
-          <h3 style="margin:0 0 8px;">{('General Settings' if is_en else 'الإعدادات العامة للسيرفر')}</h3>
-          <span class="lbl">Prefix</span>
-          <input class="inp" type="text" name="prefix" value="{esc(cfg.get('prefix', '!'))}" maxlength="6">
-          <span class="lbl">Mod Log Channel ID</span>
-          <input class="inp" type="text" name="mod_log_channel" value="{esc(cfg.get('mod_log_channel', ''))}" placeholder="Channel ID">
+          <label class="lbl">{('Command Prefix' if is_en else 'بادئة الأوامر (Prefix)')}</label>
+          <input class="inp" type="text" name="prefix" maxlength="6" value="{esc(cfg.get('prefix', '!'))}">
+          <label class="lbl">{('Mod Log Channel ID' if is_en else 'آيدي قناة السجلات (Channel ID)')}</label>
+          <input class="inp" type="text" name="mod_log_channel" value="{esc(cfg.get('mod_log_channel', ''))}">
           <div class="switch-list">
-            <label class="switch-row">
-              <span>وضع الطوارئ (Emergency Mode)</span>
-              <input type="checkbox" name="emergency_mode" {'checked' if cfg.get('emergency_mode') else ''}>
-            </label>
-            <label class="switch-row">
-              <span>{('Server Lockdown' if is_en else 'قفل السيرفر السريع (Lockdown)')}</span>
-              <input type="checkbox" name="lockdown" {'checked' if cfg.get('lockdown') else ''}>
-            </label>
-            <label class="switch-row">
-              <span>قفل القنوات الصوتية (Voice Lock)</span>
-              <input type="checkbox" name="voice_lock" {'checked' if cfg.get('voice_lock') else ''}>
-            </label>
-            <label class="switch-row">
-              <span>الوضع الصامت للبوت (Silent Mode)</span>
-              <input type="checkbox" name="silent_mode" {'checked' if cfg.get('silent_mode') else ''}>
-            </label>
-            <label class="switch-row">
-              <span>منع دعوات السيرفرات (Anti Invites)</span>
-              <input type="checkbox" name="anti_invites" {'checked' if cfg.get('anti_invites', True) else ''}>
-            </label>
-            <label class="switch-row">
-              <span>{('Maintenance Mode' if is_en else 'وضع الصيانة')}</span>
-              <input type="checkbox" name="maintenance" {'checked' if cfg.get('maintenance') else ''}>
-            </label>
-            <label class="switch-row">
-              <span>{('Anti Spam' if is_en else 'مضاد السبام')}</span>
-              <input type="checkbox" name="anti_spam" {'checked' if cfg.get('anti_spam', True) else ''}>
-            </label>
-            <label class="switch-row">
-              <span>{('Anti Link' if is_en else 'منع الروابط')}</span>
-              <input type="checkbox" name="anti_link" {'checked' if cfg.get('anti_link') else ''}>
-            </label>
+            <label class="switch-row"><span>anti_spam</span><input type="checkbox" name="anti_spam" {'checked' if cfg.get('anti_spam') else ''}></label>
+            <label class="switch-row"><span>anti_link</span><input type="checkbox" name="anti_link" {'checked' if cfg.get('anti_link') else ''}></label>
+            <label class="switch-row"><span>anti_invites</span><input type="checkbox" name="anti_invites" {'checked' if cfg.get('anti_invites') else ''}></label>
+            <label class="switch-row"><span>voice_lock</span><input type="checkbox" name="voice_lock" {'checked' if cfg.get('voice_lock') else ''}></label>
+            <label class="switch-row"><span>silent_mode</span><input type="checkbox" name="silent_mode" {'checked' if cfg.get('silent_mode') else ''}></label>
+            <label class="switch-row"><span>lockdown</span><input type="checkbox" name="lockdown" {'checked' if cfg.get('lockdown') else ''}></label>
+            <label class="switch-row"><span>emergency_mode</span><input type="checkbox" name="emergency_mode" {'checked' if cfg.get('emergency_mode') else ''}></label>
+            <label class="switch-row"><span>maintenance</span><input type="checkbox" name="maintenance" {'checked' if cfg.get('maintenance') else ''}></label>
           </div>
-          <button class="btn-v" type="submit" style="margin-top:16px;">{('Save' if is_en else 'حفظ')}</button>
+          <div style="margin-top:14px;"><button class="btn-v" type="submit">{('Save' if is_en else 'حفظ الإعدادات')}</button></div>
         </form>
         """
-
     elif active_tab in ("beast", "raid", "verify"):
-        titles = {
-            "beast": ("Beast Mode", "beast_mode", "Emergency high protection mode" if is_en else "تفعيل وضع الطوارئ القصوى لحماية السيرفر"),
-            "raid": ("Anti Raid & New Accounts", "anti_raid", "Protection against mass join raids and fresh accounts" if is_en else "حماية ضد الهجمات الجماعية والحسابات الحديثة"),
-            "verify": ("Verification", "verification", "New member verification system" if is_en else "تفعيل نظام التحقق للأعضاء الجدد"),
-        }
-        t_label, fname, desc = titles[active_tab]
-        raid_extra = ""
-        if active_tab == "raid":
-            raid_extra = f"""
-            <div class="switch-list" style="max-width:360px;margin:14px auto 0;text-align:{'left' if is_en else 'right'};">
-              <label class="switch-row">
-                <span>{('Block New Accounts' if is_en else 'حماية الحسابات الحديثة')}</span>
-                <input type="checkbox" name="anti_new_accounts" {'checked' if cfg.get('anti_new_accounts') else ''}>
-              </label>
-            </div>
-            <span class="lbl">{('Minimum Account Age (Days)' if is_en else 'أقل عمر للحساب (بالأيام)')}</span>
-            <input class="inp" type="number" min="1" max="365" name="min_account_age_days" value="{int(cfg.get('min_account_age_days', 7))}">
+        key_map = {"beast": "beast_mode", "raid": "anti_raid", "verify": "verification"}
+        k_name = key_map[active_tab]
+        extra_raid = (
+            f"""
+            <label class='switch-row'><span>anti_new_accounts</span><input type='checkbox' name='anti_new_accounts' {'checked' if cfg.get('anti_new_accounts') else ''}></label>
+            <label class='lbl'>{('Min Account Age (days)' if is_en else 'الحد الأدنى لعمر الحساب (أيام)')}</label>
+            <input class='inp' type='number' min='1' max='365' name='min_account_age_days' value='{int(cfg.get('min_account_age_days', 7) or 7)}'>
             """
-        panel_html = f"""
-        <form class="glass-card" style="text-align:center;" method="POST" action="/guild?id={esc(valid_gid)}&tab={active_tab}">
-          <input type="hidden" name="csrf_token" value="{csrf_token}">
-          <input type="hidden" name="req_nonce" value="{req_nonce}">
-          <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
+            if active_tab == "raid"
+            else ""
+        )
+        section_html = f"""
+        <form method="post" class="glass-card">
+          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          <input type="hidden" name="guild_id" value="{esc(gid)}">
           <input type="hidden" name="section" value="{active_tab}">
-          <h3>{t_label}</h3>
-          <p class="muted">{desc}</p>
-          <div class="check-wrap">
-            <label class="check-sq">
-              <input type="checkbox" name="{fname}" {'checked' if cfg.get(fname) else ''}>
-            </label>
+          <div class="switch-list">
+            <label class="switch-row"><span>{esc(k_name)}</span><input type="checkbox" name="{k_name}" {'checked' if cfg.get(k_name) else ''}></label>
+            {extra_raid}
           </div>
-          {raid_extra}
-          <button class="btn-v" type="submit" style="margin-top:16px;">{('Save Status' if is_en else 'حفظ الحالة')}</button>
+          <div style="margin-top:14px;"><button class="btn-v" type="submit">{('Save' if is_en else 'حفظ')}</button></div>
         </form>
         """
-
     elif active_tab == "mod":
-        panel_html = f"""
-        <form class="glass-card" method="POST" action="/guild?id={esc(valid_gid)}&tab=mod">
-          <input type="hidden" name="csrf_token" value="{csrf_token}">
-          <input type="hidden" name="req_nonce" value="{req_nonce}">
-          <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
+        section_html = f"""
+        <form method="post" class="glass-card">
+          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          <input type="hidden" name="guild_id" value="{esc(gid)}">
           <input type="hidden" name="section" value="mod">
-          <h3 style="margin:0 0 8px;">{('Remote Moderation' if is_en else 'Moderation عن بُعد')}</h3>
-          <span class="lbl">{('Action' if is_en else 'الإجراء')}</span>
+          <label class="lbl">{('Target User ID' if is_en else 'آيدي العضو (User ID)')}</label>
+          <input class="inp" type="text" name="target_user" placeholder="123456789012345678">
+          <label class="lbl">{('Action' if is_en else 'الإجراء')}</label>
           <select class="inp" name="cmd_action">
             <option value="kick">Kick</option>
             <option value="ban">Ban</option>
             <option value="timeout">Timeout</option>
             <option value="unban">Unban</option>
           </select>
-          <span class="lbl">User ID</span>
-          <input class="inp" type="text" name="target_user" placeholder="{('Enter User ID' if is_en else 'أدخل ID العضو')}">
-          <div style="margin-top:14px;"><button class="btn-v" type="submit">{('Execute' if is_en else 'تنفيذ الأمر')}</button></div>
+          <div style="margin-top:14px;"><button class="btn-c" type="submit">{('Dispatch Action' if is_en else 'إرسال الأمر للبوت')}</button></div>
         </form>
         """
-
     elif active_tab == "whitelist":
-        wl = cfg.get("whitelist", [])
-        wl_items = "".join(
-            f"<div class='list-row'>"
-            f"<code>{esc(uid)}</code>"
-            f"<form method='POST' action='/guild?id={esc(valid_gid)}&tab=whitelist' style='margin:0;'>"
-            f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
-            f"<input type='hidden' name='req_nonce' value='{req_nonce}'>"
-            f"<input type='hidden' name='guild_id' value='{esc(valid_gid)}'>"
-            f"<input type='hidden' name='section' value='whitelist'>"
-            f"<input type='hidden' name='wl_remove' value='{esc(uid)}'>"
-            f"<button class='btn-g btn-sm' type='submit'>{'Remove' if is_en else 'إزالة'}</button></form></div>"
-            for uid in wl
-        ) or f"<p class='muted'>{'No users in whitelist.' if is_en else 'لا يوجد أعضاء في Whitelist حالياً.'}</p>"
-
-        tr_list = cfg.get("trusted_admins", [])
-        tr_items = "".join(
-            f"<div class='list-row'>"
-            f"<code>{esc(uid)}</code>"
-            f"<form method='POST' action='/guild?id={esc(valid_gid)}&tab=whitelist' style='margin:0;'>"
-            f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
-            f"<input type='hidden' name='req_nonce' value='{req_nonce}'>"
-            f"<input type='hidden' name='guild_id' value='{esc(valid_gid)}'>"
-            f"<input type='hidden' name='section' value='whitelist'>"
-            f"<input type='hidden' name='tr_remove' value='{esc(uid)}'>"
-            f"<button class='btn-g btn-sm' type='submit'>{'Remove' if is_en else 'إزالة'}</button></form></div>"
-            for uid in tr_list
-        ) or "<p class='muted'>لا يوجد إداريون موثوقون مضافون.</p>"
-
-        panel_html = f"""
-        <div class="glass-card">
-          <h3 style="margin:0 0 10px;">Whitelist</h3>
-          <form method="POST" action="/guild?id={esc(valid_gid)}&tab=whitelist" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-            <input type="hidden" name="csrf_token" value="{csrf_token}">
-            <input type="hidden" name="req_nonce" value="{req_nonce}">
-            <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
-            <input type="hidden" name="section" value="whitelist">
-            <input class="inp" type="text" name="wl_add" placeholder="User ID">
-            <button class="btn-v btn-sm" type="submit">{('Add' if is_en else 'إضافة')}</button>
-          </form>
-          {wl_items}
-        </div>
-        <div class="glass-card">
-          <h3 style="margin:0 0 10px;">الإداريون الموثوقون (Trusted Admins)</h3>
-          <form method="POST" action="/guild?id={esc(valid_gid)}&tab=whitelist" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-            <input type="hidden" name="csrf_token" value="{csrf_token}">
-            <input type="hidden" name="req_nonce" value="{req_nonce}">
-            <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
-            <input type="hidden" name="section" value="whitelist">
-            <input class="inp" type="text" name="tr_add" placeholder="Trusted Admin User ID">
-            <button class="btn-v btn-sm" type="submit">إضافة موثوق</button>
-          </form>
-          {tr_items}
+        wl_rows = "".join(f"<div class='list-row'><code>{esc(x)}</code></div>" for x in (cfg.get("whitelist") or [])) or f"<p class='muted'>{('Empty' if is_en else 'فارغة')}</p>"
+        tr_rows = "".join(f"<div class='list-row'><code>{esc(x)}</code></div>" for x in (cfg.get("trusted_admins") or [])) or f"<p class='muted'>{('Empty' if is_en else 'فارغة')}</p>"
+        section_html = f"""
+        <form method="post" class="glass-card">
+          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          <input type="hidden" name="guild_id" value="{esc(gid)}">
+          <input type="hidden" name="section" value="whitelist">
+          <div class="grid-2">
+            <div>
+              <label class="lbl">{('Add to Whitelist (ID)' if is_en else 'إضافة للقائمة البيضاء')}</label>
+              <input class="inp" type="text" name="wl_add" placeholder="User ID">
+              <label class="lbl">{('Remove from Whitelist (ID)' if is_en else 'إزالة من القائمة البيضاء')}</label>
+              <input class="inp" type="text" name="wl_remove" placeholder="User ID">
+            </div>
+            <div>
+              <label class="lbl">{('Add Trusted Admin (ID)' if is_en else 'إضافة إداري موثوق')}</label>
+              <input class="inp" type="text" name="trusted_add" placeholder="User ID">
+              <label class="lbl">{('Remove Trusted Admin (ID)' if is_en else 'إزالة إداري موثوق')}</label>
+              <input class="inp" type="text" name="trusted_remove" placeholder="User ID">
+            </div>
+          </div>
+          <div style="margin-top:14px;"><button class="btn-v" type="submit">{('Update Lists' if is_en else 'تحديث القوائم')}</button></div>
+        </form>
+        <div class="grid-2">
+          <div class="glass-card"><h3 style="margin:0 0 10px;">Whitelist</h3>{wl_rows}</div>
+          <div class="glass-card"><h3 style="margin:0 0 10px;">Trusted Admins</h3>{tr_rows}</div>
         </div>
         """
-
-    else:
-        incidents = get_incidents(valid_gid, 20)
+    elif active_tab == "logs":
+        incs = get_incidents(gid, 25)
         inc_html = "".join(
-            f"<div class='log-line'><code>{esc(x.get('time',''))}</code> [{esc(x.get('severity','INFO'))} • {esc(x.get('category',''))}] {esc(x.get('summary',''))}</div>"
-            for x in incidents
-        ) or "<p class='muted'>لا توجد حوادث مسجلة في التسلسل الزمني.</p>"
-
-        logs = [item for item in get_recent_logs(60) if item.get("guild_id") == valid_gid][:25]
-        log_html = "".join(
-            f"<div class='log-line'><code>{esc(item.get('time',''))}</code> [{esc(item.get('level','LOG'))}] {esc(item.get('message',''))}</div>"
-            for item in logs
-        ) or f"<p class='muted'>{'No logs for this server yet.' if is_en else 'لا توجد سجلات لهذا السيرفر بعد.'}</p>"
-        panel_html = f"""
-        <div class="glass-card"><h3 style="margin:0 0 8px;">التسلسل الزمني للحوادث (Incident Timeline)</h3>{inc_html}</div>
-        <div class="glass-card"><h3 style="margin:0 0 8px;">{'Logs' if is_en else 'السجلات'}</h3>{log_html}</div>
-        """
-
-    prem_shortcut = (
-        f"<div style='margin-top:12px;'><a class='btn-v btn-gold btn-sm' href='/premium?id={esc(valid_gid)}'>{('Open Per-Server Premium Suite' if is_en else 'فتح مزايا البريميوم لهذا السيرفر')}</a></div>"
-        if is_premium_user(user) and valid_gid
-        else ""
-    )
+            f"<div class='log-line'><strong>[{esc(i.get('severity'))}]</strong> <code>{esc(i.get('category'))}</code> — {esc(i.get('summary'))} <span class='muted'>({esc(i.get('time'))})</span></div>"
+            for i in incs
+        ) or f"<p class='muted'>{('No incidents recorded.' if is_en else 'لا توجد حوادث مسجلة لهذا السيرفر.')}</p>"
+        section_html = f"<div class='glass-card'><h3 style='margin:0 0 10px;'>{('Security Incidents' if is_en else 'سجل الحوادث الأمنية')}</h3>{inc_html}</div>"
 
     body = f"""
-    <div class="glass-card" style="text-align:center;">
-      <div class="muted">{('Selected Server' if is_en else 'السيرفر المحدد')}</div>
-      <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin:10px 0 6px;">
-        {guild_icon_html}
-        <h2 style="margin:0;font-size:22px;font-weight:900;">{esc(guild_display_name)}</h2>
-      </div>
-      <div class="muted">تقييم أمان السيرفر: <strong>{sec_score}/100</strong> • <span style="color:#67e8f9;">{esc(sec_grade)}</span></div>
-      <div class="score-track"><div class="score-fill" style="width:{sec_score}%;"></div></div>
-      <form method="GET" action="/guild" style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px;">
-        <input type="hidden" name="tab" value="{active_tab}">
-        <input class="inp" type="text" name="id" value="{esc(guild_display_name if guild_info else valid_gid)}" placeholder="{('Server name or ID' if is_en else 'اسم السيرفر أو ID')}">
-        <button class="btn-v btn-sm" type="submit">{('Switch Server' if is_en else 'تبديل السيرفر')}</button>
-      </form>
-      {prem_shortcut}
+    <div class="page-head">
+      <div class="eyebrow">{('SHIELD CONTROL' if is_en else 'تحكم الحماية')}</div>
+      <h1>{('Security Panel' if is_en else 'لوحة الحماية')}</h1>
     </div>
-    <div class="grid-2" style="margin-bottom:16px;">
+
+    <div class="glass-card">
+      <form method="get" action="/guild" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input type="hidden" name="tab" value="{esc(active_tab)}">
+        <select class="inp" name="id" style="max-width:420px;text-align:{'left' if is_en else 'right'};">
+          {guild_options_html or f"<option value=''>{'No servers' if is_en else 'لا توجد سيرفرات'}</option>"}
+        </select>
+        <button class="btn-v btn-sm" type="submit">{('Switch Server' if is_en else 'اختيار السيرفر')}</button>
+      </form>
+      <div style="margin-top:14px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800;">
+          <span>{('Security Score' if is_en else 'مؤشر أمان السيرفر')}: {score}/100</span>
+          <span>{esc(grade)}</span>
+        </div>
+        <div class="score-track"><div class="score-fill" style="width:{score}%;"></div></div>
+      </div>
+    </div>
+
+    <div class="grid-cards" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-bottom:16px;">
       {tabs_html}
     </div>
-    {panel_html}
+
+    {section_html}
     """
-    return web.Response(text=render_page("Security Panel" if is_en else "لوحة الحماية", "guild", body, request, flash=flash), content_type="text/html")
+    return web.Response(
+        text=render_page("Security Panel" if is_en else "لوحة الحماية", "guild", body, request, flash=flash),
+        content_type="text/html",
+    )
 
 
 async def handle_premium(request: web.Request) -> web.Response:
@@ -2716,238 +2754,120 @@ async def handle_premium(request: web.Request) -> web.Response:
     sess_pair = get_discord_session_with_id(request)
     if not sess_pair:
         return web.Response(
-            text=render_page("Premium" if is_en else "مزايا البريميوم", "premium", "", request, require_auth_view=True),
+            text=render_page("Premium" if is_en else "البريميوم", "premium", "", request, require_auth_view=True),
             content_type="text/html",
         )
     session_id, user = sess_pair
     if not is_premium_user(user):
-        body = f"""
-        <div class="page-head">
-          <div class="eyebrow">PREMIUM SUITE</div>
-          <h1>{('Premium Features' if is_en else 'مزايا البريميوم')}</h1>
-        </div>
-        <div class="glass-card" style="text-align:center;">
-          <p class="muted">{('This section is for Premium members to customize bot profile per server, toggle Ultra Fortress Mode, restore snapshots, and set alert channels.' if is_en else 'هذه اللوحة مخصصة لأعضاء البريميوم لتخصيص بروفايل البوت لكل سيرفر، تفعيل الحصن الفائق، استرجاع اللقطات، وضبط تنبيهات الاختراق.')}</p>
-          <a class="btn-g" href="/servers">{('Back to Servers' if is_en else 'العودة للسيرفرات')}</a>
-        </div>
-        """
-        return web.Response(text=render_page("Premium" if is_en else "البريميوم", "premium", body, request), content_type="text/html")
+        return web.Response(
+            text=render_page(
+                "Premium" if is_en else "البريميوم",
+                "premium",
+                f"<div class='glass-card'><h2>{'Premium Required' if is_en else 'اشتراك البريميوم مطلوب'}</h2><p class='muted'>{'This account does not have active Premium access.' if is_en else 'حسابك لا يملك صلاحية البريميوم حالياً.'}</p></div>",
+                request,
+            ),
+            content_type="text/html",
+        )
 
+    # عرض جميع السيرفرات المتاحة للمستخدم أو السيرفرات المدارة بدون حجبها بسبب حالة البوت
     guilds, _ = get_user_visible_guilds(user)
-    usable_guilds = [g for g in guilds if not g.get("bot_missing")]
+    if not guilds and is_site_admin(user):
+        guilds = get_all_guilds()
+
     gid = str(request.query.get("id", "")).strip()
-    if not gid and usable_guilds:
-        gid = usable_guilds[0]["id"]
+    if not gid and guilds:
+        gid = guilds[0]["id"]
 
     flash = ""
     if request.method == "POST":
         form = await read_post_safe(request)
         if form is None:
-            flash = "Invalid request size or form data." if is_en else "حجم الطلب كبير جداً أو البيانات غير صالحة."
-        elif not consume_csrf_token(str(form.get("csrf_token", "")).strip(), session_id):
-            flash = "Session expired, please try again." if is_en else "انتهت صلاحية الجلسة، أعد المحاولة."
+            flash = "Invalid form data." if is_en else "بيانات النموذج غير صالحة."
+        elif not consume_csrf_token(str(form.get("csrf_token", "")), session_id):
+            flash = "CSRF token invalid/expired." if is_en else "انتهت صلاحية الجلسة، أعد المحاولة."
+        elif is_replay_request(str(form.get("req_nonce", ""))):
+            flash = "Duplicate request blocked." if is_en else "تم منع طلب مكرر."
         else:
             posted_gid = str(form.get("guild_id", gid)).strip()
-            authorized = user_can_manage_guild(posted_gid, user, require_bot_present=True)
-            if not authorized:
-                flash = "Unauthorized or bot is not in this server." if is_en else "غير مصرح أو البوت غير متواجد في هذا السيرفر."
-            else:
-                gid = authorized["id"]
-                prem_action = str(form.get("prem_action", "save_all")).strip()
+            if posted_gid.isdigit():
+                gid = posted_gid
+                save_guild_cfg(
+                    gid,
+                    {
+                        "guild_profile": {
+                            "bio": str(form.get("bio", "")),
+                            "avatar_url": str(form.get("avatar_url", "")),
+                            "banner_url": str(form.get("banner_url", "")),
+                        },
+                        "premium_perks": {
+                            "ultra_fortress_mode": form.get("ultra_fortress_mode") == "on",
+                            "instant_rollback_enabled": form.get("instant_rollback_enabled") == "on",
+                            "priority_shield_response": form.get("priority_shield_response") == "on",
+                            "alert_channel_id": str(form.get("alert_channel_id", "")),
+                            "alert_webhook_url": str(form.get("alert_webhook_url", "")),
+                        },
+                    },
+                )
+                enqueue_remote_action(gid, "sync_premium", gid)
+                log_event(f"تحديث إعدادات البريميوم للسيرفر {gid}", guild_id=gid, level="SEC")
+                flash = "Premium settings saved." if is_en else "تم حفظ إعدادات البريميوم للسيرفر بنجاح."
 
-                if prem_action == "instant_rollback":
-                    cur_cfg = get_guild_cfg(gid)
-                    snaps = cur_cfg.get("perms_snapshots") or []
-                    chosen_snap = str(form.get("snapshot_id", "")).strip()
-                    if not chosen_snap and snaps:
-                        chosen_snap = str(snaps[0].get("id", ""))
-                    if chosen_snap:
-                        save_guild_cfg(gid, {"premium_perks": {"last_restored_snapshot": chosen_snap}})
-                        enqueue_remote_action(
-                            gid,
-                            "instant_snapshot_rollback",
-                            gid,
-                            {"snapshot_id": chosen_snap, "requested_by": str(user.get("id", ""))},
-                        )
-                        log_event(
-                            f"استرجاع فوري للقطة الصلاحيات [{chosen_snap}] في السيرفر {gid} (Premium)",
-                            guild_id=gid,
-                            level="PREM",
-                        )
-                        flash = (
-                            f"Instant rollback queued for snapshot [{chosen_snap}]."
-                            if is_en
-                            else f"تم إرسال أمر الاسترجاع الفوري للقطة الصلاحيات [{chosen_snap}] بنجاح."
-                        )
-                    else:
-                        flash = (
-                            "No saved snapshot found for this server yet."
-                            if is_en
-                            else "لا توجد لقطة صلاحيات محفوظة لهذا السيرفر بعد."
-                        )
-                else:
-                    bio_val = str(form.get("bio", "")).strip()[:190]
-                    raw_av = str(form.get("avatar_url", "")).strip()
-                    raw_bn = str(form.get("banner_url", "")).strip()
-                    raw_wh = str(form.get("alert_webhook_url", "")).strip()
-                    avatar_val = sanitize_http_url(raw_av)
-                    banner_val = sanitize_http_url(raw_bn)
-                    webhook_val = sanitize_http_url(raw_wh)
-
-                    if (raw_av and not avatar_val) or (raw_bn and not banner_val) or (raw_wh and not webhook_val):
-                        flash = (
-                            "URLs must start with https:// or http://."
-                            if is_en
-                            else "يجب أن تبدأ الروابط (الصورة، البنر، والويب هوك) بـ https:// أو http:// فقط."
-                        )
-                    else:
-                        ultra_mode = form.get("ultra_fortress_mode") == "on"
-                        instant_rb = form.get("instant_rollback_enabled") == "on"
-                        priority_resp = form.get("priority_shield_response") == "on"
-                        alert_ch = str(form.get("alert_channel_id", "")).strip()
-
-                        save_guild_cfg(
-                            gid,
-                            {
-                                "guild_profile": {
-                                    "bio": bio_val,
-                                    "avatar_url": avatar_val,
-                                    "banner_url": banner_val,
-                                },
-                                "premium_perks": {
-                                    "ultra_fortress_mode": ultra_mode,
-                                    "instant_rollback_enabled": instant_rb,
-                                    "priority_shield_response": priority_resp,
-                                    "alert_channel_id": alert_ch,
-                                    "alert_webhook_url": webhook_val,
-                                },
-                            },
-                        )
-                        enqueue_remote_action(
-                            gid,
-                            "set_guild_profile",
-                            gid,
-                            {
-                                "bio": bio_val,
-                                "avatar_url": avatar_val,
-                                "banner_url": banner_val,
-                                "ultra_fortress_mode": ultra_mode,
-                                "alert_channel_id": alert_ch,
-                                "alert_webhook_url": webhook_val,
-                                "requested_by": str(user.get("id", "")),
-                            },
-                        )
-                        log_event(
-                            f"تحديث مزايا البريميوم وبروفايل البوت للسيرفر {gid} بواسطة {user.get('id')}",
-                            guild_id=gid,
-                            level="PREM",
-                        )
-                        flash = (
-                            "Saved per-server profile and Premium shield perks."
-                            if is_en
-                            else "تم حفظ بروفايل السيرفر ومزايا البريميوم (الحصن الفائق والتنبيهات) بنجاح."
-                        )
-
-    valid_prem_gid = gid if any(g["id"] == gid for g in usable_guilds) else (usable_guilds[0]["id"] if usable_guilds else "")
-    cfg = get_guild_cfg(valid_prem_gid) if valid_prem_gid else _fresh_default_guild_cfg()
-    gprof = cfg.get("guild_profile", {})
-    perks = cfg.get("premium_perks", {})
-    snaps = cfg.get("perms_snapshots") or []
-    csrf_token = issue_csrf_token(session_id)
+    cfg = get_guild_cfg(gid) if gid else _fresh_default_guild_cfg()
+    prof = cfg.get("guild_profile") or {}
+    perks = cfg.get("premium_perks") or {}
+    csrf_tok = issue_csrf_token(session_id)
+    req_nonce = secrets.token_hex(12)
 
     options_html = "".join(
-        f"<option value='{esc(g['id'])}' {'selected' if g['id'] == valid_prem_gid else ''}>{esc(g['name'])}</option>"
-        for g in usable_guilds
-    ) or "<option value=''>No eligible servers</option>"
-
-    snap_options_html = "".join(
-        f"<option value='{esc(s.get('id',''))}'>#{esc(s.get('id',''))} — {esc(s.get('saved_at',''))}</option>"
-        for s in snaps
-    )
-
-    rollback_box = (
-        f"""
-        <div class="glass-card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-            <h3 style="margin:0;">♻️ {('Instant Snapshot Rollback' if is_en else 'الاسترجاع الفوري للقطات الصلاحيات')}</h3>
-            <span class="chip-g">PREMIUM PERK</span>
-          </div>
-          <p class="muted">{('Restore saved permissions immediately for this server.' if is_en else 'استرجاع لقطة الصلاحيات المحفوظة فوراً لهذا السيرفر.')}</p>
-          <form method="POST" action="/premium?id={esc(valid_prem_gid)}" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
-            <input type="hidden" name="csrf_token" value="{csrf_token}">
-            <input type="hidden" name="guild_id" value="{esc(valid_prem_gid)}">
-            <input type="hidden" name="prem_action" value="instant_rollback">
-            <select class="inp" name="snapshot_id">{snap_options_html}</select>
-            <button class="btn-c btn-sm" type="submit">{('Restore Now' if is_en else 'استرجاع فوري')}</button>
-          </form>
-          <div class="muted" style="margin-top:8px;">{('Last restored:' if is_en else 'آخر لقطة مسترجعة:')} <code>{esc(perks.get('last_restored_snapshot') or '-')}</code></div>
-        </div>
-        """
-        if snap_options_html
-        else f"""
-        <div class="glass-card">
-          <h3 style="margin:0 0 6px;">♻️ {('Instant Snapshot Rollback' if is_en else 'الاسترجاع الفوري للقطات الصلاحيات')}</h3>
-          <p class="muted">{('Save a snapshot from the Anti-Nuke tab first to enable one-click rollback.' if is_en else 'احفظ لقطة صلاحيات من تبويب Anti Nuke أولاً لتفعيل الاسترجاع الفوري بنقرة واحدة.')}</p>
-        </div>
-        """
-    )
+        f"<option value='{esc(g['id'])}' {'selected' if g['id'] == gid else ''}>{esc(g['name'])} ({esc(g['id'])})</option>"
+        for g in guilds
+    ) or f"<option value=''>{('No servers found' if is_en else 'لا توجد سيرفرات متاحة')}</option>"
 
     body = f"""
     <div class="page-head">
-      <div class="eyebrow">PER-SERVER PREMIUM SUITE</div>
-      <h1>{('Premium Command Center' if is_en else 'مركز مزايا البريميوم (Premium)')}</h1>
+      <div class="eyebrow">PREMIUM SUITE</div>
+      <h1>{('Premium Controls' if is_en else 'تحكم البريميوم')}</h1>
     </div>
 
-    <form class="glass-card" method="POST" action="/premium?id={esc(valid_prem_gid)}">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
-      <input type="hidden" name="prem_action" value="save_all">
-      <p class="muted">{('All profile customizations and perks apply strictly to the selected server.' if is_en else 'جميع التخصيصات ومزايا البريميوم تطبق على السيرفر المحدد فقط ولا تؤثر على باقي السيرفرات.')}</p>
+    <form method="post" class="glass-card">
+      <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+      <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
 
-      <span class="lbl">{('Select Server' if is_en else 'اختر السيرفر')}</span>
-      <select class="inp" name="guild_id">
+      <label class="lbl">{('Select Server' if is_en else 'اختر السيرفر')}</label>
+      <select class="inp" name="guild_id" onchange="window.location='/premium?id='+encodeURIComponent(this.value)">
         {options_html}
       </select>
 
-      <h3 style="margin:18px 0 4px;">🎨 {('Per-Server Bot Identity' if is_en else 'هوية البوت داخل السيرفر')}</h3>
-      <span class="lbl">{('Bot Avatar URL (Per Server)' if is_en else 'رابط صورة البوت داخل السيرفر')}</span>
-      <input class="inp" type="url" name="avatar_url" value="{esc(sanitize_http_url(gprof.get('avatar_url', '')))}" placeholder="https://example.com/avatar.png">
+      <label class="lbl">{('Bot Bio (Per Server)' if is_en else 'نبذة البوت (Bio) للسيرفر')}</label>
+      <input class="inp" type="text" name="bio" maxlength="190" value="{esc(prof.get('bio', ''))}">
 
-      <span class="lbl">{('Bot Banner URL (Per Server)' if is_en else 'رابط بنر البوت داخل السيرفر')}</span>
-      <input class="inp" type="url" name="banner_url" value="{esc(sanitize_http_url(gprof.get('banner_url', '')))}" placeholder="https://example.com/banner.png">
+      <label class="lbl">{('Avatar URL' if is_en else 'رابط صورة البوت')}</label>
+      <input class="inp" type="url" name="avatar_url" value="{esc(prof.get('avatar_url', ''))}">
 
-      <span class="lbl">{('Bot Bio (Per Server)' if is_en else 'بايو البوت داخل السيرفر')}</span>
-      <input class="inp" type="text" name="bio" value="{esc(gprof.get('bio', ''))}" maxlength="190" placeholder="{('Server bot bio' if is_en else 'اكتب البايو الخاص بالبوت في هذا السيرفر')}">
+      <label class="lbl">{('Banner URL' if is_en else 'رابط بنر البوت')}</label>
+      <input class="inp" type="url" name="banner_url" value="{esc(prof.get('banner_url', ''))}">
 
-      <h3 style="margin:18px 0 6px;">🛡 {('Premium Shield & Alerts' if is_en else 'مزايا الحماية والتنبيهات الفورية')}</h3>
-      <div class="switch-list" style="max-width:460px;">
-        <label class="switch-row">
-          <span>{('Ultra Fortress Mode (Max Strictness)' if is_en else 'وضع الحصن الفائق (أقصى صرامة ضد الاختراق)')}</span>
-          <input type="checkbox" name="ultra_fortress_mode" {'checked' if perks.get('ultra_fortress_mode') else ''}>
-        </label>
-        <label class="switch-row">
-          <span>{('Instant Rollback Ready' if is_en else 'تفعيل الاسترجاع الفوري للقطات')}</span>
-          <input type="checkbox" name="instant_rollback_enabled" {'checked' if perks.get('instant_rollback_enabled', True) else ''}>
-        </label>
-        <label class="switch-row">
-          <span>{('Priority Shield Response' if is_en else 'أولوية قصوى في استجابة الحماية')}</span>
-          <input type="checkbox" name="priority_shield_response" {'checked' if perks.get('priority_shield_response', True) else ''}>
-        </label>
+      <label class="lbl">{('Alert Channel ID' if is_en else 'آيدي قناة التنبيهات')}</label>
+      <input class="inp" type="text" name="alert_channel_id" value="{esc(perks.get('alert_channel_id', ''))}">
+
+      <label class="lbl">{('Alert Webhook URL' if is_en else 'رابط Webhook للتنبيهات')}</label>
+      <input class="inp" type="url" name="alert_webhook_url" value="{esc(perks.get('alert_webhook_url', ''))}">
+
+      <div class="switch-list">
+        <label class="switch-row"><span>ultra_fortress_mode</span><input type="checkbox" name="ultra_fortress_mode" {'checked' if perks.get('ultra_fortress_mode') else ''}></label>
+        <label class="switch-row"><span>instant_rollback_enabled</span><input type="checkbox" name="instant_rollback_enabled" {'checked' if perks.get('instant_rollback_enabled') else ''}></label>
+        <label class="switch-row"><span>priority_shield_response</span><input type="checkbox" name="priority_shield_response" {'checked' if perks.get('priority_shield_response') else ''}></label>
       </div>
 
-      <span class="lbl">{('Instant Alert Channel ID' if is_en else 'قناة التنبيهات الفورية عند الاختراق (Channel ID)')}</span>
-      <input class="inp" type="text" name="alert_channel_id" value="{esc(perks.get('alert_channel_id', ''))}" placeholder="123456789012345678">
-
-      <span class="lbl">{('Custom Alert Webhook URL' if is_en else 'رابط ويب هوك للتنبيهات الخارجية (Webhook URL)')}</span>
-      <input class="inp" type="url" name="alert_webhook_url" value="{esc(sanitize_http_url(perks.get('alert_webhook_url', '')))}" placeholder="https://discord.com/api/webhooks/...">
-
-      <div style="margin-top:18px;">
-        <button class="btn-v btn-gold" type="submit">{('Save Premium Settings' if is_en else 'حفظ وتطبيق مزايا البريميوم')}</button>
+      <div style="margin-top:16px;">
+        <button class="btn-v btn-gold" type="submit">{('Save Premium Perks' if is_en else 'حفظ مزايا البريميوم')}</button>
       </div>
     </form>
-
-    {rollback_box}
     """
-    return web.Response(text=render_page("Premium" if is_en else "البريميوم", "premium", body, request, flash=flash), content_type="text/html")
+    return web.Response(
+        text=render_page("Premium" if is_en else "البريميوم", "premium", body, request, flash=flash),
+        content_type="text/html",
+    )
 
 
 async def handle_admin(request: web.Request) -> web.Response:
@@ -2960,347 +2880,144 @@ async def handle_admin(request: web.Request) -> web.Response:
         )
     session_id, user = sess_pair
     if not is_site_admin(user):
-        body = f"""
-        <div class="page-head">
-          <div class="eyebrow">RESTRICTED ACCESS</div>
-          <h1>{('Admin Panel' if is_en else 'لوحة الإدارة')}</h1>
-        </div>
-        <div class="glass-card" style="text-align:center;">
-          <p class="muted">{('Admins only.' if is_en else 'هذه الصفحة مخصصة للمشرفين فقط.')}</p>
-          <a class="btn-g" href="/servers">{('Back to Servers' if is_en else 'العودة للسيرفرات')}</a>
-        </div>
-        """
-        return web.Response(text=render_page("Admin Panel" if is_en else "لوحة الإدارة", "admin", body, request), content_type="text/html")
+        return web.Response(
+            text=render_page(
+                "Admin Panel" if is_en else "لوحة الإدارة",
+                "admin",
+                f"<div class='glass-card'><h2>{'Access Denied' if is_en else 'دخول غير مصرح'}</h2></div>",
+                request,
+            ),
+            content_type="text/html",
+        )
 
     flash = ""
     if request.method == "POST":
         form = await read_post_safe(request)
         if form is None:
-            flash = "Invalid request size or form data." if is_en else "حجم الطلب كبير جداً أو البيانات غير صالحة."
-        elif not consume_csrf_token(str(form.get("csrf_token", "")).strip(), session_id):
-            flash = "Session expired, please try again." if is_en else "انتهت صلاحية الجلسة، أعد المحاولة."
+            flash = "Invalid form data." if is_en else "بيانات النموذج غير صالحة."
+        elif not consume_csrf_token(str(form.get("csrf_token", "")), session_id):
+            flash = "CSRF token invalid/expired." if is_en else "انتهت صلاحية الجلسة، أعد المحاولة."
+        elif is_replay_request(str(form.get("req_nonce", ""))):
+            flash = "Duplicate request blocked." if is_en else "تم منع طلب مكرر."
         else:
-            action = str(form.get("admin_action", "")).strip()
-
-            if action == "grant_admin":
-                target_uid = str(form.get("target_admin_id", "")).strip()
-                if set_admin_user(target_uid, True, granted_by=str(user.get("id", ""))):
-                    log_event(f"منح صلاحية Admin للحساب {target_uid} بواسطة {user.get('id')}", level="ADMIN")
-                    flash = f"Granted Admin to {target_uid}." if is_en else f"تم منح صلاحية Admin للحساب {target_uid} بنجاح."
-                else:
-                    flash = "Enter a valid numeric User ID." if is_en else "أدخل User ID صحيح (أرقام فقط)."
-
-            elif action == "revoke_admin":
-                target_uid = str(form.get("target_admin_id", "")).strip()
-                if set_admin_user(target_uid, False):
-                    log_event(f"سحب صلاحية Admin من الحساب {target_uid} بواسطة {user.get('id')}", level="ADMIN")
-                    flash = f"Revoked Admin from {target_uid}." if is_en else f"تم سحب صلاحية Admin من الحساب {target_uid}."
-                else:
-                    flash = "Cannot revoke owner admin or invalid ID." if is_en else "لا يمكن سحب الصلاحية من هذا الحساب أو المعرف غير صحيح."
-
-            elif action == "grant_premium":
-                target_uid = str(form.get("target_user_id", "")).strip()
-                if set_premium_user(target_uid, True, granted_by=str(user.get("id", ""))):
-                    log_event(f"منح بريميوم للحساب {target_uid}", level="ADMIN")
-                    flash = f"Granted Premium to {target_uid}." if is_en else f"تم منح البريميوم للحساب {target_uid} بنجاح."
-                else:
-                    flash = "Enter a valid User ID." if is_en else "أدخل User ID صحيح."
-
-            elif action == "revoke_premium":
-                target_uid = str(form.get("target_user_id", "")).strip()
+            act = str(form.get("admin_action", "")).strip()
+            target_uid = str(form.get("target_user_id", "")).strip()
+            if act == "grant_premium" and target_uid.isdigit():
+                set_premium_user(target_uid, True, granted_by=str(user.get("id", "")))
+                flash = f"Granted Premium to {target_uid}." if is_en else f"تم منح البريميوم للحساب {target_uid}."
+            elif act == "revoke_premium" and target_uid.isdigit():
                 if set_premium_user(target_uid, False):
-                    log_event(f"سحب بريميوم من الحساب {target_uid}", level="ADMIN")
                     flash = f"Revoked Premium from {target_uid}." if is_en else f"تم سحب البريميوم من الحساب {target_uid}."
                 else:
-                    flash = "Cannot revoke or invalid ID." if is_en else "لا يمكن سحب البريميوم من هذا الحساب أو المعرف غير صحيح."
-
-            elif action == "toggle_lockdown":
-                target_gid = str(form.get("target_guild_id", "")).strip()
-                if target_gid.isdigit():
-                    cur_cfg = get_guild_cfg(target_gid)
-                    new_lock = not bool(cur_cfg.get("lockdown", False))
-                    save_guild_cfg(target_gid, {"lockdown": new_lock})
-                    enqueue_remote_action(target_gid, "set_lockdown", target_gid, {"enabled": new_lock})
-                    log_event(
-                        f"تغيير حالة قفل السيرفر {target_gid} إلى {'مقفول' if new_lock else 'مفتوح'}",
-                        guild_id=target_gid,
-                        level="ADMIN",
-                    )
-                    flash = (
-                        f"Lockdown {'enabled' if new_lock else 'disabled'} for server."
-                        if is_en
-                        else f"تم {'تفعيل' if new_lock else 'إلغاء'} قفل السيرفر بنجاح."
-                    )
-
-            elif action == "toggle_emergency":
-                target_gid = str(form.get("target_guild_id", "")).strip()
-                if target_gid.isdigit():
-                    cur_cfg = get_guild_cfg(target_gid)
-                    new_emg = not bool(cur_cfg.get("emergency_mode", False))
-                    save_guild_cfg(target_gid, {"emergency_mode": new_emg})
-                    log_event(
-                        f"تغيير وضع الطوارئ للسيرفر {target_gid} إلى {'مفعّل' if new_emg else 'متوقف'}",
-                        guild_id=target_gid,
-                        level="ADMIN",
-                    )
-                    flash = f"تم {'تفعيل' if new_emg else 'إيقاف'} وضع الطوارئ للسيرفر {target_gid}."
-
-            elif action == "leave_guild":
-                target_gid = str(form.get("target_guild_id", "")).strip()
-                if target_gid.isdigit():
-                    enqueue_remote_action(target_gid, "leave_guild", target_gid)
-                    log_event(f"إخراج البوت من السيرفر {target_gid} بواسطة الإدارة", guild_id=target_gid, level="ADMIN")
-                    flash = f"Queued leave guild {target_gid}." if is_en else f"تم إرسال أمر إخراج البوت من السيرفر {target_gid}."
-
-            elif action == "broadcast_alert":
-                b_msg = sanitize_flash_msg(form.get("broadcast_text"))
-                if b_msg:
-                    enqueue_remote_action("0", "broadcast_alert", "all", {"message": b_msg})
-                    log_event(f"إرسال تنبيه عام: {b_msg}", level="ADMIN")
-                    flash = "تم إرسال التنبيه العام إلى قائمة الأوامر."
+                    flash = "Cannot revoke owner." if is_en else "لا يمكن سحب الصلاحية من المالك."
+            elif act == "grant_admin" and target_uid.isdigit():
+                set_admin_user(target_uid, True, granted_by=str(user.get("id", "")))
+                flash = f"Granted Admin to {target_uid}." if is_en else f"تم منح صلاحية الأدمن للحساب {target_uid}."
+            elif act == "revoke_admin" and target_uid.isdigit():
+                if set_admin_user(target_uid, False):
+                    flash = f"Revoked Admin from {target_uid}." if is_en else f"تم سحب صلاحية الأدمن من الحساب {target_uid}."
                 else:
-                    flash = "اكتب نص التنبيه أولاً."
-
-            elif action == "create_backup":
+                    flash = "Cannot revoke owner." if is_en else "لا يمكن سحب الصلاحية من المالك."
+            elif act == "broadcast":
+                b_msg = str(form.get("broadcast_msg", "")).strip()[:240]
+                if b_msg:
+                    enqueue_remote_action("ALL", "broadcast", b_msg)
+                    log_event(f"تنبيه عام: {b_msg}", guild_id="GLOBAL", level="ADMIN")
+                    flash = "Broadcast queued." if is_en else "تم إرسال التنبيه العام إلى قائمة البوت."
+            elif act == "backup_now":
                 b = create_db_backup()
-                log_event(f"إنشاء نسخة احتياطية لقاعدة البيانات [{b['backup_id']}]", level="ADMIN")
-                flash = f"تم إنشاء نسخة احتياطية برقم [{b['backup_id']}]."
+                flash = f"Backup created: {b['backup_id']}" if is_en else f"تم إنشاء نسخة احتياطية برقم {b['backup_id']}."
+            elif act == "test_backup":
+                _, r_msg = test_backup_restore()
+                flash = r_msg
 
-            elif action == "test_restore":
-                ok, rmsg = test_backup_restore(str(form.get("backup_id", "")).strip())
-                log_event(rmsg, level="ADMIN" if ok else "WARN")
-                flash = rmsg
-
-            elif action == "ping_bot":
-                MEM_BOT_HEARTBEAT["status"] = "ONLINE"
-                MEM_BOT_HEARTBEAT["last_seen"] = _now_str()
-                enqueue_remote_action("0", "heartbeat_check", "bot")
-                flash = f"حالة تشغيل البوت: {MEM_BOT_HEARTBEAT['status']} • آخر فحص: {MEM_BOT_HEARTBEAT['last_seen']}"
-
-    csrf_token = issue_csrf_token(session_id)
-    all_guilds = get_all_guilds()
-    prem_users = get_premium_list()
-    admin_users = get_admin_list()
+    all_bot_guilds = get_all_guilds()
+    prem_list = get_premium_list()
+    adm_list = get_admin_list()
     backups = get_db_backups()
-    db_state = "MongoDB متصل ومحمّي" if db is not None else "الذاكرة الاحتياطية مفعّلة"
+    csrf_tok = issue_csrf_token(session_id)
+    req_nonce = secrets.token_hex(12)
 
-    admin_rows = ""
-    for a in admin_users:
-        auid = esc(a["user_id"])
-        rem_btn = (
-            f"<form method='POST' action='/admin' style='margin:0;'>"
-            f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
-            f"<input type='hidden' name='admin_action' value='revoke_admin'>"
-            f"<input type='hidden' name='target_admin_id' value='{auid}'>"
-            f"<button class='btn-g btn-sm' type='submit'>{'Remove' if is_en else 'سحب'}</button></form>"
-            if a["user_id"] != ADMIN_USER_ID
-            else f"<span class='chip-v'>{'OWNER' if is_en else 'أساسي'}</span>"
-        )
-        admin_rows += f"""
-        <div class="list-row">
-          <div><code>{auid}</code> <span class="muted">• {esc(a.get('granted_by','admin'))}</span></div>
-          {rem_btn}
-        </div>
-        """
+    guilds_rows = "".join(
+        f"<div class='list-row'><div><strong>{esc(g.get('name'))}</strong> <span class='muted'>({esc(g.get('id'))})</span></div><span class='chip-g'>{int(g.get('member_count', 0))} {'members' if is_en else 'عضو'}</span></div>"
+        for g in all_bot_guilds
+    ) or f"<p class='muted'>{('No servers registered by the bot yet.' if is_en else 'لا توجد سيرفرات مسجلة للبوت حالياً.')}</p>"
 
-    guilds_rows = ""
-    for g in all_guilds:
-        gid = esc(g["id"])
-        gname = esc(g["name"])
-        mcount = int(g.get("member_count", 0) or 0)
-        icon = esc(str(g.get("icon", "")).strip())
-        g_cfg = get_guild_cfg(g["id"])
-        is_locked = bool(g_cfg.get("lockdown", False))
-        is_emg = bool(g_cfg.get("emergency_mode", False))
-        lock_lbl = (
-            ("Unlock Server" if is_locked else "Lock Server")
-            if is_en
-            else ("فتح السيرفر" if is_locked else "قفل السيرفر")
-        )
-        emg_lbl = "إيقاف الطوارئ" if is_emg else "طوارئ"
-        icon_preview = (
-            f"<img src='https://cdn.discordapp.com/icons/{gid}/{icon}.png?size=64' loading='lazy' referrerpolicy='no-referrer' style='width:42px;height:42px;border-radius:12px;object-fit:cover;' alt=''>"
-            if icon
-            else f"<div style='width:42px;height:42px;border-radius:12px;background:rgba(124,58,237,0.35);display:flex;align-items:center;justify-content:center;font-weight:900;'>{esc((g['name'][:2] or 'SV').upper())}</div>"
-        )
-        status_badges = f"{'• LOCKED ' if is_locked else ''}{'• EMERGENCY' if is_emg else ''}"
-        guilds_rows += f"""
-        <div class="list-row">
-          <div style="display:flex;align-items:center;gap:10px;">
-            {icon_preview}
-            <div>
-              <div style="font-weight:800;font-size:15px;">{gname}</div>
-              <div class="muted">{mcount} {'members' if is_en else 'عضو'} {esc(status_badges)}</div>
-            </div>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            <a class="btn-g btn-sm" href="/guild?id={gid}&tab=antinuke">{('Manage' if is_en else 'إدارة')}</a>
-            <form method="POST" action="/admin" style="margin:0;">
-              <input type="hidden" name="csrf_token" value="{csrf_token}">
-              <input type="hidden" name="admin_action" value="toggle_lockdown">
-              <input type="hidden" name="target_guild_id" value="{gid}">
-              <button class="btn-g btn-gold btn-sm" type="submit">{lock_lbl}</button>
-            </form>
-            <form method="POST" action="/admin" style="margin:0;">
-              <input type="hidden" name="csrf_token" value="{csrf_token}">
-              <input type="hidden" name="admin_action" value="toggle_emergency">
-              <input type="hidden" name="target_guild_id" value="{gid}">
-              <button class="btn-g btn-sm" type="submit">{emg_lbl}</button>
-            </form>
-            <form method="POST" action="/admin" style="margin:0;">
-              <input type="hidden" name="csrf_token" value="{csrf_token}">
-              <input type="hidden" name="admin_action" value="leave_guild">
-              <input type="hidden" name="target_guild_id" value="{gid}">
-              <button class="btn-g btn-danger btn-sm" type="submit">{('Leave' if is_en else 'إخراج البوت')}</button>
-            </form>
-          </div>
-        </div>
-        """
-    if not guilds_rows:
-        guilds_rows = f"<p class='muted' style='text-align:center;'>{'No guilds registered yet.' if is_en else 'لا توجد سيرفرات مسجلة للبوت حالياً.'}</p>"
+    prem_rows = "".join(
+        f"<div class='list-row'><code>{esc(p['user_id'])}</code><span class='muted'>{esc(p.get('granted_by', ''))}</span></div>"
+        for p in prem_list
+    )
 
-    prem_rows = ""
-    for p in prem_users:
-        puid = esc(p["user_id"])
-        rem_btn = (
-            f"<form method='POST' action='/admin' style='margin:0;'>"
-            f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
-            f"<input type='hidden' name='admin_action' value='revoke_premium'>"
-            f"<input type='hidden' name='target_user_id' value='{puid}'>"
-            f"<button class='btn-g btn-sm' type='submit'>{'Remove' if is_en else 'سحب'}</button></form>"
-            if p["user_id"] != ADMIN_USER_ID
-            else f"<span class='chip-v'>{'OWNER' if is_en else 'أساسي'}</span>"
-        )
-        prem_rows += f"""
-        <div class="list-row">
-          <div><code>{puid}</code> <span class="muted">• {esc(p.get('granted_by','admin'))}</span></div>
-          {rem_btn}
-        </div>
-        """
-
-    backup_rows = ""
-    for b in backups:
-        bid = esc(b.get("backup_id", ""))
-        backup_rows += f"""
-        <div class="list-row">
-          <div><code>{bid}</code> <span class="muted">• {esc(b.get('created_at',''))}</span></div>
-          <form method="POST" action="/admin" style="margin:0;">
-            <input type="hidden" name="csrf_token" value="{csrf_token}">
-            <input type="hidden" name="admin_action" value="test_restore">
-            <input type="hidden" name="backup_id" value="{bid}">
-            <button class="btn-g btn-sm" type="submit">اختبار الاستعادة</button>
-          </form>
-        </div>
-        """
-    if not backup_rows:
-        backup_rows = "<p class='muted'>لا توجد نسخ احتياطية محفوظة بعد.</p>"
+    backup_rows = "".join(
+        f"<div class='list-row'><code>{esc(b.get('backup_id'))}</code><span class='muted'>{esc(b.get('created_at'))} • {int(b.get('guilds_count', 0))} {'guilds' if is_en else 'سيرفر'}</span></div>"
+        for b in backups
+    ) or f"<p class='muted'>{('No backups saved yet.' if is_en else 'لا توجد نسخ محفوظة بعد.')}</p>"
 
     body = f"""
-    <div class="cyber-hero" style="padding:24px;">
-      <div class="hero-chip">⚡ {('COMMAND CENTER' if is_en else 'مركز قيادة الإدارة')}</div>
-      <h1 class="hero-h1" style="font-size:26px;">{('Admin Control Panel' if is_en else 'لوحة الإدارة المتقدمة')}</h1>
-      <div class="muted" style="margin-top:6px;">{esc(db_state)} • حالة البوت: <strong>{esc(MEM_BOT_HEARTBEAT['status'])}</strong></div>
-      <div class="kpi-grid">
-        <div class="kpi-box">
-          <div class="kpi-n">{len(all_guilds)}</div>
-          <div class="kpi-t">{('Servers' if is_en else 'السيرفرات')}</div>
-        </div>
-        <div class="kpi-box">
-          <div class="kpi-n">{len(admin_users)}</div>
-          <div class="kpi-t">{('Admins' if is_en else 'الأدمن')}</div>
-        </div>
-        <div class="kpi-box">
-          <div class="kpi-n">{len(prem_users)}</div>
-          <div class="kpi-t">{('Premium' if is_en else 'البريميوم')}</div>
-        </div>
-        <div class="kpi-box">
-          <div class="kpi-n">{len(backups)}</div>
-          <div class="kpi-t">نسخ احتياطية</div>
-        </div>
-      </div>
+    <div class="page-head">
+      <div class="eyebrow">OWNER / ADMIN COMMAND</div>
+      <h1>{('Admin Panel' if is_en else 'لوحة الإدارة')}</h1>
     </div>
 
-    <div class="glass-card">
-      <div class="feature-head" style="margin-bottom:10px;">
-        <h3 style="margin:0;">🛡 {('Admin Roles by User ID' if is_en else 'إعطاء صلاحية Admin عبر User ID')}</h3>
-        <span class="chip-v">ADMIN</span>
+    <form method="post" class="glass-card">
+      <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+      <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+      <label class="lbl">{('User ID' if is_en else 'آيدي المستخدم (User ID)')}</label>
+      <input class="inp" type="text" name="target_user_id" placeholder="1395418036919468073">
+      <div class="cta-row" style="margin-top:12px;">
+        <button class="btn-v btn-gold btn-sm" type="submit" name="admin_action" value="grant_premium">{('Grant Premium' if is_en else 'إعطاء بريميوم')}</button>
+        <button class="btn-g btn-danger btn-sm" type="submit" name="admin_action" value="revoke_premium">{('Revoke Premium' if is_en else 'سحب بريميوم')}</button>
+        <button class="btn-c btn-sm" type="submit" name="admin_action" value="grant_admin">{('Grant Admin' if is_en else 'إعطاء أدمن')}</button>
+        <button class="btn-g btn-danger btn-sm" type="submit" name="admin_action" value="revoke_admin">{('Revoke Admin' if is_en else 'سحب أدمن')}</button>
       </div>
-      <form method="POST" action="/admin" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-        <input type="hidden" name="csrf_token" value="{csrf_token}">
-        <input type="hidden" name="admin_action" value="grant_admin">
-        <input class="inp" type="text" name="target_admin_id" placeholder="{('Enter Account User ID' if is_en else 'أدخل User ID الحساب')}" required>
-        <button class="btn-v btn-sm" type="submit">{('Give Admin' if is_en else 'إعطاء Admin')}</button>
-      </form>
-      {admin_rows}
-    </div>
+    </form>
+
+    <form method="post" class="glass-card">
+      <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+      <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+      <h3 style="margin:0 0 8px;">{('Broadcast, Backup & Health' if is_en else 'تنبيه عام، النسخ الاحتياطي، ومراقبة البوت')}</h3>
+      <input class="inp" style="max-width:100%;" type="text" name="broadcast_msg" placeholder="{('Global broadcast message' if is_en else 'رسالة تنبيه عامة للبوت')}">
+      <div class="cta-row" style="margin-top:12px;">
+        <button class="btn-v btn-gold btn-sm" type="submit" name="admin_action" value="broadcast">{('Send Broadcast' if is_en else 'إرسال تنبيه')}</button>
+        <button class="btn-v btn-sm" type="submit" name="admin_action" value="backup_now">{('Create Backup' if is_en else 'إنشاء نسخة احتياطية')}</button>
+        <button class="btn-g btn-sm" type="submit" name="admin_action" value="test_backup">{('Test Restore' if is_en else 'فحص تشغيل البوت والنسخ')}</button>
+      </div>
+      <div style="margin-top:14px;">{backup_rows}</div>
+    </form>
 
     <div class="glass-card">
-      <div class="feature-head" style="margin-bottom:10px;">
-        <h3 style="margin:0;">✦ {('Premium Access by User ID' if is_en else 'منح البريميوم (Premium)')}</h3>
-        <span class="chip-c">PREMIUM</span>
-      </div>
-      <form method="POST" action="/admin" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-        <input type="hidden" name="csrf_token" value="{csrf_token}">
-        <input type="hidden" name="admin_action" value="grant_premium">
-        <input class="inp" type="text" name="target_user_id" placeholder="{('Enter Account User ID' if is_en else 'أدخل User ID الشخص')}" required>
-        <button class="btn-v btn-gold btn-sm" type="submit">{('Give Premium' if is_en else 'إعطاء بريميوم')}</button>
-      </form>
-      {prem_rows}
-    </div>
-
-    <div class="glass-card">
-      <div class="feature-head" style="margin-bottom:10px;">
-        <h3 style="margin:0;">📣 تنبيه عام، النسخ الاحتياطي، ومراقبة البوت</h3>
-        <span class="chip-g">OPS</span>
-      </div>
-      <form method="POST" action="/admin" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-        <input type="hidden" name="csrf_token" value="{csrf_token}">
-        <input type="hidden" name="admin_action" value="broadcast_alert">
-        <input class="inp" type="text" name="broadcast_text" placeholder="رسالة تنبيه عامة للبوت">
-        <button class="btn-v btn-gold btn-sm" type="submit">إرسال تنبيه</button>
-      </form>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-        <form method="POST" action="/admin" style="margin:0;">
-          <input type="hidden" name="csrf_token" value="{csrf_token}">
-          <input type="hidden" name="admin_action" value="create_backup">
-          <button class="btn-v btn-sm" type="submit">إنشاء نسخة احتياطية</button>
-        </form>
-        <form method="POST" action="/admin" style="margin:0;">
-          <input type="hidden" name="csrf_token" value="{csrf_token}">
-          <input type="hidden" name="admin_action" value="ping_bot">
-          <button class="btn-g btn-sm" type="submit">فحص تشغيل البوت</button>
-        </form>
-      </div>
-      {backup_rows}
-    </div>
-
-    <div class="glass-card">
-      <div class="feature-head" style="margin-bottom:10px;">
-        <h3 style="margin:0;">◈ {('Bot Guilds' if is_en else 'السيرفرات المتواجد فيها البوت')}</h3>
-        <span class="chip-v">{len(all_guilds)}</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <h3 style="margin:0;">{('Bot Guilds' if is_en else 'السيرفرات المتواجدة فيها البوت')}</h3>
+        <span class="chip-v">{len(all_bot_guilds)}</span>
       </div>
       {guilds_rows}
     </div>
+
+    <div class="glass-card">
+      <h3 style="margin:0 0 10px;">{('Premium & Admins' if is_en else 'حسابات البريميوم والإدارة')} ({len(prem_list)} / {len(adm_list)})</h3>
+      {prem_rows}
+    </div>
     """
-    return web.Response(text=render_page("Admin Panel" if is_en else "لوحة الإدارة", "admin", body, request, flash=flash), content_type="text/html")
+    return web.Response(
+        text=render_page("Admin Panel" if is_en else "لوحة الإدارة", "admin", body, request, flash=flash),
+        content_type="text/html",
+    )
 
 
 async def handle_services(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
     body = f"""
     <div class="page-head">
-      <div class="eyebrow">PLANS & MODULES</div>
-      <h1>{('Services & Plans' if is_en else 'الخدمات والاشتراكات')}</h1>
+      <div class="eyebrow">CAPABILITIES</div>
+      <h1>{('Services & Protection Suite' if is_en else 'الخدمات وأنظمة الحماية')}</h1>
     </div>
     <div class="glass-card">
-      <span class="chip-v">{('CORE SHIELD' if is_en else 'الحماية الأساسية')}</span>
-      <h3 style="margin:8px 0 6px;">Full Security, Analytics & Recovery Suite</h3>
-      <p class="muted" style="line-height:1.65;">{('Webhooks, apps, bots, privilege escalation, role/channel permissions, mass unban/kick/timeout, behavior analysis, snapshots, rollback, simulations, API guard, and DB backups.' if is_en else 'منظومة حماية كاملة تشمل الويب هوك والتطبيقات والبوتات، تصعيد الصلاحيات، الإجراءات الجماعية، تحليل السلوك، النسخ والاسترجاع، محاكاة الهجمات، وحماية قاعدة البيانات.')}</p>
+      <h3 style="margin:0 0 8px;">🛡 Anti-Nuke & Shield Engine</h3>
+      <p class="muted" style="margin:0;line-height:1.7;">{('Monitors webhooks, bots, roles, channels, and mass moderation actions in real time with instant punishment and rollback support.' if is_en else 'يراقب الويب هوك والبوتات والرتب والقنوات والإجراءات الجماعية لحظياً مع تنفيذ العقوبات وحفظ لقطات الصلاحيات.')}</p>
     </div>
     <div class="glass-card">
-      <span class="chip-c">{('PREMIUM PERKS' if is_en else 'مزايا البريميوم')}</span>
-      <h3 style="margin:8px 0 6px;">Per-Server Identity, Ultra Fortress, Instant Rollback & Alerts</h3>
-      <p class="muted" style="line-height:1.65;">{('Customize bot avatar, banner, and bio inside a single server, activate Ultra Fortress Mode, restore permission snapshots instantly, and set alert channels or webhooks.' if is_en else 'تخصيص صورة وبنر وبايو البوت داخل سيرفر محدد، تفعيل وضع الحصن الفائق، استرجاع لقطات الصلاحيات فوراً، وضبط قناة أو ويب هوك للتنبيهات الفورية.')}</p>
+      <h3 style="margin:0 0 8px;">✦ Premium Server Perks</h3>
+      <p class="muted" style="margin:0;line-height:1.7;">{('Per-guild bot profile customization, Ultra Fortress Mode, instant rollback, and custom breach alert channels or webhooks.' if is_en else 'تخصيص هوية البوت لكل سيرفر، وضع الحصن الفائق، الاسترجاع الفوري، وقنوات أو ويب هوك التنبيهات.')}</p>
     </div>
     """
     return web.Response(text=render_page("Services" if is_en else "الخدمات", "services", body, request), content_type="text/html")
@@ -3310,173 +3027,140 @@ async def handle_updates(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
     logs = get_recent_logs(40)
     rows = "".join(
-        f"<div class='log-line'><code>{esc(item.get('time',''))}</code> [{esc(item.get('level','LOG'))}] {esc(item.get('message',''))}</div>"
-        for item in logs
-    ) or f"<p class='muted'>{'No updates or logs yet.' if is_en else 'لا توجد تحديثات أو سجلات مسجلة حالياً.'}</p>"
+        f"<div class='log-line'><strong>[{esc(l.get('level'))}]</strong> {esc(l.get('message'))} <span class='muted'>({esc(l.get('time'))})</span></div>"
+        for l in logs
+    ) or f"<p class='muted'>{('No logs yet.' if is_en else 'لا توجد سجلات بعد.')}</p>"
     body = f"""
     <div class="page-head">
-      <div class="eyebrow">CHANGELOG & ACTIVITY</div>
+      <div class="eyebrow">ACTIVITY STREAM</div>
       <h1>{('Updates & Logs' if is_en else 'التحديثات والسجلات')}</h1>
     </div>
     <div class="glass-card">{rows}</div>
     """
-    return web.Response(text=render_page("Updates" if is_en else "التحديثات", "updates", body, request), content_type="text/html")
+    return web.Response(text=render_page("Updates & Logs" if is_en else "التحديثات والسجلات", "updates", body, request), content_type="text/html")
 
 
 async def handle_links(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
-    main_url = esc(detect_main_url(request))
-    support_url = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.gg/khQXQCtjMS")
-
+    safe_invite = esc(sanitize_http_url(BOT_INVITE_URL) or "https://discord.com")
+    safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
     body = f"""
     <div class="page-head">
-      <div class="eyebrow">{('OFFICIAL LINKS' if is_en else 'الروابط الرسمية')}</div>
-      <h1>{('Links' if is_en else 'الروابط')}</h1>
+      <div class="eyebrow">DIRECTORY</div>
+      <h1>{('Official Links' if is_en else 'الروابط الرسمية')}</h1>
     </div>
-
-    <div class="grid-cards">
-      <div class="glass-card" style="margin-bottom:0;display:flex;flex-direction:column;justify-content:space-between;gap:14px;">
-        <div>
-          <span class="chip-c">{('MAIN WEBSITE' if is_en else 'الموقع الرئيسي')}</span>
-          <h3 style="margin:10px 0 6px;font-size:18px;font-weight:900;">{esc(SITE_NAME)}</h3>
-          <div class="muted" style="word-break:break-all;"><code>{main_url}/</code></div>
-        </div>
-        <div>
-          <a class="btn-v btn-sm" href="{main_url}/">{('Open Website' if is_en else 'دخول الموقع')} →</a>
-        </div>
-      </div>
-
-      <div class="glass-card" style="margin-bottom:0;display:flex;flex-direction:column;justify-content:space-between;gap:14px;">
-        <div>
-          <span class="chip-v">{('SUPPORT SERVER' if is_en else 'سيرفر الدعم الفني')}</span>
-          <h3 style="margin:10px 0 6px;font-size:18px;font-weight:900;">{('Discord Support' if is_en else 'دعم ARAB SECURITY')}</h3>
-          <div class="muted" style="word-break:break-all;"><code>{support_url}</code></div>
-        </div>
-        <div>
-          <a class="btn-c btn-sm" href="{support_url}" target="_blank" rel="noopener noreferrer">{('Join Support' if is_en else 'انضم للدعم الفني')} →</a>
-        </div>
+    <div class="glass-card">
+      <div class="cta-row">
+        <a class="btn-v" href="{safe_invite}" target="_blank" rel="noopener noreferrer">{('Invite Bot' if is_en else 'رابط إضافة البوت')}</a>
+        <a class="btn-c" href="{safe_support}" target="_blank" rel="noopener noreferrer">{('Support Server' if is_en else 'سيرفر الدعم الفني')}</a>
       </div>
     </div>
     """
-    return web.Response(
-        text=render_page("Links" if is_en else "الروابط", "links", body, request),
-        content_type="text/html",
-    )
+    return web.Response(text=render_page("Links" if is_en else "الروابط", "links", body, request), content_type="text/html")
 
 
 async def handle_login(request: web.Request) -> web.Response:
-    if not DISCORD_CLIENT_ID:
-        return web.Response(text="DISCORD_CLIENT_ID غير مضبوط.", status=400, content_type="text/plain")
-    if not DISCORD_CLIENT_SECRET:
-        raise web.HTTPFound(f"/?msg={quote('يرجى ضبط DISCORD_CLIENT_SECRET في متغيرات البيئة لتفعيل تسجيل الدخول بديسكورد.')}")
-    oauth_state = issue_oauth_state()
-    params = urlencode(
-        {
-            "client_id": DISCORD_CLIENT_ID,
-            "redirect_uri": detect_redirect_uri(request),
-            "response_type": "code",
-            "scope": "identify guilds",
-            "state": oauth_state,
-        }
-    )
-    raise web.HTTPFound(f"https://discord.com/api/oauth2/authorize?{params}")
+    ip = get_client_ip(request)
+    if is_rate_limited(ip, is_sensitive=True):
+        return web.Response(text="Too many login requests.", status=429)
+    if not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
+        return web.Response(
+            text="DISCORD_CLIENT_ID أو DISCORD_CLIENT_SECRET غير مضبوط في متغيرات البيئة.",
+            status=500,
+        )
+    state = issue_oauth_state()
+    redirect_uri = detect_redirect_uri(request)
+    params = {
+        "client_id": DISCORD_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "identify guilds",
+        "state": state,
+    }
+    raise web.HTTPFound(f"https://discord.com/oauth2/authorize?{urlencode(params)}")
 
 
 async def handle_callback(request: web.Request) -> web.Response:
-    oauth_err = str(request.query.get("error", "")).strip()
-    if oauth_err:
-        log_event(f"محاولة دخول مرفوضة أو ملغاة من IP {get_client_ip(request)}: {oauth_err[:40]}", level="WARN")
-        raise web.HTTPFound(f"/?msg={quote('تم إلغاء أو رفض الربط من ديسكورد.')}")
+    ip = get_client_ip(request)
+    if is_rate_limited(ip, is_sensitive=True):
+        return web.Response(text="Too many callback requests.", status=429)
+    if request.query.get("error"):
+        raise web.HTTPFound("/?msg=" + quote("تم إلغاء تسجيل الدخول عبر ديسكورد."))
 
-    state_val = str(request.query.get("state", "")).strip()
-    if not consume_oauth_state(state_val):
-        log_event(f"محاولة OAuth غير صالحة أو منتهية من IP {get_client_ip(request)}", level="WARN")
-        raise web.HTTPFound(f"/?msg={quote('انتهت صلاحية جلسة التحقق من ديسكورد، أعد المحاولة.')}")
+    state = request.query.get("state", "")
+    code = request.query.get("code", "")
+    if not consume_oauth_state(state) or not code:
+        raise web.HTTPFound("/?msg=" + quote("رمز التحقق غير صالح أو منتهي الصلاحية."))
 
-    code = str(request.query.get("code", "")).strip()
-    if not code:
-        log_event(f"محاولة دخول ناقصة من IP {get_client_ip(request)}", level="WARN")
-        raise web.HTTPFound(f"/?msg={quote('لم يتم استلام رمز الدخول من ديسكورد.')}")
-
-    if not DISCORD_CLIENT_SECRET:
-        raise web.HTTPFound(f"/?msg={quote('DISCORD_CLIENT_SECRET غير مضبوط في متغيرات البيئة.')}")
+    redirect_uri = detect_redirect_uri(request)
+    user_info: dict = {}
+    compact_guilds: list[dict] = []
 
     try:
         async with ClientSession() as session:
-            async with session.post(
+            token_resp = await session.post(
                 "https://discord.com/api/oauth2/token",
                 data={
                     "client_id": DISCORD_CLIENT_ID,
                     "client_secret": DISCORD_CLIENT_SECRET,
                     "grant_type": "authorization_code",
                     "code": code,
-                    "redirect_uri": detect_redirect_uri(request),
+                    "redirect_uri": redirect_uri,
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=8,
-            ) as resp:
-                if resp.status != 200:
-                    log_event(f"فشل تبادل التوكن من ديسكورد ({resp.status})", level="OAUTH")
-                    raise web.HTTPFound(f"/?msg={quote('فشل إتمام الربط مع ديسكورد (تحقق من Client Secret و Redirect URI).')}")
-                token_data = await resp.json()
-
+            )
+            token_data = await token_resp.json()
             access_token = str(token_data.get("access_token", "")).strip()
             if not access_token:
-                raise web.HTTPFound(f"/?msg={quote('لم يتم استلام رمز وصول صالح من ديسكورد.')}")
-            headers = {"Authorization": f"Bearer {access_token}"}
+                raise web.HTTPFound("/?msg=" + quote("تعذر الحصول على رمز الوصول من ديسكورد."))
 
-            async with session.get("https://discord.com/api/users/@me", headers=headers, timeout=8) as uresp:
-                if uresp.status != 200:
-                    raise web.HTTPFound(f"/?msg={quote('تعذر جلب بيانات الحساب من ديسكورد.')}")
-                u = await uresp.json()
+            auth_headers = {"Authorization": f"Bearer {access_token}"}
+            u_resp = await session.get("https://discord.com/api/users/@me", headers=auth_headers)
+            user_info = await u_resp.json()
 
-            compact_guilds = []
-            async with session.get("https://discord.com/api/users/@me/guilds", headers=headers, timeout=8) as gresp:
-                if gresp.status == 200:
-                    gdata = await gresp.json()
-                    if isinstance(gdata, list):
-                        for g in gdata[:60]:
-                            gid = str(g.get("id", "")).strip()
-                            if gid.isdigit():
-                                compact_guilds.append(
-                                    {
-                                        "id": gid,
-                                        "name": str(g.get("name", f"Server {gid}"))[:60],
-                                        "icon": str(g.get("icon", "") or "")[:40],
-                                        "owner": bool(g.get("owner", False)),
-                                        "permissions": int(g.get("permissions", 0) or 0),
-                                    }
-                                )
+            g_resp = await session.get("https://discord.com/api/users/@me/guilds", headers=auth_headers)
+            g_list = await g_resp.json()
+            if isinstance(g_list, list):
+                # رفع الحد إلى 200 سيرفر حتى لا تُقتطع السيرفرات
+                for g in g_list[:200]:
+                    if isinstance(g, dict) and str(g.get("id", "")).isdigit():
+                        compact_guilds.append(
+                            {
+                                "id": str(g["id"]),
+                                "name": str(g.get("name", ""))[:100],
+                                "icon": str(g.get("icon", "") or "")[:60],
+                                "owner": bool(g.get("owner", False)),
+                                "permissions": int(g.get("permissions", 0) or 0),
+                            }
+                        )
+    except ClientError:
+        raise web.HTTPFound("/?msg=" + quote("حدث خطأ أثناء الاتصال بخوادم ديسكورد."))
 
-        payload = {
-            "id": str(u.get("id", "")),
-            "username": str(u.get("username", "User"))[:40],
-            "avatar": str(u.get("avatar", "") or "")[:40],
+    uid = str(user_info.get("id", "")).strip()
+    if not uid.isdigit():
+        raise web.HTTPFound("/?msg=" + quote("تعذر قراءة بيانات الحساب."))
+
+    signed_tok = sign_session(
+        {
+            "id": uid,
+            "username": str(user_info.get("username", "User"))[:40],
+            "avatar": str(user_info.get("avatar", "") or "")[:40],
             "guilds": compact_guilds,
-            "exp": float(time.time() + 86400 * 7),
+            "exp": time.time() + 86400 * 7,
         }
-        signed_tok = sign_session(payload)
-        log_event(f"تم تسجيل دخول الحساب {payload['username']} ({payload['id']})", level="AUTH")
-
-        resp = web.HTTPFound("/servers")
-        resp.set_cookie(
-            "arab_sec_session",
-            signed_tok,
-            max_age=86400 * 7,
-            httponly=True,
-            secure=True,
-            samesite="Lax",
-            path="/",
-        )
-        return resp
-    except web.HTTPException:
-        raise
-    except ClientError as exc:
-        log_event(f"خطأ شبكة أثناء ربط الحساب بديسكورد: {type(exc).__name__}", level="WARN")
-        raise web.HTTPFound(f"/?msg={quote('تعذر الاتصال بخوادم ديسكورد مؤقتاً، أعد المحاولة.')}")
-    except Exception as exc:
-        log_event(f"فشل ربط الحساب: {type(exc).__name__}", level="WARN")
-        raise web.HTTPFound(f"/?msg={quote('تعذر إتمام الربط بديسكورد، أعد المحاولة.')}")
+    )
+    resp = web.HTTPFound("/servers")
+    resp.set_cookie(
+        "arab_sec_session",
+        signed_tok,
+        max_age=86400 * 7,
+        httponly=True,
+        secure=True,
+        samesite="Lax",
+        path="/",
+    )
+    log_event(f"تسجيل دخول المستخدم {uid}", level="WEB")
+    return resp
 
 
 async def handle_logout(request: web.Request) -> web.Response:
@@ -3488,77 +3172,36 @@ async def handle_logout(request: web.Request) -> web.Response:
     return resp
 
 
-async def handle_backup(request: web.Request) -> web.Response:
-    user = get_discord_session(request)
-    if not is_site_admin(user):
-        return web.json_response(
-            {"ok": False, "error": "Unauthorized: admin access required"},
-            status=403,
-        )
-    backup_data = create_db_backup()
-    log_event(f"تم إنشاء نسخة احتياطية عبر /backup بواسطة {user.get('id')}", level="ADMIN")
-    return web.json_response({"ok": True, "backup": backup_data})
-
-
-async def handle_health(request: web.Request) -> web.Response:
-    MEM_BOT_HEARTBEAT["last_seen"] = _now_str()
+async def health_handler(request: web.Request) -> web.Response:
     return web.json_response(
         {
             "ok": True,
             "site": SITE_NAME,
-            "owner": OWNER_NAME,
-            "bot": MEM_BOT_HEARTBEAT,
-            "db_connected": db is not None,
+            "bot_guilds_count": len(get_all_guilds()),
+            "db_online": db is not None,
         }
     )
 
 
 @web.middleware
-async def security_middleware(request: web.Request, handler):
+async def security_and_visit_middleware(request: web.Request, handler):
     ip = get_client_ip(request)
-    is_sensitive = request.path.startswith(("/login", "/callback", "/admin", "/logout"))
-    if is_rate_limited(ip, is_sensitive=is_sensitive):
-        return web.Response(status=429, text="تم تجاوز الحد المسموح من الطلبات.", content_type="text/plain")
-    if request.method == "POST" and request.headers.get("X-Replay-Check") == "1":
-        if is_replay_request(request.headers.get("X-Request-Nonce")):
-            return web.Response(status=409, text="طلب مكرر مرفوض.", content_type="text/plain")
+    is_auth = request.path in ("/login", "/callback")
+    if is_rate_limited(ip, is_sensitive=is_auth):
+        return web.Response(text="Rate limit exceeded.", status=429)
+
     record_site_visit(request)
-    try:
-        response = await handler(request)
-        lang_q = str(request.query.get("lang", "")).strip().lower()
-        if lang_q in ("ar", "en"):
-            response.set_cookie("arab_sec_lang", lang_q, max_age=86400 * 365, path="/", samesite="Lax")
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self' https:; "
-            "img-src 'self' https: data:; "
-            "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "frame-ancestors 'self';"
-        )
-        if request.path.startswith(("/admin", "/guild", "/premium", "/servers", "/login", "/callback")):
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
-        return response
-    except web.HTTPException:
-        raise
-    except Exception as exc:
-        log_event(f"خطأ داخلي في المسار {request.path}: {type(exc).__name__}", level="ERROR")
-        return web.Response(
-            status=500,
-            text="حدث خطأ داخلي في الخادم وتم تسجيله بأمان.",
-            content_type="text/plain",
-        )
+    response = await handler(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 
 def create_app() -> web.Application:
-    app = web.Application(middlewares=[security_middleware])
+    app = web.Application(middlewares=[security_and_visit_middleware])
     app.router.add_get("/", home_handler)
     app.router.add_get("/servers", handle_servers)
-    app.router.add_get("/dashboard", handle_servers)
     app.router.add_get("/guild", handle_guild)
     app.router.add_post("/guild", handle_guild)
     app.router.add_get("/premium", handle_premium)
@@ -3570,12 +3213,12 @@ def create_app() -> web.Application:
     app.router.add_get("/links", handle_links)
     app.router.add_get("/login", handle_login)
     app.router.add_get("/callback", handle_callback)
-    app.router.add_get("/backup", handle_backup)
     app.router.add_get("/logout", handle_logout)
-    app.router.add_get("/health", handle_health)
+    app.router.add_get("/health", health_handler)
+    app.router.add_post("/api/bot/sync-guilds", api_bot_sync_guilds)
+    app.router.add_get("/api/bot/pending-commands", api_bot_pending_commands)
     return app
 
 
 if __name__ == "__main__":
-    print(f"========== {SITE_NAME} ({OWNER_NAME}) — Web on {HOST}:{PORT} ==========")
-    web.run_app(create_app(), host=HOST, port=PORT, print=None)
+    web.run_app(create_app(), host=HOST, port=PORT)
