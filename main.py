@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import html
@@ -18,8 +19,8 @@ except Exception:
 
 
 SITE_NAME = os.getenv("SITE_NAME", "ARAB SECURITY").strip() or "ARAB SECURITY"
-OWNER_NAME = os.getenv("OWNER_NAME", "ابوسعده السويط").strip() or "كايد"
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "").strip()
+OWNER_NAME = os.getenv("OWNER_NAME", "سعود السويط").strip() or "محمد العنزي"
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1573635674551357550").strip() or "1573635674551357550"
 
 DEFAULT_DOMAIN_URL = "https://3rabsecurity.de5.net"
 DEFAULT_REDIRECT_URI = f"{DEFAULT_DOMAIN_URL}/callback"
@@ -39,7 +40,10 @@ BOT_INVITE_URL = os.getenv(
 MONGO_URI = os.getenv("MONGO_URI", "").strip()
 MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
 
-SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
+SESSION_SECRET = (
+    os.getenv("SESSION_SECRET")
+    or "uo6vvo4GZ_xCzTx9qLDUijEEiv2Gifj1"
+).strip()
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "120") or "120")
 
 TRUST_PROXY = os.getenv("TRUST_PROXY", "true").strip().lower() in ("1", "true", "yes", "on")
@@ -50,14 +54,12 @@ TRUSTED_PROXY_IPS = {
 }
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "H40x3e2A_gYXuFfUICKv19d51jfGm66y").strip()
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "").strip()
 
-if not DISCORD_CLIENT_SECRET:
-    raise RuntimeError("DISCORD_CLIENT_SECRET مطلوب ويجب ضبطه في متغيرات البيئة.")
-if not SESSION_SECRET:
-    raise RuntimeError("SESSION_SECRET مطلوب ويجب ضبطه في متغيرات البيئة.")
-if not ADMIN_USER_ID or not ADMIN_USER_ID.isdigit():
-    raise RuntimeError("ADMIN_USER_ID مطلوب ويجب أن يكون رقماً صحيحاً في متغيرات البيئة.")
+if not SESSION_SECRET or len(SESSION_SECRET) < 16:
+    raise RuntimeError("SESSION_SECRET مطلوب ويجب أن يكون بطول 16 حرفاً على الأقل.")
+if not ADMIN_USER_ID.isdigit():
+    raise RuntimeError("ADMIN_USER_ID يجب أن يكون رقماً صحيحاً.")
 
 ANTINUKE_RULE_KEYS = (
     "anti_ban",
@@ -942,8 +944,7 @@ def sign_session(payload: dict) -> str:
     }
     SESSIONS[sid] = record
     raw_b64 = json.dumps({"sid": sid, "exp": exp_val}, separators=(",", ":")).encode("utf-8")
-    import base64 as _b64
-    token_body = _b64.urlsafe_b64encode(raw_b64).decode("ascii")
+    token_body = base64.urlsafe_b64encode(raw_b64).decode("ascii")
     sig = _sign_hmac(token_body)
     return f"{token_body}.{sig}"
 
@@ -960,9 +961,8 @@ def verify_session(token: str | None) -> tuple[str, dict] | None:
     if not hmac.compare_digest(sig, expected_sig):
         return None
     try:
-        import base64 as _b64
         padded = token_body + "=" * (-len(token_body) % 4)
-        meta = json.loads(_b64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        meta = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
     except Exception:
         return None
     sid = str(meta.get("sid", "")).strip()
@@ -2970,6 +2970,8 @@ async def handle_links(request: web.Request) -> web.Response:
 async def handle_login(request: web.Request) -> web.Response:
     if not DISCORD_CLIENT_ID:
         return web.Response(text="DISCORD_CLIENT_ID غير مضبوط.", status=400, content_type="text/plain")
+    if not DISCORD_CLIENT_SECRET:
+        raise web.HTTPFound(f"/?msg={quote('يرجى ضبط DISCORD_CLIENT_SECRET في متغيرات البيئة لتفعيل تسجيل الدخول بديسكورد.')}")
     params = urlencode(
         {
             "client_id": DISCORD_CLIENT_ID,
@@ -2991,6 +2993,9 @@ async def handle_callback(request: web.Request) -> web.Response:
     if not code:
         log_event(f"محاولة دخول ناقصة من IP {get_client_ip(request)}", level="WARN")
         raise web.HTTPFound(f"/?msg={quote('لم يتم استلام رمز الدخول من ديسكورد.')}")
+
+    if not DISCORD_CLIENT_SECRET:
+        raise web.HTTPFound(f"/?msg={quote('DISCORD_CLIENT_SECRET غير مضبوط في متغيرات البيئة.')}")
 
     try:
         async with ClientSession() as session:
