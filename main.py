@@ -44,12 +44,13 @@ BOT_INVITE_URL = os.getenv(
     "https://discord.com/oauth2/authorize?client_id=1573635674551357550&permissions=8&integration_type=0&scope=bot%20applications.commands",
 ).strip()
 
+
 MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
 MONGO_USER = os.getenv("MONGO_USER", "soudfares02_db_user").strip()
-MONGO_PASS = os.getenv("MONGO_PASS", "YCVAVw2LXBy5XSbO").strip()
+MONGO_PASS = os.getenv("MONGO_PASS", "XFpjfdaMuqTzcvIZ").strip()
 MONGO_HOST = os.getenv("MONGO_HOST", "").strip()
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority
-").strip()
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority").strip()
+
 
 if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     safe_user = quote(MONGO_USER, safe="")
