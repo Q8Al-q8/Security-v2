@@ -23,8 +23,8 @@ except Exception:
 
 
 SITE_NAME = os.getenv("SITE_NAME", "ARAB SECURITY").strip() or "ARAB SECURITY"
-OWNER_NAME = os.getenv("OWNER_NAME", "سعود السويط").strip() or "كايد"
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1395418036919468073").strip() or "1395418036919468073"
+OWNER_NAME = os.getenv("OWNER_NAME", "كايد").strip() or "كايد"
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1573635674551357550").strip() or "1573635674551357550"
 
 DEFAULT_DOMAIN_URL = "https://3rabsecurity.de5.net"
 DEFAULT_REDIRECT_URI = f"{DEFAULT_DOMAIN_URL}/callback"
@@ -55,7 +55,7 @@ if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
 
 SESSION_SECRET = (
     os.getenv("SESSION_SECRET")
-    or "WPslR_OLgeiqGYGKm4NDv3Sjdjs5s8ke"
+    or "uo6vvo4GZ_xCzTx9qLDUijEEiv2Gifj1"
 ).strip()
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "120") or "120")
 AUTH_RATE_LIMIT_PER_MIN = int(os.getenv("AUTH_RATE_LIMIT_PER_MIN", "25") or "25")
@@ -167,6 +167,14 @@ def _fresh_default_guild_cfg() -> dict:
             "avatar_url": "",
             "banner_url": "",
         },
+        "premium_perks": {
+            "ultra_fortress_mode": False,
+            "instant_rollback_enabled": True,
+            "priority_shield_response": True,
+            "alert_channel_id": "",
+            "alert_webhook_url": "",
+            "last_restored_snapshot": "",
+        },
     }
 
 
@@ -186,7 +194,7 @@ MEM_BACKUPS: deque[dict] = deque(maxlen=25)
 MEM_BOT_HEARTBEAT: dict[str, str] = {
     "status": "ONLINE",
     "last_seen": "",
-    "latency_ms": "24ms",
+    "latency_ms": "22ms",
 }
 
 CSRF_TOKENS: dict[str, dict] = {}
@@ -721,8 +729,8 @@ def get_guild_cfg(guild_id: str) -> dict:
             for ak, av in v.items():
                 if ak in cfg["antinuke"] and isinstance(av, dict):
                     cfg["antinuke"][ak].update(av)
-        elif k == "guild_profile" and isinstance(v, dict):
-            cfg["guild_profile"].update(v)
+        elif k in ("guild_profile", "premium_perks") and isinstance(v, dict):
+            cfg[k].update(v)
         else:
             cfg[k] = v
     if guild_settings_col is not None:
@@ -734,8 +742,8 @@ def get_guild_cfg(guild_id: str) -> dict:
                         for ak, av in doc["antinuke"].items():
                             if ak in cfg["antinuke"] and isinstance(av, dict):
                                 cfg["antinuke"][ak].update(av)
-                    elif k == "guild_profile" and isinstance(doc.get("guild_profile"), dict):
-                        cfg["guild_profile"].update(doc["guild_profile"])
+                    elif k in ("guild_profile", "premium_perks") and isinstance(doc.get(k), dict):
+                        cfg[k].update(doc[k])
                     elif k in doc:
                         cfg[k] = doc[k]
         except PyMongoError:
@@ -800,6 +808,19 @@ def save_guild_cfg(guild_id: str, updates: dict) -> dict:
             prof["avatar_url"] = sanitize_http_url(updates["guild_profile"]["avatar_url"])
         if "banner_url" in updates["guild_profile"]:
             prof["banner_url"] = sanitize_http_url(updates["guild_profile"]["banner_url"])
+    if "premium_perks" in updates and isinstance(updates["premium_perks"], dict):
+        perks = cfg["premium_perks"]
+        p_upd = updates["premium_perks"]
+        for bool_k in ("ultra_fortress_mode", "instant_rollback_enabled", "priority_shield_response"):
+            if bool_k in p_upd:
+                perks[bool_k] = bool(p_upd[bool_k])
+        if "alert_channel_id" in p_upd:
+            ch_val = str(p_upd["alert_channel_id"] or "").strip()
+            perks["alert_channel_id"] = ch_val if ch_val.isdigit() else ""
+        if "alert_webhook_url" in p_upd:
+            perks["alert_webhook_url"] = sanitize_http_url(p_upd["alert_webhook_url"])
+        if "last_restored_snapshot" in p_upd:
+            perks["last_restored_snapshot"] = str(p_upd["last_restored_snapshot"] or "").strip()[:32]
     if "whitelist_add" in updates:
         uid = str(updates["whitelist_add"] or "").strip()
         if uid.isdigit() and uid not in cfg["whitelist"]:
@@ -871,6 +892,8 @@ def calculate_security_score(cfg: dict) -> tuple[int, str]:
     ):
         if cfg.get(key):
             score += 2
+    if (cfg.get("premium_perks") or {}).get("ultra_fortress_mode"):
+        score += 5
     score = max(0, min(100, score))
     if score >= 85:
         grade = "A+ (محصّن بالكامل)"
@@ -900,7 +923,7 @@ def run_auto_perms_audit(guild_id: str) -> list[str]:
 def run_attack_simulation(guild_id: str, scenario: str) -> str:
     cfg = get_guild_cfg(guild_id)
     score, _ = calculate_security_score(cfg)
-    blocked = score >= 50 or bool(cfg.get("emergency_mode"))
+    blocked = score >= 50 or bool(cfg.get("emergency_mode")) or bool((cfg.get("premium_perks") or {}).get("ultra_fortress_mode"))
     outcome = "تم صد المحاكاة وتفعيل الاسترجاع التلقائي" if blocked else "رصدت المحاكاة ثغرة تحتاج تفعيل الحماية"
     record_incident(guild_id, "SIMULATION", f"محاكاة [{scenario}]: {outcome}", "INFO")
     return f"{outcome} (مستوى الأمان الحالي: {score}/100)."
@@ -1119,9 +1142,9 @@ def render_page(
         "auth_sub": "DISCORD ACCOUNT REQUIRED" if is_en else "ربط حساب ديسكورد مطلوب",
         "auth_title": "Connect Your Discord Account" if is_en else "ربط الحساب بديسكورد",
         "auth_desc": (
-            "To access the Dashboard, view your servers, and manage protection settings, click Login with Discord below."
+            "To access the Cyber Command Center, manage your servers, and unlock protection tools, sign in with Discord."
             if is_en
-            else "للدخول إلى الداشبورد وعرض السيرفرات والتحكم بها، اضغط زر Login with Discord بالأسفل."
+            else "للدخول إلى مركز القيادة وعرض السيرفرات والتحكم بأنظمة الحماية والبريميوم، سجل دخولك عبر ديسكورد."
         ),
         "supervised": "Supervised by" if is_en else "بإشراف",
         "menu": "Menu" if is_en else "القائمة",
@@ -1137,23 +1160,23 @@ def render_page(
             else f"<div class='avatar'>{(uname_safe[:1]).upper()}</div>"
         )
         badge_txt = "ADMIN" if is_admin else ("PREMIUM" if is_prem else "MEMBER")
-        drawer_account_block = (
+        account_block = (
             f"<div class='user-box'>{avatar_html}"
-            f"<div><div class='uname'>{uname_safe} <span class='tag'>{badge_txt}</span></div>"
+            f"<div style='min-width:0;'><div class='uname'>{uname_safe} <span class='tag'>{badge_txt}</span></div>"
             f"<div class='uhandle'>ID: <code>{uid}</code></div></div></div>"
-            f"<a class='drawer-link danger' href='/logout'>{L['logout']}</a>"
+            f"<a class='nav-item danger' href='/logout'><span>⎋</span><span>{L['logout']}</span></a>"
         )
     else:
-        drawer_account_block = f"<a class='login-btn anim-btn' href='/login'>{L['login_discord']}</a>"
+        account_block = f"<a class='login-btn anim-btn' href='/login'>{L['login_discord']}</a>"
 
     if require_auth_view and not user:
         final_content = f"""
-        <div class="page-title anim-card">
-          <div class="sub">{L['auth_sub']}</div>
+        <div class="page-head anim-card">
+          <div class="eyebrow">{L['auth_sub']}</div>
           <h1>{L['auth_title']}</h1>
         </div>
-        <div class="feature-card anim-card" style="text-align:center;">
-          <p class="muted" style="margin-bottom:18px;">{L['auth_desc']}</p>
+        <div class="glass-card anim-card" style="text-align:center;">
+          <p class="muted" style="margin-bottom:20px;">{L['auth_desc']}</p>
           <a class="btn-discord anim-btn" href="/login">{L['login_discord']}</a>
         </div>
         """
@@ -1162,20 +1185,32 @@ def render_page(
 
     flash_banner = f"<div class='flash anim-card' role='status'>{esc(safe_flash)}</div>" if safe_flash else ""
 
-    premium_nav = (
-        f"<a class='drawer-link {'active' if active_nav == 'premium' else ''}' href='/premium'>{L['premium']}</a>"
-        if is_prem
-        else ""
+    nav_items = [
+        ("home", "/", "◈", L["home"]),
+        ("servers", "/servers", "❖", L["servers"]),
+        ("guild", "/guild", "🛡", L["guild"]),
+    ]
+    if is_prem:
+        nav_items.append(("premium", "/premium", "✦", L["premium"]))
+    if is_admin:
+        nav_items.append(("admin", "/admin", "⚡", L["admin"]))
+    nav_items.extend(
+        [
+            ("services", "/services", "◈", L["services"]),
+            ("updates", "/updates", "▤", L["updates"]),
+            ("links", "/links", "⛓", L["links"]),
+        ]
     )
-    admin_nav = (
-        f"<a class='drawer-link {'active' if active_nav == 'admin' else ''}' href='/admin'>{L['admin']}</a>"
-        if is_admin
-        else ""
+
+    nav_links_html = "".join(
+        f"<a class='nav-item {'active' if active_nav == key else ''}' href='{href}'><span>{ico}</span><span>{lbl}</span></a>"
+        for key, href, ico, lbl in nav_items
     )
 
     next_lang = "ar" if is_en else "en"
     lang_label = "العربية" if is_en else "English"
     safe_invite_url = esc(sanitize_http_url(BOT_INVITE_URL) or "https://discord.com")
+    db_pill = "DB ONLINE" if db is not None else "MEM CACHE"
 
     return f"""<!DOCTYPE html>
 <html lang="{lang}" dir="{dir_attr}">
@@ -1185,28 +1220,34 @@ def render_page(
 <title>{esc(title)} — {esc(SITE_NAME)}</title>
 <style>
   :root {{
-    --bg: #070912;
-    --bg-grad: radial-gradient(circle at 50% -12%, rgba(124, 58, 237, 0.38), rgba(15, 23, 42, 0.94) 55%, #070912 100%);
-    --card: #121024;
-    --card-2: #191633;
-    --border: rgba(139, 92, 246, 0.25);
-    --border-bright: rgba(192, 132, 252, 0.85);
-    --purple: #7c3aed;
-    --purple-bright: #8b5cf6;
-    --discord: #2563eb;
-    --discord-bright: #3b82f6;
-    --green: #10b981;
-    --gold: #eab308;
+    --bg-void: #050711;
+    --bg-mesh:
+      radial-gradient(circle at 12% 8%, rgba(124, 58, 237, 0.28), transparent 42%),
+      radial-gradient(circle at 88% 14%, rgba(6, 182, 212, 0.20), transparent 40%),
+      radial-gradient(circle at 50% 95%, rgba(16, 185, 129, 0.12), transparent 48%),
+      #050711;
+    --glass: rgba(16, 19, 38, 0.72);
+    --glass-strong: rgba(21, 25, 50, 0.88);
+    --glass-soft: rgba(255, 255, 255, 0.03);
+    --border: rgba(148, 163, 184, 0.16);
+    --border-glow: rgba(139, 92, 246, 0.65);
+    --cyan-glow: rgba(34, 211, 238, 0.55);
+    --violet: #7c3aed;
+    --violet-2: #9333ea;
+    --cyan: #06b6d4;
+    --emerald: #10b981;
+    --gold: #f59e0b;
     --danger: #ef4444;
     --text: #f8fafc;
-    --muted: #a5b4fc;
+    --muted: #94a3b8;
+    --sidebar-w: 268px;
   }}
   * {{ box-sizing: border-box; }}
   body {{
     margin: 0;
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    background: var(--bg);
-    background-image: var(--bg-grad);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg-void);
+    background-image: var(--bg-mesh);
     background-attachment: fixed;
     color: var(--text);
     min-height: 100vh;
@@ -1219,701 +1260,684 @@ def render_page(
     left: 0;
     height: 3px;
     width: 0%;
-    z-index: 80;
-    background: linear-gradient(90deg, #38bdf8, #8b5cf6, #ec4899);
-    box-shadow: 0 0 12px rgba(139, 92, 246, 0.85);
+    z-index: 95;
+    background: linear-gradient(90deg, #22d3ee, #8b5cf6, #10b981);
+    box-shadow: 0 0 14px rgba(34, 211, 238, 0.75);
     opacity: 0;
     transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
     pointer-events: none;
   }}
-  .nav-progress.active {{
-    opacity: 1;
-    width: 78%;
+  .nav-progress.active {{ opacity: 1; width: 80%; }}
+
+  @keyframes cyberRise {{
+    0% {{ opacity: 0; transform: translate3d(0, 18px, 0) scale(0.985); }}
+    100% {{ opacity: 1; transform: translate3d(0, 0, 0) scale(1); }}
+  }}
+  @keyframes haloPulse {{
+    0%, 100% {{ box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.22), 0 20px 44px rgba(0, 0, 0, 0.45); }}
+    50% {{ box-shadow: 0 0 34px 4px rgba(34, 211, 238, 0.16), 0 24px 52px rgba(76, 29, 149, 0.35); }}
+  }}
+  @keyframes sheenSlide {{
+    0% {{ transform: translateX(-150%) skewX(-22deg); }}
+    100% {{ transform: translateX(250%) skewX(-22deg); }}
   }}
 
-  @keyframes cardReveal {{
-    0% {{
-      opacity: 0;
-      transform: translate3d(0, 22px, 0) scale(0.975);
-      filter: blur(3px);
-    }}
-    100% {{
-      opacity: 1;
-      transform: translate3d(0, 0, 0) scale(1);
-      filter: blur(0);
-    }}
-  }}
-  @keyframes pulseGlow {{
-    0%, 100% {{
-      box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.3), 0 18px 42px rgba(0, 0, 0, 0.38);
-    }}
-    50% {{
-      box-shadow: 0 0 36px 5px rgba(139, 92, 246, 0.26), 0 24px 52px rgba(76, 29, 149, 0.42);
-    }}
-  }}
-  @keyframes floatSoft {{
-    0%, 100% {{ transform: translate3d(0, 0, 0) rotate(0deg); }}
-    50% {{ transform: translate3d(0, -5px, 0) rotate(1.5deg); }}
-  }}
-  @keyframes shimmerSweep {{
-    0% {{ transform: translateX(-140%) skewX(-20deg); }}
-    100% {{ transform: translateX(240%) skewX(-20deg); }}
-  }}
-  @keyframes flashPulse {{
-    0% {{ opacity: 0; transform: translateY(-10px) scale(0.98); }}
-    100% {{ opacity: 1; transform: translateY(0) scale(1); }}
-  }}
-
-  .anim-card {{
-    animation: cardReveal 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }}
-  .anim-btn, .btn, .btn-primary, .btn-outline, .btn-discord, .feature-card, .server-card, .stat-box, .tab-btn, .nuke-card, .lang-btn, .burger {{
+  .anim-card {{ animation: cyberRise 0.44s cubic-bezier(0.22, 1, 0.36, 1) both; }}
+  .glass-card, .metric-card, .server-tile, .rule-box, .btn-v, .btn-g, .btn-c, .btn-discord, .pill-btn, .lang-btn, .burger {{
     position: relative;
     overflow: hidden;
-    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.26s ease, border-color 0.22s ease, background 0.22s ease;
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.22s ease, box-shadow 0.25s ease, background 0.22s ease;
   }}
-  .btn-primary::after, .btn-discord::after, .open-btn::after {{
+  .btn-v::after, .btn-c::after, .btn-discord::after, .launch-btn::after {{
     content: "";
     position: absolute;
     top: 0;
     left: 0;
-    width: 45%;
+    width: 42%;
     height: 100%;
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
-    transform: translateX(-160%) skewX(-20deg);
+    transform: translateX(-160%) skewX(-22deg);
     pointer-events: none;
   }}
-  .anim-btn:active, .btn:active, .btn-primary:active, .btn-outline:active, .btn-discord:active, .tab-btn:active, .lang-btn:active, .burger:active {{
-    transform: scale(0.94) !important;
-    box-shadow: 0 0 0 5px rgba(139, 92, 246, 0.32) !important;
-  }}
-  .feature-card:active, .server-card:active, .stat-box:active, .nuke-card:active {{
-    transform: scale(0.98) !important;
-    border-color: var(--border-bright);
+  .btn-v:active, .btn-g:active, .btn-c:active, .btn-discord:active, .pill-btn:active, .lang-btn:active, .burger:active {{
+    transform: scale(0.95) !important;
   }}
   @media (hover: hover) {{
-    .anim-btn:hover, .btn:hover, .btn-primary:hover, .btn-outline:hover, .btn-discord:hover, .tab-btn:hover, .lang-btn:hover, .burger:hover {{
-      transform: translateY(-2.5px) scale(1.01);
-      border-color: var(--border-bright);
+    .glass-card:hover, .metric-card:hover, .server-tile:hover, .rule-box:hover {{
+      transform: translateY(-4px);
+      border-color: var(--border-glow);
+      box-shadow: 0 18px 38px rgba(15, 23, 42, 0.65), 0 0 20px rgba(124, 58, 237, 0.18);
     }}
-    .btn-primary:hover::after, .btn-discord:hover::after, .open-btn:hover::after {{
-      animation: shimmerSweep 0.75s ease forwards;
+    .btn-v:hover, .btn-g:hover, .btn-c:hover, .btn-discord:hover, .pill-btn:hover, .lang-btn:hover, .burger:hover {{
+      transform: translateY(-2px);
+      border-color: var(--border-glow);
     }}
-    .feature-card:hover, .server-card:hover, .stat-box:hover, .nuke-card:hover {{
-      transform: translateY(-5px) scale(1.008);
-      border-color: var(--border-bright);
-      box-shadow: 0 18px 38px rgba(76, 29, 149, 0.42);
+    .btn-v:hover::after, .btn-c:hover::after, .btn-discord:hover::after, .launch-btn:hover::after {{
+      animation: sheenSlide 0.75s ease forwards;
     }}
   }}
   @media (prefers-reduced-motion: reduce) {{
-    *, *::before, *::after {{
-      animation: none !important;
-      transition-duration: 0.05s !important;
-    }}
+    *, *::before, *::after {{ animation: none !important; transition-duration: 0.05s !important; }}
   }}
 
-  .topbar {{
+  /* Desktop Fixed Glass Sidebar + Mobile Drawer */
+  .app-shell {{
+    display: flex;
+    min-height: 100vh;
+  }}
+  .sidebar {{
+    position: fixed;
+    top: 0;
+    {('left' if is_en else 'right')}: 0;
+    width: var(--sidebar-w);
+    height: 100vh;
+    background: rgba(9, 12, 26, 0.86);
+    backdrop-filter: blur(20px);
+    border-{('right' if is_en else 'left')}: 1px solid var(--border);
+    padding: 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 65;
+    overflow-y: auto;
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }}
+  .main-stage {{
+    flex: 1;
+    min-width: 0;
+    {('margin-left' if is_en else 'margin-right')}: var(--sidebar-w);
+    display: flex;
+    flex-direction: column;
+  }}
+  .mobile-bar {{
+    display: none;
     position: sticky;
     top: 0;
-    z-index: 30;
-    display: flex;
+    z-index: 40;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
     padding: 12px 16px;
-    background: rgba(15, 12, 33, 0.88);
-    backdrop-filter: blur(14px);
+    background: rgba(9, 12, 26, 0.82);
+    backdrop-filter: blur(18px);
     border-bottom: 1px solid var(--border);
   }}
-  .brand-wrap {{
+  .overlay {{
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.72);
+    backdrop-filter: blur(4px);
+    z-index: 60;
+  }}
+  .overlay.open {{ display: block; }}
+
+  @media (max-width: 900px) {{
+    .sidebar {{
+      transform: translateX({('-105%' if is_en else '105%')});
+      width: 278px;
+      max-width: 86vw;
+    }}
+    .sidebar.open {{
+      transform: translateX(0);
+    }}
+    .main-stage {{
+      {('margin-left' if is_en else 'margin-right')}: 0;
+    }}
+    .mobile-bar {{
+      display: flex;
+    }}
+  }}
+
+  .brand-row {{
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 11px;
     text-decoration: none;
     color: #fff;
+    padding: 4px 6px 10px;
   }}
-  .brand-badge {{
-    width: 36px;
-    height: 36px;
-    border-radius: 11px;
-    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  .brand-mark {{
+    width: 40px;
+    height: 40px;
+    border-radius: 13px;
+    background: linear-gradient(135deg, #7c3aed, #06b6d4);
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 900;
     font-size: 15px;
-    box-shadow: 0 4px 16px rgba(124, 58, 237, 0.5);
-    animation: floatSoft 3.6s ease-in-out infinite;
-  }}
-  .brand-title {{ font-weight: 800; font-size: 15px; line-height: 1.1; }}
-  .brand-sub {{ font-size: 11px; color: var(--muted); }}
-  .top-actions {{ display: flex; align-items: center; gap: 8px; }}
-  .lang-btn {{
-    padding: 8px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--card-2);
     color: #fff;
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-    text-decoration: none;
+    box-shadow: 0 6px 20px rgba(124, 58, 237, 0.42);
+    flex-shrink: 0;
   }}
-  .burger {{
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--card-2);
-    color: #fff;
-    font-size: 18px;
-    cursor: pointer;
-  }}
+  .brand-name {{ font-weight: 900; font-size: 15px; letter-spacing: 0.3px; }}
+  .brand-owner {{ font-size: 11px; color: var(--muted); }}
 
-  .overlay {{
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.72);
-    backdrop-filter: blur(4px);
-    z-index: 50;
-    opacity: 0;
-    transition: opacity 0.25s ease;
-  }}
-  .overlay.open {{ display: block; opacity: 1; }}
-  .drawer {{
-    position: fixed;
-    top: 0;
-    {('left' if is_en else 'right')}: -300px;
-    width: 285px;
-    max-width: 85vw;
-    height: 100vh;
-    background: #0d0b1d;
-    border-{('right' if is_en else 'left')}: 1px solid var(--border);
-    padding: 18px 14px;
-    z-index: 60;
-    transition: {('left' if is_en else 'right')} 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-    overflow-y: auto;
-  }}
-  .drawer.open {{ {('left' if is_en else 'right')}: 0; }}
-  .drawer-head {{
+  .status-strip {{
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 14px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: var(--glass-soft);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    color: #cbd5e1;
+    margin-bottom: 6px;
   }}
-  .close-btn {{
-    background: transparent;
-    border: none;
-    color: var(--muted);
-    font-size: 22px;
-    cursor: pointer;
+  .pulse-dot {{
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--emerald);
+    box-shadow: 0 0 10px var(--emerald);
+    display: inline-block;
+    margin-{('right' if is_en else 'left')}: 6px;
   }}
+
   .user-box {{
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px;
+    padding: 11px;
     border-radius: 14px;
-    background: var(--card);
+    background: var(--glass);
     border: 1px solid var(--border);
-    margin-bottom: 10px;
+    margin-bottom: 6px;
   }}
   .avatar, .avatar-img {{
-    width: 42px;
-    height: 42px;
+    width: 40px;
+    height: 40px;
     border-radius: 999px;
     object-fit: cover;
+    flex-shrink: 0;
   }}
   .avatar {{
-    background: var(--purple);
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
+    font-weight: 800;
     color: #fff;
   }}
-  .uname {{ font-weight: 700; font-size: 14px; }}
-  .uhandle {{ font-size: 12px; color: var(--muted); }}
+  .uname {{ font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .uhandle {{ font-size: 11px; color: var(--muted); }}
   .tag {{
     display: inline-block;
-    font-size: 10px;
+    font-size: 9px;
     padding: 2px 6px;
     border-radius: 6px;
-    background: rgba(139, 92, 246, 0.25);
-    color: #ddd6fe;
-    margin-{('left' if is_en else 'right')}: 4px;
+    background: rgba(34, 211, 238, 0.15);
+    border: 1px solid rgba(34, 211, 238, 0.35);
+    color: #a5f3fc;
+    font-weight: 800;
   }}
   .login-btn {{
     display: block;
     text-align: center;
-    padding: 12px;
+    padding: 11px 12px;
     border-radius: 12px;
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
     color: #fff;
     text-decoration: none;
     font-weight: 800;
-    font-size: 14px;
-    margin-bottom: 14px;
-    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
-  }}
-  .drawer-link {{
-    display: block;
-    padding: 11px 14px;
-    border-radius: 12px;
-    color: var(--text);
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 13px;
     margin-bottom: 6px;
-    transition: background 0.2s ease, transform 0.2s ease;
+    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.32);
   }}
-  .drawer-link.active, .drawer-link:hover {{
-    background: rgba(124, 58, 237, 0.24);
-    border-{('left' if is_en else 'right')}: 3px solid var(--purple-bright);
+  .nav-item {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 13px;
+    border-radius: 12px;
+    color: #cbd5e1;
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 700;
+    border: 1px solid transparent;
+  }}
+  .nav-item:hover {{
+    background: rgba(255, 255, 255, 0.05);
     color: #fff;
   }}
-  .drawer-link.danger {{ color: #f87171; }}
-  .divider {{ height: 1px; background: var(--border); margin: 12px 0; }}
-
-  .wrap {{
-    max-width: 820px;
-    margin: 22px auto;
-    padding: 0 16px 46px;
+  .nav-item.active {{
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.28), rgba(6, 182, 212, 0.14));
+    border-color: rgba(139, 92, 246, 0.5);
+    color: #fff;
+    box-shadow: inset 0 0 16px rgba(124, 58, 237, 0.18);
   }}
-  .hero-box {{
-    background: linear-gradient(160deg, rgba(30, 22, 66, 0.92), rgba(16, 13, 36, 0.96));
+  .nav-item.danger {{ color: #fca5a5; }}
+  .sep {{ height: 1px; background: var(--border); margin: 8px 0; }}
+  .lang-btn, .burger {{
+    padding: 8px 12px;
+    border-radius: 10px;
     border: 1px solid var(--border);
-    border-radius: 22px;
-    padding: 26px 18px;
-    text-align: center;
-    margin-bottom: 18px;
-    animation: cardReveal 0.48s cubic-bezier(0.22, 1, 0.36, 1) both, pulseGlow 4.4s ease-in-out infinite;
+    background: var(--glass-strong);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
   }}
-  .hero-badge {{
-    display: inline-block;
-    padding: 4px 12px;
+
+  .content-wrap {{
+    width: 100%;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 26px 20px 56px;
+  }}
+  .top-toolbar {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }}
+  @media (max-width: 900px) {{
+    .top-toolbar {{ display: none; }}
+    .content-wrap {{ padding: 18px 14px 48px; }}
+  }}
+
+  .cyber-hero {{
+    background: linear-gradient(145deg, rgba(22, 26, 56, 0.84), rgba(11, 14, 30, 0.92));
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 32px 24px;
+    margin-bottom: 20px;
+    animation: cyberRise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both, haloPulse 5s ease-in-out infinite;
+  }}
+  .hero-chip {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 13px;
     border-radius: 999px;
     font-size: 11px;
-    font-weight: 700;
-    color: #ddd6fe;
-    background: rgba(124, 58, 237, 0.22);
-    border: 1px solid rgba(139, 92, 246, 0.4);
-    margin-bottom: 10px;
+    font-weight: 800;
+    color: #a5f3fc;
+    background: rgba(6, 182, 212, 0.14);
+    border: 1px solid rgba(34, 211, 238, 0.35);
+    margin-bottom: 12px;
   }}
-  .hero-title {{
+  .hero-h1 {{
     margin: 0;
-    font-size: 28px;
+    font-size: 32px;
     font-weight: 900;
-    color: #fff;
+    background: linear-gradient(90deg, #ffffff 0%, #ddd6fe 55%, #67e8f9 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
   }}
-  .hero-sub {{
-    margin: 8px auto 20px;
-    max-width: 520px;
-    color: var(--muted);
-    font-size: 14px;
-    line-height: 1.6;
+  .hero-p {{
+    margin: 10px 0 22px;
+    max-width: 640px;
+    color: #cbd5e1;
+    font-size: 14.5px;
+    line-height: 1.7;
   }}
-  .hero-stack {{
+  .cta-row {{
     display: flex;
-    flex-direction: column;
-    align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
-    max-width: 340px;
-    margin: 0 auto;
   }}
-  .btn-primary {{
-    display: block;
-    width: 100%;
-    padding: 13px 18px;
+  .btn-v {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
     border-radius: 13px;
     background: linear-gradient(135deg, #7c3aed, #6d28d9);
     color: #fff;
     text-decoration: none;
     font-weight: 800;
-    font-size: 15px;
+    font-size: 14px;
     border: 1px solid rgba(167, 139, 250, 0.45);
-    box-shadow: 0 8px 22px rgba(109, 40, 217, 0.4);
+    box-shadow: 0 10px 24px rgba(109, 40, 217, 0.38);
+    cursor: pointer;
   }}
-  .btn-outline {{
-    display: block;
-    width: 100%;
-    padding: 13px 18px;
+  .btn-g {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
     border-radius: 13px;
-    background: var(--card-2);
+    background: var(--glass-strong);
     color: #fff;
     text-decoration: none;
     font-weight: 800;
-    font-size: 15px;
+    font-size: 14px;
     border: 1px solid var(--border);
+    cursor: pointer;
+  }}
+  .btn-c {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 13px;
+    background: linear-gradient(135deg, #0891b2, #0284c7);
+    color: #fff;
+    text-decoration: none;
+    font-weight: 800;
+    font-size: 14px;
+    border: 1px solid rgba(34, 211, 238, 0.45);
+    box-shadow: 0 10px 24px rgba(8, 145, 178, 0.32);
+    cursor: pointer;
   }}
   .btn-discord {{
-    display: inline-block;
-    padding: 13px 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 13px 24px;
     border-radius: 13px;
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
     color: #fff;
     text-decoration: none;
     font-weight: 800;
     font-size: 15px;
     border: 1px solid rgba(96, 165, 250, 0.5);
-    box-shadow: 0 8px 22px rgba(37, 99, 235, 0.4);
   }}
+  .btn-sm {{ padding: 8px 14px; font-size: 12.5px; border-radius: 10px; }}
+  .btn-danger {{ background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.55); color: #fca5a5; }}
+  .btn-gold {{ background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.25)); border-color: rgba(251, 191, 36, 0.55); color: #fde68a; }}
 
-  .stats-stack {{
-    display: flex;
-    flex-direction: column;
+  .metrics-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 14px;
-    margin-bottom: 18px;
+    margin-bottom: 22px;
   }}
-  .stat-box {{
-    background: linear-gradient(160deg, rgba(24, 19, 52, 0.95), rgba(14, 12, 30, 0.98));
+  @media (max-width: 720px) {{
+    .metrics-grid {{ grid-template-columns: 1fr; }}
+  }}
+  .metric-card {{
+    background: var(--glass);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
     border-radius: 20px;
-    padding: 24px 18px;
-    text-align: center;
-    animation: cardReveal 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+    padding: 20px;
+    animation: cyberRise 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
-  .stat-icon {{
-    width: 46px;
-    height: 46px;
-    margin: 0 auto 10px;
-    border-radius: 14px;
+  .metric-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }}
+  .metric-ico {{
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
     background: rgba(124, 58, 237, 0.2);
     border: 1px solid rgba(139, 92, 246, 0.35);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
-    animation: floatSoft 4s ease-in-out infinite;
+    font-size: 17px;
   }}
-  .stat-num {{
-    font-size: 34px;
-    font-weight: 900;
-    color: #fff;
-    letter-spacing: 0.5px;
-  }}
-  .stat-line {{
-    width: 28px;
-    height: 2px;
-    background: var(--purple-bright);
-    margin: 10px auto;
-    border-radius: 99px;
-  }}
-  .stat-label {{
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--muted);
-  }}
+  .metric-val {{ font-size: 30px; font-weight: 900; color: #fff; }}
+  .metric-lbl {{ font-size: 13px; color: var(--muted); font-weight: 700; margin-top: 4px; }}
 
-  .section-heading {{
-    text-align: center;
-    margin: 24px 0 14px;
+  .section-bar {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 22px 0 14px;
   }}
-  .section-heading h2 {{
-    margin: 0;
-    font-size: 22px;
-    font-weight: 900;
-  }}
+  .section-bar h2 {{ margin: 0; font-size: 20px; font-weight: 900; }}
 
-  .feature-card {{
-    background: linear-gradient(150deg, rgba(25, 20, 56, 0.95), rgba(15, 12, 33, 0.98));
+  .glass-card {{
+    background: var(--glass);
+    backdrop-filter: blur(18px);
     border: 1px solid var(--border);
     border-radius: 20px;
-    padding: 18px;
-    margin-bottom: 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    animation: cardReveal 0.54s cubic-bezier(0.22, 1, 0.36, 1) both;
+    padding: 20px;
+    margin-bottom: 16px;
+    animation: cyberRise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
-  .feature-top {{
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }}
-  .feature-meta {{
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }}
-  .feature-icon {{
+  .feature-head {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }}
+  .feature-left {{ display: flex; align-items: center; gap: 14px; }}
+  .feature-badge-ico {{
     width: 48px;
     height: 48px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #7c3aed, #4338ca);
+    border-radius: 15px;
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.35), rgba(6, 182, 212, 0.25));
+    border: 1px solid rgba(167, 139, 250, 0.4);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    font-size: 21px;
     flex-shrink: 0;
   }}
-  .pill-tag {{
-    display: inline-block;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 800;
-  }}
-  .pill-purple {{ background: rgba(124, 58, 237, 0.24); color: #ddd6fe; border: 1px solid rgba(139, 92, 246, 0.4); }}
-  .pill-green {{ background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.35); }}
-  .feature-title {{ margin: 0; font-size: 18px; font-weight: 800; }}
-  .feature-desc {{ margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }}
-  .feature-bullets {{ list-style: none; padding: 0; margin: 0; font-size: 13px; color: #e2e8f0; }}
-  .feature-bullets li {{ margin-bottom: 6px; }}
-  .feature-footer {{
-    display: flex;
+  .chip-v {{ display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; background: rgba(124, 58, 237, 0.24); color: #ddd6fe; border: 1px solid rgba(139, 92, 246, 0.42); }}
+  .chip-c {{ display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; background: rgba(6, 182, 212, 0.16); color: #67e8f9; border: 1px solid rgba(34, 211, 238, 0.38); }}
+  .chip-g {{ display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; background: rgba(16, 185, 129, 0.18); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.38); }}
+  .launch-btn {{
+    display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(139, 92, 246, 0.16);
-  }}
-  .open-btn {{
-    padding: 9px 16px;
-    border-radius: 11px;
-    background: linear-gradient(135deg, #7c3aed, #6d28d9);
+    gap: 6px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
     color: #fff;
     text-decoration: none;
-    font-size: 13px;
     font-weight: 800;
+    font-size: 13px;
   }}
 
-  .page-title {{ text-align: center; margin-bottom: 18px; }}
-  .page-title .sub {{ font-size: 11px; letter-spacing: 2px; color: var(--muted); font-weight: 700; }}
-  .page-title h1 {{ margin: 4px 0 0; font-size: 26px; font-weight: 900; color: #fff; }}
-  .card {{
-    background: var(--card);
+  .page-head {{ margin-bottom: 18px; }}
+  .page-head .eyebrow {{ font-size: 11px; letter-spacing: 2px; color: #67e8f9; font-weight: 800; text-transform: uppercase; }}
+  .page-head h1 {{ margin: 4px 0 0; font-size: 26px; font-weight: 900; }}
+
+  .score-track {{
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    margin: 10px 0 6px;
+  }}
+  .score-fill {{
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #7c3aed, #06b6d4, #10b981);
+    transition: width 0.45s ease;
+  }}
+
+  .grid-2 {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
+  .grid-cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }}
+  .pill-btn {{
+    display: block;
+    text-align: center;
+    padding: 11px 10px;
+    border-radius: 13px;
+    background: var(--glass);
+    border: 1px solid var(--border);
+    color: #e2e8f0;
+    text-decoration: none;
+    font-weight: 800;
+    font-size: 13px;
+  }}
+  .pill-btn.active {{
+    border-color: var(--cyan);
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.3), rgba(6, 182, 212, 0.18));
+    color: #fff;
+  }}
+  .rule-box {{
+    background: var(--glass);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
     border-radius: 18px;
     padding: 18px;
-    margin-bottom: 14px;
-    animation: cardReveal 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }}
-  .admin-hero {{
-    background: linear-gradient(145deg, rgba(46, 29, 97, 0.92), rgba(16, 13, 36, 0.98));
-    border: 1px solid var(--border-bright);
-    border-radius: 22px;
-    padding: 20px;
-    margin-bottom: 14px;
-    animation: cardReveal 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }}
-  .admin-kpis {{
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 14px;
-  }}
-  @media (max-width: 640px) {{
-    .admin-kpis {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-  }}
-  .kpi-tile {{
-    background: rgba(12, 10, 26, 0.72);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 12px 10px;
-    text-align: center;
-  }}
-  .kpi-val {{ font-size: 20px; font-weight: 900; color: #fff; }}
-  .kpi-lbl {{ font-size: 11px; color: var(--muted); margin-top: 3px; }}
-  .admin-form-row {{
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 14px;
-  }}
-  .member-pill {{
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: var(--card-2);
-    border: 1px solid rgba(139, 92, 246, 0.16);
-    margin-bottom: 8px;
-  }}
-  .member-pill:last-child {{ margin-bottom: 0; }}
-  .grid-2 {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
-  .grid-cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }}
-  .tab-btn {{
-    display: block;
-    text-align: center;
-    padding: 12px 10px;
-    border-radius: 13px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    color: var(--text);
-    text-decoration: none;
-    font-weight: 700;
-    font-size: 14px;
-  }}
-  .tab-btn.active {{
-    border-color: var(--purple-bright);
-    background: rgba(124, 58, 237, 0.24);
-    color: #fff;
-  }}
-  .nuke-card {{
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 18px 14px;
     text-align: center;
     margin-bottom: 14px;
-    animation: cardReveal 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: cyberRise 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
-  .nuke-card h3 {{ margin: 0 0 12px; font-size: 16px; }}
-  .field-label {{ display: block; font-size: 13px; color: var(--muted); margin: 10px 0 6px; font-weight: 600; }}
-  .ctrl {{
+  .rule-box h3 {{ margin: 0 0 10px; font-size: 15px; font-weight: 900; color: #e0e7ff; }}
+  .lbl {{ display: block; font-size: 12.5px; color: var(--muted); margin: 10px 0 6px; font-weight: 700; }}
+  .inp {{
     width: 100%;
-    max-width: 340px;
-    background: var(--card-2);
+    max-width: 360px;
+    background: rgba(9, 12, 28, 0.85);
     border: 1px solid var(--border);
     color: #fff;
     border-radius: 12px;
     padding: 10px 12px;
     font-size: 14px;
     text-align: center;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }}
-  .ctrl:focus {{
-    outline: none;
-    border-color: var(--purple-bright);
-    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);
-  }}
+  .inp:focus {{ outline: none; border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2); }}
   .check-wrap {{ margin-top: 12px; display: flex; justify-content: center; }}
-  .check-box {{
-    width: 44px;
-    height: 44px;
+  .check-sq {{
+    width: 42px;
+    height: 42px;
     border-radius: 12px;
-    background: var(--purple);
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    border: 1px solid rgba(167, 139, 250, 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    border: 1px solid var(--purple-bright);
   }}
-  .check-box input {{ width: 20px; height: 20px; accent-color: #ffffff; cursor: pointer; }}
-  .toggle-list {{
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 12px;
-  }}
-  .toggle-row {{
+  .check-sq input {{ width: 19px; height: 19px; accent-color: #22d3ee; cursor: pointer; }}
+  .switch-list {{ display: flex; flex-direction: column; gap: 9px; margin-top: 12px; }}
+  .switch-row {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: var(--card-2);
-    border: 1px solid rgba(139, 92, 246, 0.16);
-    transition: border-color 0.2s ease, background 0.2s ease;
+    padding: 11px 13px;
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    font-size: 13.5px;
   }}
-  .toggle-row:hover {{
-    border-color: rgba(167, 139, 250, 0.45);
-    background: #1f1b3d;
-  }}
-  .btn {{
-    display: inline-block;
-    background: var(--purple);
-    color: #fff;
-    border: none;
-    border-radius: 12px;
-    padding: 10px 18px;
-    font-size: 14px;
-    font-weight: 700;
-    text-decoration: none;
-    cursor: pointer;
-  }}
-  .btn.ghost {{ background: var(--card-2); border: 1px solid var(--border); color: var(--text); }}
-  .btn.danger {{ background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); color: #fca5a5; }}
-  .btn.gold {{ background: rgba(234, 179, 8, 0.2); border: 1px solid var(--gold); color: #fde047; }}
-  .server-card {{
-    background: var(--card);
+  .server-tile {{
+    background: var(--glass);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    border-radius: 18px;
+    border-radius: 20px;
     padding: 16px;
     text-align: center;
     color: var(--text);
     text-decoration: none;
     display: block;
-    animation: cardReveal 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: cyberRise 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
-  .server-thumb {{
+  .server-banner {{
     width: 100%;
-    height: 140px;
+    height: 128px;
     border-radius: 14px;
-    background: linear-gradient(135deg, #6d28d9, #1e1b4b);
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.55), rgba(6, 182, 212, 0.35));
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 34px;
-    font-weight: 800;
+    font-size: 30px;
+    font-weight: 900;
     color: #fff;
     margin: 10px 0;
     object-fit: cover;
   }}
-  .flash {{
-    background: rgba(124, 58, 237, 0.24);
-    border: 1px solid var(--purple-bright);
-    color: #ede9fe;
-    padding: 12px 16px;
-    border-radius: 14px;
-    margin-bottom: 14px;
-    text-align: center;
-    font-weight: 700;
-    animation: flashPulse 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+  .kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
   }}
-  .log-row {{ padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }}
-  .log-row:last-child {{ border-bottom: none; }}
+  @media (max-width: 640px) {{ .kpi-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
+  .kpi-box {{
+    background: rgba(9, 12, 28, 0.72);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 10px;
+    text-align: center;
+  }}
+  .kpi-n {{ font-size: 20px; font-weight: 900; color: #fff; }}
+  .kpi-t {{ font-size: 11px; color: var(--muted); margin-top: 3px; }}
+  .list-row {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 11px 13px;
+    border-radius: 13px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    margin-bottom: 8px;
+  }}
+  .list-row:last-child {{ margin-bottom: 0; }}
+  .log-line {{ padding: 10px 0; border-bottom: 1px solid rgba(148, 163, 184, 0.12); font-size: 13px; }}
+  .log-line:last-child {{ border-bottom: none; }}
+  .flash {{
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.26), rgba(6, 182, 212, 0.18));
+    border: 1px solid rgba(34, 211, 238, 0.55);
+    color: #f8fafc;
+    padding: 12px 16px;
+    border-radius: 15px;
+    margin-bottom: 16px;
+    font-weight: 800;
+    font-size: 13.5px;
+    animation: cyberRise 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }}
   .muted {{ color: var(--muted); font-size: 13px; }}
-  code {{ background: var(--card-2); padding: 2px 6px; border-radius: 6px; }}
+  code {{ background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border); padding: 2px 6px; border-radius: 6px; font-size: 12px; }}
 </style>
 </head>
 <body>
 <div id="nav-progress" class="nav-progress" aria-hidden="true"></div>
-<header class="topbar">
-  <a class="brand-wrap" href="/">
-    <div class="brand-badge">AS</div>
-    <div>
-      <div class="brand-title">{esc(SITE_NAME)}</div>
-      <div class="brand-sub">{L['supervised']} {esc(OWNER_NAME)}</div>
-    </div>
-  </a>
-  <div class="top-actions">
-    <button class="lang-btn anim-btn" type="button" onclick="switchLang('{next_lang}')">{lang_label}</button>
-    <button class="burger anim-btn" type="button" onclick="toggleDrawer(true)" aria-label="{L['menu']}">☰</button>
-  </div>
-</header>
-
 <div id="overlay" class="overlay" onclick="toggleDrawer(false)"></div>
-<aside id="drawer" class="drawer" aria-label="{L['menu']}">
-  <div class="drawer-head">
-    <strong>{esc(SITE_NAME)}</strong>
-    <button class="close-btn" type="button" onclick="toggleDrawer(false)" aria-label="Close">✕</button>
-  </div>
-  {drawer_account_block}
-  <a class="drawer-link {'active' if active_nav == 'home' else ''}" href="/">{L['home']}</a>
-  <a class="drawer-link {'active' if active_nav == 'servers' else ''}" href="/servers">{L['servers']}</a>
-  <a class="drawer-link {'active' if active_nav == 'guild' else ''}" href="/guild">{L['guild']}</a>
-  {premium_nav}
-  {admin_nav}
-  <a class="drawer-link {'active' if active_nav == 'services' else ''}" href="/services">{L['services']}</a>
-  <a class="drawer-link {'active' if active_nav == 'updates' else ''}" href="/updates">{L['updates']}</a>
-  <a class="drawer-link {'active' if active_nav == 'links' else ''}" href="/links">{L['links']}</a>
-  <div class="divider"></div>
-  <a class="drawer-link" href="{safe_invite_url}" target="_blank" rel="noopener noreferrer">{L['invite']}</a>
-</aside>
 
-<main class="wrap">
-  {flash_banner}
-  {final_content}
-</main>
+<div class="app-shell">
+  <aside id="drawer" class="sidebar" aria-label="{L['menu']}">
+    <a class="brand-row" href="/">
+      <div class="brand-mark">AS</div>
+      <div>
+        <div class="brand-name">{esc(SITE_NAME)}</div>
+        <div class="brand-owner">{L['supervised']} {esc(OWNER_NAME)}</div>
+      </div>
+    </a>
+
+    <div class="status-strip">
+      <span><span class="pulse-dot"></span>{('BOT ONLINE' if is_en else 'البوت متصل')}</span>
+      <code>{esc(db_pill)}</code>
+    </div>
+
+    {account_block}
+    <div class="sep"></div>
+    {nav_links_html}
+    <div class="sep"></div>
+    <a class="nav-item" href="{safe_invite_url}" target="_blank" rel="noopener noreferrer"><span>＋</span><span>{L['invite']}</span></a>
+  </aside>
+
+  <div class="main-stage">
+    <header class="mobile-bar">
+      <a class="brand-row" href="/" style="padding:0;">
+        <div class="brand-mark" style="width:34px;height:34px;font-size:13px;">AS</div>
+        <div>
+          <div class="brand-name" style="font-size:14px;">{esc(SITE_NAME)}</div>
+        </div>
+      </a>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="lang-btn" type="button" onclick="switchLang('{next_lang}')">{lang_label}</button>
+        <button class="burger" type="button" onclick="toggleDrawer(true)" aria-label="{L['menu']}">☰</button>
+      </div>
+    </header>
+
+    <main class="content-wrap">
+      <div class="top-toolbar">
+        <div class="muted"><strong>{esc(SITE_NAME)}</strong> • {('Cyber Security & Server Management' if is_en else 'منصة الحماية وإدارة السيرفرات المطورة')}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <a class="btn-g btn-sm" href="{safe_invite_url}" target="_blank" rel="noopener noreferrer">{L['invite']}</a>
+          <button class="lang-btn" type="button" onclick="switchLang('{next_lang}')">{lang_label}</button>
+        </div>
+      </div>
+
+      {flash_banner}
+      {final_content}
+    </main>
+  </div>
+</div>
 
 <script>
 function startProgress() {{
@@ -1933,12 +1957,20 @@ function switchLang(targetLang) {{
   url.searchParams.set("lang", targetLang);
   window.location.href = url.toString();
 }}
+function filterServers() {{
+  var inp = document.getElementById("server-search");
+  if (!inp) return;
+  var q = inp.value.trim().toLowerCase();
+  document.querySelectorAll("[data-server-card]").forEach(function(card) {{
+    var name = (card.getAttribute("data-server-name") || "").toLowerCase();
+    var id = (card.getAttribute("data-server-id") || "").toLowerCase();
+    card.style.display = (!q || name.indexOf(q) !== -1 || id.indexOf(q) !== -1) ? "" : "none";
+  }});
+}}
 (function() {{
-  try {{
-    localStorage.removeItem("arab_sec_tok");
-  }} catch (e) {{}}
-  document.querySelectorAll(".feature-card, .server-card, .nuke-card, .stat-box, .card").forEach(function(el, idx) {{
-    el.style.animationDelay = Math.min(idx * 60, 320) + "ms";
+  try {{ localStorage.removeItem("arab_sec_tok"); }} catch (e) {{}}
+  document.querySelectorAll(".glass-card, .metric-card, .server-tile, .rule-box").forEach(function(el, idx) {{
+    el.style.animationDelay = Math.min(idx * 55, 300) + "ms";
   }});
   document.querySelectorAll("a[href^='/']").forEach(function(a) {{
     a.addEventListener("click", function(ev) {{
@@ -1948,9 +1980,7 @@ function switchLang(targetLang) {{
     }});
   }});
   document.querySelectorAll("form").forEach(function(frm) {{
-    frm.addEventListener("submit", function() {{
-      startProgress();
-    }});
+    frm.addEventListener("submit", function() {{ startProgress(); }});
   }});
 }})();
 </script>
@@ -1969,91 +1999,85 @@ async def home_handler(request: web.Request) -> web.Response:
     safe_invite = esc(sanitize_http_url(BOT_INVITE_URL) or "https://discord.com")
 
     hero_html = f"""
-    <div class="hero-box">
-      <div class="hero-badge">{('DISCORD SECURITY SUITE' if is_en else 'منظومة حماية سيرفرات ديسكورد')}</div>
-      <h1 class="hero-title">{esc(SITE_NAME)}</h1>
-      <p class="hero-sub">{('Full Anti-Nuke, behavior analytics, permission snapshots, attack simulation, and DB backup safeguards.' if is_en else 'منظومة حماية متكاملة ضد النيوك، تحليل السلوك، نسخ الصلاحيات والاسترجاع، محاكاة الهجمات، والنسخ الاحتياطي.')}</p>
-      <div class="hero-stack">
-        <a class="btn-primary" href="{safe_invite}" target="_blank" rel="noopener noreferrer">Invite Arab Security Bot</a>
-        <a class="btn-outline" href="{dash_href}">Dashboard</a>
+    <section class="cyber-hero">
+      <div class="hero-chip">✦ {('NEXT-GEN DISCORD DEFENSE' if is_en else 'الجيل المطور لحماية سيرفرات ديسكورد')}</div>
+      <h1 class="hero-h1">{esc(SITE_NAME)}</h1>
+      <p class="hero-p">{('Real-time Anti-Nuke defense, behavior intelligence, permission snapshots, attack simulations, DB backups, and per-server Premium automation.' if is_en else 'حماية فورية ضد النيوك والتلاعب بالصلاحيات، تحليل سلوك الإداريين، لقطات الصلاحيات والاسترجاع، محاكاة الهجمات، نسخ قاعدة البيانات، ومزايا بريميوم متقدمة لكل سيرفر.')}</p>
+      <div class="cta-row">
+        <a class="btn-v" href="{dash_href}">{('Launch Command Center' if is_en else 'دخول لوحة التحكم')}</a>
+        <a class="btn-c" href="{safe_invite}" target="_blank" rel="noopener noreferrer">{('Invite Bot' if is_en else 'إضافة البوت للسيرفر')}</a>
+        <a class="btn-g" href="/services">{('Explore Plans' if is_en else 'الخدمات والمزايا')}</a>
       </div>
-    </div>
+    </section>
     """
 
-    stats_html = f"""
-    <div class="stats-stack">
-      <div class="stat-box">
-        <div class="stat-icon">🛡️</div>
-        <div class="stat-num">{bot_servers_count:,}</div>
-        <div class="stat-line"></div>
-        <div class="stat-label">{('Servers with Bot' if is_en else 'عدد السيرفرات التي يداخلها البوت')}</div>
+    metrics_html = f"""
+    <section class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-top">
+          <span class="chip-v">ACTIVE NODES</span>
+          <div class="metric-ico">🛡</div>
+        </div>
+        <div class="metric-val">{bot_servers_count:,}</div>
+        <div class="metric-lbl">{('Protected Servers' if is_en else 'السيرفرات المرتبطة بالبوت')}</div>
       </div>
-      <div class="stat-box">
-        <div class="stat-icon">👥</div>
-        <div class="stat-num">{unique_visitors:,}</div>
-        <div class="muted">{(f'{total_visits:,} total visits' if is_en else f'{total_visits:,} إجمالي الزيارات')}</div>
-        <div class="stat-line"></div>
-        <div class="stat-label">{('Website Visitors' if is_en else 'عدد الأشخاص الذين زاروا الموقع')}</div>
+
+      <div class="metric-card">
+        <div class="metric-top">
+          <span class="chip-c">UNIQUE VISITORS</span>
+          <div class="metric-ico">◈</div>
+        </div>
+        <div class="metric-val">{unique_visitors:,}</div>
+        <div class="metric-lbl">{(f'{total_visits:,} total requests' if is_en else f'{total_visits:,} إجمالي الزيارات')}</div>
       </div>
-    </div>
+
+      <div class="metric-card">
+        <div class="metric-top">
+          <span class="chip-g">LATENCY</span>
+          <div class="metric-ico">⚡</div>
+        </div>
+        <div class="metric-val">{esc(MEM_BOT_HEARTBEAT.get('latency_ms', '22ms'))}</div>
+        <div class="metric-lbl">{('Core Shield Response' if is_en else 'استجابة منظومة الحماية')}</div>
+      </div>
+    </section>
     """
 
-    cards_html = f"""
-    <div class="section-heading">
-      <h2>{('Core Systems' if is_en else 'الأنظمة والخدمات')}</h2>
+    modules_html = f"""
+    <div class="section-bar">
+      <h2>{('Core Modules' if is_en else 'الأنظمة الرئيسية')}</h2>
+      <span class="muted">{('Glass Control Suite' if is_en else 'واجهة تحكم مطورة')}</span>
     </div>
 
-    <div class="feature-card">
-      <div class="feature-top">
-        <div class="feature-meta">
-          <div class="feature-icon">🔒</div>
+    <div class="glass-card">
+      <div class="feature-head">
+        <div class="feature-left">
+          <div class="feature-badge-ico">🛡</div>
           <div>
-            <span class="pill-tag pill-purple">{('MOST USED' if is_en else 'الأكثر استخداماً')}</span>
-            <h3 class="feature-title">{('Anti-Nuke, Permissions Guard, Rollback & Audit' if is_en else 'حماية النيوك، الصلاحيات، الاسترجاع، والتدقيق')}</h3>
+            <span class="chip-v">{('SHIELD ENGINE' if is_en else 'محرك الحماية')}</span>
+            <h3 style="margin:5px 0 2px;font-size:18px;font-weight:900;">{('Anti-Nuke, Snapshots, Audit & Attack Simulation' if is_en else 'منظومة Anti-Nuke، لقطات الصلاحيات، التدقيق، والمحاكاة')}</h3>
           </div>
         </div>
+        <a class="launch-btn" href="/guild">{('Open Panel' if is_en else 'فتح اللوحة')} →</a>
       </div>
-      <p class="feature-desc">{('Webhooks, apps, bots, privilege escalation, role/channel permissions, mass unban/kick/timeout, behavior analysis, snapshots, and simulations.' if is_en else 'حماية الويب هوك والتطبيقات والبوتات، منع تصعيد الصلاحيات والتلاعب بالرتب والقنوات، فك الحظر/الطرد/التايم أوت الجماعي، تحليل السلوك، والنسخ والاسترجاع.')}</p>
-      <ul class="feature-bullets">
-        <li>✓ {('Trusted Admins, Snapshots & Auto Rollback' if is_en else 'إداريون موثوقون، حفظ نسخة من الصلاحيات، واسترجاع تلقائي')}</li>
-        <li>✓ {('Security Score, Attack Simulation & Auto Audit' if is_en else 'تقييم أمان السيرفر، محاكاة الهجمات، والتدقيق التلقائي')}</li>
-        <li>✓ {('API Rate Guard, MongoDB Backup & Restore Check' if is_en else 'حماية API وتحديد المعدل، نسخ احتياطي لقاعدة البيانات واختبار الاستعادة')}</li>
-      </ul>
-      <div class="feature-footer">
-        <div>
-          <strong style="color:#fff;">{('Active' if is_en else 'مفعّل')}</strong>
-          <div class="muted" style="color:#6ee7b7;">• {('Ready Now' if is_en else 'جاهز الآن')}</div>
-        </div>
-        <a class="open-btn" href="/guild">{('Open Panel →' if is_en else '← افتح اللوحة')}</a>
-      </div>
+      <p class="muted" style="margin:12px 0 0;line-height:1.65;">{('Protects webhooks, apps, bots, roles, channels, and mass actions with live security scoring, trusted admins, incident timelines, and automated rollback.' if is_en else 'تحمي الويب هوك والتطبيقات والبوتات والرتب والقنوات والإجراءات الجماعية مع تقييم أمان مباشر، إداريين موثوقين، سجل حوادث، واسترجاع تلقائي.')}</p>
     </div>
 
-    <div class="feature-card">
-      <div class="feature-top">
-        <div class="feature-meta">
-          <div class="feature-icon">✨</div>
+    <div class="glass-card">
+      <div class="feature-head">
+        <div class="feature-left">
+          <div class="feature-badge-ico">✦</div>
           <div>
-            <span class="pill-tag pill-green">{('PREMIUM' if is_en else 'بريميوم')}</span>
-            <h3 class="feature-title">{('Per-Server Bot Profile' if is_en else 'تخصيص البوت لكل سيرفر')}</h3>
+            <span class="chip-c">{('PREMIUM SUITE' if is_en else 'باقة البريميوم المطورة')}</span>
+            <h3 style="margin:5px 0 2px;font-size:18px;font-weight:900;">{('Per-Server Profile, Ultra Fortress, Rollback & Alerts' if is_en else 'تخصيص البوت لكل سيرفر، الحصن الفائق، الاسترجاع الفوري، والتنبيهات')}</h3>
           </div>
         </div>
+        <a class="launch-btn" href="/premium">{('Open Premium' if is_en else 'فتح البريميوم')} →</a>
       </div>
-      <p class="feature-desc">{('Customize bot avatar, banner, and bio inside a specific server without affecting other servers.' if is_en else 'تخصيص صورة البوت وبنره وبايو البوت داخل سيرفر محدد فقط دون التأثير على باقي السيرفرات.')}</p>
-      <ul class="feature-bullets">
-        <li>✓ {('Isolated per server' if is_en else 'مخصص لكل سيرفر على حدة')}</li>
-        <li>✓ {('Avatar, banner & bio controls' if is_en else 'تحكم بالصورة والبنر والبايو')}</li>
-      </ul>
-      <div class="feature-footer">
-        <div>
-          <strong style="color:#fff;">{('Premium' if is_en else 'بريميوم')}</strong>
-          <div class="muted" style="color:#6ee7b7;">• {('Available' if is_en else 'متاحة الآن')}</div>
-        </div>
-        <a class="open-btn" href="/premium">{('Open Service →' if is_en else '← افتح الخدمة')}</a>
-      </div>
+      <p class="muted" style="margin:12px 0 0;line-height:1.65;">{('Customize avatar, banner, and bio per server, toggle Ultra Fortress Mode, restore saved permission snapshots, and route instant breach alerts.' if is_en else 'تخصيص صورة وبنر وبايو البوت لكل سيرفر على حدة، تفعيل وضع الحصن الفائق، استرجاع لقطات الصلاحيات فوراً، وإرسال تنبيهات الاختراق لقناة أو ويب هوك مخصص.')}</p>
     </div>
     """
 
-    body = hero_html + stats_html + cards_html
+    body = hero_html + metrics_html + modules_html
     return web.Response(
         text=render_page("Home" if is_en else "الرئيسية", "home", body, request, flash=flash),
         content_type="text/html",
@@ -2073,29 +2097,34 @@ async def handle_servers(request: web.Request) -> web.Response:
     safe_invite = esc(sanitize_http_url(BOT_INVITE_URL) or "https://discord.com")
     cards = ""
     for g in guilds:
-        gid = esc(g["id"])
-        gname = esc(g["name"])
+        gid_raw = g["id"]
+        gname_raw = g["name"]
+        gid = esc(gid_raw)
+        gname = esc(gname_raw)
         icon = esc(str(g.get("icon", "")).strip())
         mcount = int(g.get("member_count", 0) or 0)
         missing = bool(g.get("bot_missing"))
         if icon:
-            thumb = f"<img class='server-thumb' src='https://cdn.discordapp.com/icons/{gid}/{icon}.png?size=256' alt='' loading='lazy' referrerpolicy='no-referrer'>"
+            thumb = f"<img class='server-banner' src='https://cdn.discordapp.com/icons/{gid}/{icon}.png?size=256' alt='' loading='lazy' referrerpolicy='no-referrer'>"
         else:
-            initial = esc((g["name"][:2] or "SV").upper())
-            thumb = f"<div class='server-thumb'>{initial}</div>"
+            initial = esc((gname_raw[:2] or "SV").upper())
+            thumb = f"<div class='server-banner'>{initial}</div>"
 
         target_href = safe_invite if missing else f"/guild?id={gid}&tab=antinuke"
         target_attr = " target='_blank' rel='noopener noreferrer'" if missing else ""
         badge = (
-            f"<div class='muted' style='color:#c4b5fd;'>{'Add Bot to Server' if is_en else 'إضافة البوت للسيرفر'}</div>"
+            f"<span class='chip-c'>{'Add Bot' if is_en else 'إضافة البوت'}</span>"
             if missing
-            else f"<div class='muted'>{mcount} {'members' if is_en else 'عضو'}</div>"
+            else f"<span class='chip-g'>{mcount} {'members' if is_en else 'عضو'}</span>"
         )
         cards += f"""
-        <a class="server-card" href="{target_href}"{target_attr}>
-          <div style="font-weight:800;font-size:17px;">{gname}</div>
+        <a class="server-tile" data-server-card="1" data-server-name="{gname}" data-server-id="{gid}" href="{target_href}"{target_attr}>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span class="muted">#{gid}</span>
+            {badge}
+          </div>
           {thumb}
-          {badge}
+          <div style="font-weight:900;font-size:16px;">{gname}</div>
         </a>
         """
 
@@ -2114,16 +2143,19 @@ async def handle_servers(request: web.Request) -> web.Response:
             )
         )
         cards = f"""
-        <div class="card" style="text-align:center;">
+        <div class="glass-card" style="text-align:center;grid-column:1/-1;">
           <p class="muted">{esc(note)}</p>
-          <a class="btn" href="{safe_invite}" target="_blank" rel="noopener noreferrer">Invite Arab Security Bot</a>
+          <a class="btn-v" href="{safe_invite}" target="_blank" rel="noopener noreferrer">Invite Arab Security Bot</a>
         </div>
         """
 
     body = f"""
-    <div class="page-title">
-      <div class="sub">{('YOUR' if is_en else 'قائمة')}</div>
-      <h1>{('SERVERS' if is_en else 'سيرفراتي')}</h1>
+    <div class="page-head">
+      <div class="eyebrow">{('WORKSPACE' if is_en else 'مساحة الإدارة')}</div>
+      <h1>{('My Servers' if is_en else 'سيرفراتي')}</h1>
+    </div>
+    <div class="glass-card" style="padding:14px 18px;">
+      <input id="server-search" class="inp" style="max-width:100%;text-align:{'left' if is_en else 'right'};" type="search" oninput="filterServers()" placeholder="{('Search server by name or ID...' if is_en else 'ابحث عن سيرفر بالاسم أو ID...')}">
     </div>
     <div class="grid-cards">
       {cards}
@@ -2291,9 +2323,9 @@ async def handle_guild(request: web.Request) -> web.Response:
     )
     guild_icon_hash = str(guild_info.get("icon", "")).strip() if guild_info else ""
     guild_icon_html = (
-        f"<img src='https://cdn.discordapp.com/icons/{esc(valid_gid)}/{esc(guild_icon_hash)}.png?size=96' alt='' loading='lazy' referrerpolicy='no-referrer' style='width:44px;height:44px;border-radius:12px;object-fit:cover;border:1px solid var(--border);'>"
+        f"<img src='https://cdn.discordapp.com/icons/{esc(valid_gid)}/{esc(guild_icon_hash)}.png?size=96' alt='' loading='lazy' referrerpolicy='no-referrer' style='width:46px;height:46px;border-radius:14px;object-fit:cover;border:1px solid var(--border);'>"
         if valid_gid and guild_icon_hash
-        else f"<div style='width:44px;height:44px;border-radius:12px;background:var(--purple);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;color:#fff;'>{esc((guild_display_name[:2] or 'SV').upper())}</div>"
+        else f"<div style='width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#06b6d4);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;color:#fff;'>{esc((guild_display_name[:2] or 'SV').upper())}</div>"
     )
 
     cfg = get_guild_cfg(valid_gid) if valid_gid else _fresh_default_guild_cfg()
@@ -2312,15 +2344,15 @@ async def handle_guild(request: web.Request) -> web.Response:
         ("logs", "Logs & Timeline" if is_en else "السجلات والحوادث"),
     ]
     tabs_html = "".join(
-        f"<a class='tab-btn {'active' if key == active_tab else ''}' href='/guild?id={esc(valid_gid)}&tab={key}'>{label}</a>"
+        f"<a class='pill-btn {'active' if key == active_tab else ''}' href='/guild?id={esc(valid_gid)}&tab={key}'>{label}</a>"
         for key, label in tabs
     )
 
     if not valid_gid:
         panel_html = f"""
-        <div class="card" style="text-align:center;">
+        <div class="glass-card" style="text-align:center;">
           <p class="muted">{('Select a server where you have Manage Server or Administrator permission.' if is_en else 'اختر سيرفراً تملك فيه صلاحية الإدارة (Manage Server أو Administrator) للتحكم بإعداداته.')}</p>
-          <a class="btn ghost" href="/servers">{('Go to My Servers' if is_en else 'الذهاب إلى سيرفراتي')}</a>
+          <a class="btn-g" href="/servers">{('Go to My Servers' if is_en else 'الذهاب إلى سيرفراتي')}</a>
         </div>
         """
     elif active_tab == "antinuke":
@@ -2341,18 +2373,18 @@ async def handle_guild(request: web.Request) -> web.Response:
             item = an.get(k, {"enabled": True, "limit": 1, "punishment": "Kick"})
             pun_val = item.get("punishment", "Kick")
             nuke_cards += f"""
-            <div class="nuke-card">
+            <div class="rule-box">
               <h3>{heading}</h3>
-              <span class="field-label">Limit</span>
-              <input class="ctrl" type="number" min="1" max="50" name="{k}_limit" value="{int(item.get('limit', 1))}">
-              <span class="field-label">PUNISHMENT TYPE</span>
-              <select class="ctrl" name="{k}_punishment">
+              <span class="lbl">Limit</span>
+              <input class="inp" type="number" min="1" max="50" name="{k}_limit" value="{int(item.get('limit', 1))}">
+              <span class="lbl">PUNISHMENT TYPE</span>
+              <select class="inp" name="{k}_punishment">
                 <option value="Kick" {'selected' if pun_val == 'Kick' else ''}>Kick</option>
                 <option value="Ban" {'selected' if pun_val == 'Ban' else ''}>Ban</option>
                 <option value="Remove Roles" {'selected' if pun_val == 'Remove Roles' else ''}>Remove Roles</option>
               </select>
               <div class="check-wrap">
-                <label class="check-box" title="{'Enable / Disable' if is_en else 'تفعيل أو إطفاء'}">
+                <label class="check-sq" title="{'Enable / Disable' if is_en else 'تفعيل أو إطفاء'}">
                   <input type="checkbox" name="{k}_enabled" {'checked' if item.get('enabled', True) else ''}>
                 </label>
               </div>
@@ -2379,7 +2411,7 @@ async def handle_guild(request: web.Request) -> web.Response:
             ("auto_perms_audit", "التدقيق التلقائي للصلاحيات"),
         ]
         toggles_html = "".join(
-            f"<label class='toggle-row'><span>{esc(lbl)}</span><input type='checkbox' name='{k}' {'checked' if cfg.get(k) else ''}></label>"
+            f"<label class='switch-row'><span>{esc(lbl)}</span><input type='checkbox' name='{k}' {'checked' if cfg.get(k) else ''}></label>"
             for k, lbl in shield_items
         )
         snaps = cfg.get("perms_snapshots", [])
@@ -2397,26 +2429,26 @@ async def handle_guild(request: web.Request) -> web.Response:
           <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
           <input type="hidden" name="section" value="antinuke">
           {nuke_cards}
-          <div class="card">
+          <div class="glass-card">
             <h3 style="margin:0 0 6px;">أنظمة الحماية والتدقيق المتقدمة</h3>
             <div class="muted" style="margin-bottom:8px;">{snap_info}</div>
-            <div class="toggle-list">
+            <div class="switch-list">
               {toggles_html}
-              <label class="toggle-row">
+              <label class="switch-row">
                 <span>حفظ نسخة جديدة من الصلاحيات الآن</span>
                 <input type="checkbox" name="save_snapshot">
               </label>
-              <label class="toggle-row">
+              <label class="switch-row">
                 <span>تشغيل التدقيق التلقائي للصلاحيات عند الحفظ</span>
                 <input type="checkbox" name="run_audit">
               </label>
-              <label class="toggle-row">
+              <label class="switch-row">
                 <span>إعادة ضبط الإعدادات الافتراضية للسيرفر</span>
                 <input type="checkbox" name="reset_defaults">
               </label>
             </div>
-            <span class="field-label">محاكاة هجوم (اختياري)</span>
-            <select class="ctrl" name="sim_scenario">
+            <span class="lbl">محاكاة هجوم (اختياري)</span>
+            <select class="inp" name="sim_scenario">
               <option value="">بدون محاكاة</option>
               <option value="Mass Ban & Kick">محاكاة حظر وطرد جماعي</option>
               <option value="Webhook & Role Escalation">محاكاة تصعيد صلاحيات وويب هوك</option>
@@ -2424,58 +2456,58 @@ async def handle_guild(request: web.Request) -> web.Response:
             </select>
           </div>
           <div style="text-align:center;">
-            <button class="btn" type="submit">{('Save Anti Nuke Settings' if is_en else 'حفظ وتشغيل الأنظمة')}</button>
+            <button class="btn-v" type="submit">{('Save Anti Nuke Settings' if is_en else 'حفظ وتشغيل الأنظمة')}</button>
           </div>
         </form>
         """
 
     elif active_tab == "general":
         panel_html = f"""
-        <form class="card" method="POST" action="/guild?id={esc(valid_gid)}&tab=general">
+        <form class="glass-card" method="POST" action="/guild?id={esc(valid_gid)}&tab=general">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="req_nonce" value="{req_nonce}">
           <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
           <input type="hidden" name="section" value="general">
-          <h3>{('General Settings' if is_en else 'الإعدادات العامة للسيرفر')}</h3>
-          <span class="field-label">Prefix</span>
-          <input class="ctrl" type="text" name="prefix" value="{esc(cfg.get('prefix', '!'))}" maxlength="6">
-          <span class="field-label">Mod Log Channel ID</span>
-          <input class="ctrl" type="text" name="mod_log_channel" value="{esc(cfg.get('mod_log_channel', ''))}" placeholder="Channel ID">
-          <div class="toggle-list">
-            <label class="toggle-row">
+          <h3 style="margin:0 0 8px;">{('General Settings' if is_en else 'الإعدادات العامة للسيرفر')}</h3>
+          <span class="lbl">Prefix</span>
+          <input class="inp" type="text" name="prefix" value="{esc(cfg.get('prefix', '!'))}" maxlength="6">
+          <span class="lbl">Mod Log Channel ID</span>
+          <input class="inp" type="text" name="mod_log_channel" value="{esc(cfg.get('mod_log_channel', ''))}" placeholder="Channel ID">
+          <div class="switch-list">
+            <label class="switch-row">
               <span>وضع الطوارئ (Emergency Mode)</span>
               <input type="checkbox" name="emergency_mode" {'checked' if cfg.get('emergency_mode') else ''}>
             </label>
-            <label class="toggle-row">
+            <label class="switch-row">
               <span>{('Server Lockdown' if is_en else 'قفل السيرفر السريع (Lockdown)')}</span>
               <input type="checkbox" name="lockdown" {'checked' if cfg.get('lockdown') else ''}>
             </label>
-            <label class="toggle-row">
+            <label class="switch-row">
               <span>قفل القنوات الصوتية (Voice Lock)</span>
               <input type="checkbox" name="voice_lock" {'checked' if cfg.get('voice_lock') else ''}>
             </label>
-            <label class="toggle-row">
+            <label class="switch-row">
               <span>الوضع الصامت للبوت (Silent Mode)</span>
               <input type="checkbox" name="silent_mode" {'checked' if cfg.get('silent_mode') else ''}>
             </label>
-            <label class="toggle-row">
+            <label class="switch-row">
               <span>منع دعوات السيرفرات (Anti Invites)</span>
               <input type="checkbox" name="anti_invites" {'checked' if cfg.get('anti_invites', True) else ''}>
             </label>
-            <label class="toggle-row">
+            <label class="switch-row">
               <span>{('Maintenance Mode' if is_en else 'وضع الصيانة')}</span>
               <input type="checkbox" name="maintenance" {'checked' if cfg.get('maintenance') else ''}>
             </label>
-            <label class="toggle-row">
+            <label class="switch-row">
               <span>{('Anti Spam' if is_en else 'مضاد السبام')}</span>
               <input type="checkbox" name="anti_spam" {'checked' if cfg.get('anti_spam', True) else ''}>
             </label>
-            <label class="toggle-row">
+            <label class="switch-row">
               <span>{('Anti Link' if is_en else 'منع الروابط')}</span>
               <input type="checkbox" name="anti_link" {'checked' if cfg.get('anti_link') else ''}>
             </label>
           </div>
-          <button class="btn" type="submit" style="margin-top:14px;">{('Save' if is_en else 'حفظ')}</button>
+          <button class="btn-v" type="submit" style="margin-top:16px;">{('Save' if is_en else 'حفظ')}</button>
         </form>
         """
 
@@ -2489,17 +2521,17 @@ async def handle_guild(request: web.Request) -> web.Response:
         raid_extra = ""
         if active_tab == "raid":
             raid_extra = f"""
-            <div class="toggle-list" style="max-width:340px;margin:14px auto 0;text-align:{'left' if is_en else 'right'};">
-              <label class="toggle-row">
+            <div class="switch-list" style="max-width:360px;margin:14px auto 0;text-align:{'left' if is_en else 'right'};">
+              <label class="switch-row">
                 <span>{('Block New Accounts' if is_en else 'حماية الحسابات الحديثة')}</span>
                 <input type="checkbox" name="anti_new_accounts" {'checked' if cfg.get('anti_new_accounts') else ''}>
               </label>
             </div>
-            <span class="field-label">{('Minimum Account Age (Days)' if is_en else 'أقل عمر للحساب (بالأيام)')}</span>
-            <input class="ctrl" type="number" min="1" max="365" name="min_account_age_days" value="{int(cfg.get('min_account_age_days', 7))}">
+            <span class="lbl">{('Minimum Account Age (Days)' if is_en else 'أقل عمر للحساب (بالأيام)')}</span>
+            <input class="inp" type="number" min="1" max="365" name="min_account_age_days" value="{int(cfg.get('min_account_age_days', 7))}">
             """
         panel_html = f"""
-        <form class="card" style="text-align:center;" method="POST" action="/guild?id={esc(valid_gid)}&tab={active_tab}">
+        <form class="glass-card" style="text-align:center;" method="POST" action="/guild?id={esc(valid_gid)}&tab={active_tab}">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="req_nonce" value="{req_nonce}">
           <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
@@ -2507,40 +2539,40 @@ async def handle_guild(request: web.Request) -> web.Response:
           <h3>{t_label}</h3>
           <p class="muted">{desc}</p>
           <div class="check-wrap">
-            <label class="check-box">
+            <label class="check-sq">
               <input type="checkbox" name="{fname}" {'checked' if cfg.get(fname) else ''}>
             </label>
           </div>
           {raid_extra}
-          <button class="btn" type="submit" style="margin-top:16px;">{('Save Status' if is_en else 'حفظ الحالة')}</button>
+          <button class="btn-v" type="submit" style="margin-top:16px;">{('Save Status' if is_en else 'حفظ الحالة')}</button>
         </form>
         """
 
     elif active_tab == "mod":
         panel_html = f"""
-        <form class="card" method="POST" action="/guild?id={esc(valid_gid)}&tab=mod">
+        <form class="glass-card" method="POST" action="/guild?id={esc(valid_gid)}&tab=mod">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="req_nonce" value="{req_nonce}">
           <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
           <input type="hidden" name="section" value="mod">
-          <h3>{('Remote Moderation' if is_en else 'Moderation عن بُعد')}</h3>
-          <span class="field-label">{('Action' if is_en else 'الإجراء')}</span>
-          <select class="ctrl" name="cmd_action">
+          <h3 style="margin:0 0 8px;">{('Remote Moderation' if is_en else 'Moderation عن بُعد')}</h3>
+          <span class="lbl">{('Action' if is_en else 'الإجراء')}</span>
+          <select class="inp" name="cmd_action">
             <option value="kick">Kick</option>
             <option value="ban">Ban</option>
             <option value="timeout">Timeout</option>
             <option value="unban">Unban</option>
           </select>
-          <span class="field-label">User ID</span>
-          <input class="ctrl" type="text" name="target_user" placeholder="{('Enter User ID' if is_en else 'أدخل ID العضو')}">
-          <div style="margin-top:14px;"><button class="btn" type="submit">{('Execute' if is_en else 'تنفيذ الأمر')}</button></div>
+          <span class="lbl">User ID</span>
+          <input class="inp" type="text" name="target_user" placeholder="{('Enter User ID' if is_en else 'أدخل ID العضو')}">
+          <div style="margin-top:14px;"><button class="btn-v" type="submit">{('Execute' if is_en else 'تنفيذ الأمر')}</button></div>
         </form>
         """
 
     elif active_tab == "whitelist":
         wl = cfg.get("whitelist", [])
         wl_items = "".join(
-            f"<div class='log-row' style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<div class='list-row'>"
             f"<code>{esc(uid)}</code>"
             f"<form method='POST' action='/guild?id={esc(valid_gid)}&tab=whitelist' style='margin:0;'>"
             f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
@@ -2548,13 +2580,13 @@ async def handle_guild(request: web.Request) -> web.Response:
             f"<input type='hidden' name='guild_id' value='{esc(valid_gid)}'>"
             f"<input type='hidden' name='section' value='whitelist'>"
             f"<input type='hidden' name='wl_remove' value='{esc(uid)}'>"
-            f"<button class='btn ghost' type='submit'>{'Remove' if is_en else 'إزالة'}</button></form></div>"
+            f"<button class='btn-g btn-sm' type='submit'>{'Remove' if is_en else 'إزالة'}</button></form></div>"
             for uid in wl
         ) or f"<p class='muted'>{'No users in whitelist.' if is_en else 'لا يوجد أعضاء في Whitelist حالياً.'}</p>"
 
         tr_list = cfg.get("trusted_admins", [])
         tr_items = "".join(
-            f"<div class='log-row' style='display:flex;justify-content:space-between;align-items:center;'>"
+            f"<div class='list-row'>"
             f"<code>{esc(uid)}</code>"
             f"<form method='POST' action='/guild?id={esc(valid_gid)}&tab=whitelist' style='margin:0;'>"
             f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
@@ -2562,32 +2594,32 @@ async def handle_guild(request: web.Request) -> web.Response:
             f"<input type='hidden' name='guild_id' value='{esc(valid_gid)}'>"
             f"<input type='hidden' name='section' value='whitelist'>"
             f"<input type='hidden' name='tr_remove' value='{esc(uid)}'>"
-            f"<button class='btn ghost' type='submit'>{'Remove' if is_en else 'إزالة'}</button></form></div>"
+            f"<button class='btn-g btn-sm' type='submit'>{'Remove' if is_en else 'إزالة'}</button></form></div>"
             for uid in tr_list
         ) or "<p class='muted'>لا يوجد إداريون موثوقون مضافون.</p>"
 
         panel_html = f"""
-        <div class="card">
-          <h3>Whitelist</h3>
+        <div class="glass-card">
+          <h3 style="margin:0 0 10px;">Whitelist</h3>
           <form method="POST" action="/guild?id={esc(valid_gid)}&tab=whitelist" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <input type="hidden" name="req_nonce" value="{req_nonce}">
             <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
             <input type="hidden" name="section" value="whitelist">
-            <input class="ctrl" type="text" name="wl_add" placeholder="User ID">
-            <button class="btn" type="submit">{('Add' if is_en else 'إضافة')}</button>
+            <input class="inp" type="text" name="wl_add" placeholder="User ID">
+            <button class="btn-v btn-sm" type="submit">{('Add' if is_en else 'إضافة')}</button>
           </form>
           {wl_items}
         </div>
-        <div class="card">
-          <h3>الإداريون الموثوقون (Trusted Admins)</h3>
+        <div class="glass-card">
+          <h3 style="margin:0 0 10px;">الإداريون الموثوقون (Trusted Admins)</h3>
           <form method="POST" action="/guild?id={esc(valid_gid)}&tab=whitelist" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <input type="hidden" name="req_nonce" value="{req_nonce}">
             <input type="hidden" name="guild_id" value="{esc(valid_gid)}">
             <input type="hidden" name="section" value="whitelist">
-            <input class="ctrl" type="text" name="tr_add" placeholder="Trusted Admin User ID">
-            <button class="btn" type="submit">إضافة موثوق</button>
+            <input class="inp" type="text" name="tr_add" placeholder="Trusted Admin User ID">
+            <button class="btn-v btn-sm" type="submit">إضافة موثوق</button>
           </form>
           {tr_items}
         </div>
@@ -2596,38 +2628,39 @@ async def handle_guild(request: web.Request) -> web.Response:
     else:
         incidents = get_incidents(valid_gid, 20)
         inc_html = "".join(
-            f"<div class='log-row'><code>{esc(x.get('time',''))}</code> [{esc(x.get('severity','INFO'))} • {esc(x.get('category',''))}] {esc(x.get('summary',''))}</div>"
+            f"<div class='log-line'><code>{esc(x.get('time',''))}</code> [{esc(x.get('severity','INFO'))} • {esc(x.get('category',''))}] {esc(x.get('summary',''))}</div>"
             for x in incidents
         ) or "<p class='muted'>لا توجد حوادث مسجلة في التسلسل الزمني.</p>"
 
         logs = [item for item in get_recent_logs(60) if item.get("guild_id") == valid_gid][:25]
         log_html = "".join(
-            f"<div class='log-row'><code>{esc(item.get('time',''))}</code> [{esc(item.get('level','LOG'))}] {esc(item.get('message',''))}</div>"
+            f"<div class='log-line'><code>{esc(item.get('time',''))}</code> [{esc(item.get('level','LOG'))}] {esc(item.get('message',''))}</div>"
             for item in logs
         ) or f"<p class='muted'>{'No logs for this server yet.' if is_en else 'لا توجد سجلات لهذا السيرفر بعد.'}</p>"
         panel_html = f"""
-        <div class="card"><h3>التسلسل الزمني للحوادث (Incident Timeline)</h3>{inc_html}</div>
-        <div class="card"><h3>{'Logs' if is_en else 'السجلات'}</h3>{log_html}</div>
+        <div class="glass-card"><h3 style="margin:0 0 8px;">التسلسل الزمني للحوادث (Incident Timeline)</h3>{inc_html}</div>
+        <div class="glass-card"><h3 style="margin:0 0 8px;">{'Logs' if is_en else 'السجلات'}</h3>{log_html}</div>
         """
 
     prem_shortcut = (
-        f"<div style='margin-top:12px;'><a class='btn gold' href='/premium?id={esc(valid_gid)}'>{('Customize Bot Profile for Server (Premium)' if is_en else 'تخصيص صورة/بنر/بايو البوت لهذا السيرفر (Premium)')}</a></div>"
+        f"<div style='margin-top:12px;'><a class='btn-v btn-gold btn-sm' href='/premium?id={esc(valid_gid)}'>{('Open Per-Server Premium Suite' if is_en else 'فتح مزايا البريميوم لهذا السيرفر')}</a></div>"
         if is_premium_user(user) and valid_gid
         else ""
     )
 
     body = f"""
-    <div class="card" style="text-align:center;">
+    <div class="glass-card" style="text-align:center;">
       <div class="muted">{('Selected Server' if is_en else 'السيرفر المحدد')}</div>
-      <div style="display:flex;justify-content:center;align-items:center;gap:10px;margin:10px 0 8px;">
+      <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin:10px 0 6px;">
         {guild_icon_html}
         <h2 style="margin:0;font-size:22px;font-weight:900;">{esc(guild_display_name)}</h2>
       </div>
-      <div class="muted" style="margin-bottom:12px;">تقييم أمان السيرفر: <strong>{sec_score}/100</strong> • <span style="color:#c4b5fd;">{esc(sec_grade)}</span></div>
-      <form method="GET" action="/guild" style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;">
+      <div class="muted">تقييم أمان السيرفر: <strong>{sec_score}/100</strong> • <span style="color:#67e8f9;">{esc(sec_grade)}</span></div>
+      <div class="score-track"><div class="score-fill" style="width:{sec_score}%;"></div></div>
+      <form method="GET" action="/guild" style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px;">
         <input type="hidden" name="tab" value="{active_tab}">
-        <input class="ctrl" type="text" name="id" value="{esc(guild_display_name if guild_info else valid_gid)}" placeholder="{('Server name or ID' if is_en else 'اسم السيرفر أو ID')}">
-        <button class="btn" type="submit">{('Switch Server' if is_en else 'تبديل السيرفر')}</button>
+        <input class="inp" type="text" name="id" value="{esc(guild_display_name if guild_info else valid_gid)}" placeholder="{('Server name or ID' if is_en else 'اسم السيرفر أو ID')}">
+        <button class="btn-v btn-sm" type="submit">{('Switch Server' if is_en else 'تبديل السيرفر')}</button>
       </form>
       {prem_shortcut}
     </div>
@@ -2650,13 +2683,13 @@ async def handle_premium(request: web.Request) -> web.Response:
     session_id, user = sess_pair
     if not is_premium_user(user):
         body = f"""
-        <div class="page-title">
-          <div class="sub">PREMIUM ONLY</div>
+        <div class="page-head">
+          <div class="eyebrow">PREMIUM SUITE</div>
           <h1>{('Premium Features' if is_en else 'مزايا البريميوم')}</h1>
         </div>
-        <div class="card" style="text-align:center;">
-          <p class="muted">{('This section is for Premium users to customize bot avatar, banner, and bio per server.' if is_en else 'هذه اللوحة مخصصة لأعضاء البريميوم فقط لتغيير صورة وبنر وبايو البوت داخل سيرفرهم.')}</p>
-          <a class="btn ghost" href="/servers">{('Back to Servers' if is_en else 'العودة للسيرفرات')}</a>
+        <div class="glass-card" style="text-align:center;">
+          <p class="muted">{('This section is for Premium members to customize bot profile per server, toggle Ultra Fortress Mode, restore snapshots, and set alert channels.' if is_en else 'هذه اللوحة مخصصة لأعضاء البريميوم لتخصيص بروفايل البوت لكل سيرفر، تفعيل الحصن الفائق، استرجاع اللقطات، وضبط تنبيهات الاختراق.')}</p>
+          <a class="btn-g" href="/servers">{('Back to Servers' if is_en else 'العودة للسيرفرات')}</a>
         </div>
         """
         return web.Response(text=render_page("Premium" if is_en else "البريميوم", "premium", body, request), content_type="text/html")
@@ -2681,53 +2714,106 @@ async def handle_premium(request: web.Request) -> web.Response:
                 flash = "Unauthorized or bot is not in this server." if is_en else "غير مصرح أو البوت غير متواجد في هذا السيرفر."
             else:
                 gid = authorized["id"]
-                bio_val = str(form.get("bio", "")).strip()[:190]
-                raw_av = str(form.get("avatar_url", "")).strip()
-                raw_bn = str(form.get("banner_url", "")).strip()
-                avatar_val = sanitize_http_url(raw_av)
-                banner_val = sanitize_http_url(raw_bn)
-                if (raw_av and not avatar_val) or (raw_bn and not banner_val):
-                    flash = (
-                        "Avatar/Banner URLs must start with https:// or http://."
-                        if is_en
-                        else "يجب أن تبدأ روابط الصورة والبنر بـ https:// أو http:// فقط."
-                    )
+                prem_action = str(form.get("prem_action", "save_all")).strip()
+
+                if prem_action == "instant_rollback":
+                    cur_cfg = get_guild_cfg(gid)
+                    snaps = cur_cfg.get("perms_snapshots") or []
+                    chosen_snap = str(form.get("snapshot_id", "")).strip()
+                    if not chosen_snap and snaps:
+                        chosen_snap = str(snaps[0].get("id", ""))
+                    if chosen_snap:
+                        save_guild_cfg(gid, {"premium_perks": {"last_restored_snapshot": chosen_snap}})
+                        enqueue_remote_action(
+                            gid,
+                            "instant_snapshot_rollback",
+                            gid,
+                            {"snapshot_id": chosen_snap, "requested_by": str(user.get("id", ""))},
+                        )
+                        log_event(
+                            f"استرجاع فوري للقطة الصلاحيات [{chosen_snap}] في السيرفر {gid} (Premium)",
+                            guild_id=gid,
+                            level="PREM",
+                        )
+                        flash = (
+                            f"Instant rollback queued for snapshot [{chosen_snap}]."
+                            if is_en
+                            else f"تم إرسال أمر الاسترجاع الفوري للقطة الصلاحيات [{chosen_snap}] بنجاح."
+                        )
+                    else:
+                        flash = (
+                            "No saved snapshot found for this server yet."
+                            if is_en
+                            else "لا توجد لقطة صلاحيات محفوظة لهذا السيرفر بعد."
+                        )
                 else:
-                    save_guild_cfg(
-                        gid,
-                        {
-                            "guild_profile": {
+                    bio_val = str(form.get("bio", "")).strip()[:190]
+                    raw_av = str(form.get("avatar_url", "")).strip()
+                    raw_bn = str(form.get("banner_url", "")).strip()
+                    raw_wh = str(form.get("alert_webhook_url", "")).strip()
+                    avatar_val = sanitize_http_url(raw_av)
+                    banner_val = sanitize_http_url(raw_bn)
+                    webhook_val = sanitize_http_url(raw_wh)
+
+                    if (raw_av and not avatar_val) or (raw_bn and not banner_val) or (raw_wh and not webhook_val):
+                        flash = (
+                            "URLs must start with https:// or http://."
+                            if is_en
+                            else "يجب أن تبدأ الروابط (الصورة، البنر، والويب هوك) بـ https:// أو http:// فقط."
+                        )
+                    else:
+                        ultra_mode = form.get("ultra_fortress_mode") == "on"
+                        instant_rb = form.get("instant_rollback_enabled") == "on"
+                        priority_resp = form.get("priority_shield_response") == "on"
+                        alert_ch = str(form.get("alert_channel_id", "")).strip()
+
+                        save_guild_cfg(
+                            gid,
+                            {
+                                "guild_profile": {
+                                    "bio": bio_val,
+                                    "avatar_url": avatar_val,
+                                    "banner_url": banner_val,
+                                },
+                                "premium_perks": {
+                                    "ultra_fortress_mode": ultra_mode,
+                                    "instant_rollback_enabled": instant_rb,
+                                    "priority_shield_response": priority_resp,
+                                    "alert_channel_id": alert_ch,
+                                    "alert_webhook_url": webhook_val,
+                                },
+                            },
+                        )
+                        enqueue_remote_action(
+                            gid,
+                            "set_guild_profile",
+                            gid,
+                            {
                                 "bio": bio_val,
                                 "avatar_url": avatar_val,
                                 "banner_url": banner_val,
-                            }
-                        },
-                    )
-                    enqueue_remote_action(
-                        gid,
-                        "set_guild_profile",
-                        gid,
-                        {
-                            "bio": bio_val,
-                            "avatar_url": avatar_val,
-                            "banner_url": banner_val,
-                            "requested_by": str(user.get("id", "")),
-                        },
-                    )
-                    log_event(
-                        f"تحديث بروفايل البوت للسيرفر {gid} (صورة/بنر/بايو) بواسطة {user.get('id')}",
-                        guild_id=gid,
-                        level="PREM",
-                    )
-                    flash = (
-                        "Saved and queued bot profile update for this server only."
-                        if is_en
-                        else "تم حفظ وإرسال طلب تحديث صورة/بنر/بايو البوت لهذا السيرفر فقط."
-                    )
+                                "ultra_fortress_mode": ultra_mode,
+                                "alert_channel_id": alert_ch,
+                                "alert_webhook_url": webhook_val,
+                                "requested_by": str(user.get("id", "")),
+                            },
+                        )
+                        log_event(
+                            f"تحديث مزايا البريميوم وبروفايل البوت للسيرفر {gid} بواسطة {user.get('id')}",
+                            guild_id=gid,
+                            level="PREM",
+                        )
+                        flash = (
+                            "Saved per-server profile and Premium shield perks."
+                            if is_en
+                            else "تم حفظ بروفايل السيرفر ومزايا البريميوم (الحصن الفائق والتنبيهات) بنجاح."
+                        )
 
     valid_prem_gid = gid if any(g["id"] == gid for g in usable_guilds) else (usable_guilds[0]["id"] if usable_guilds else "")
     cfg = get_guild_cfg(valid_prem_gid) if valid_prem_gid else _fresh_default_guild_cfg()
     gprof = cfg.get("guild_profile", {})
+    perks = cfg.get("premium_perks", {})
+    snaps = cfg.get("perms_snapshots") or []
     csrf_token = issue_csrf_token(session_id)
 
     options_html = "".join(
@@ -2735,33 +2821,92 @@ async def handle_premium(request: web.Request) -> web.Response:
         for g in usable_guilds
     ) or "<option value=''>No eligible servers</option>"
 
-    body = f"""
-    <div class="page-title">
-      <div class="sub">PER-SERVER CUSTOMIZATION</div>
-      <h1>{('Premium Panel' if is_en else 'لوحة البريميوم (Premium)')}</h1>
-    </div>
-    <form class="card" method="POST" action="/premium?id={esc(valid_prem_gid)}" style="text-align:center;">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
-      <p class="muted">{('Changes apply only to this selected server.' if is_en else 'التعديلات هنا تطبق على بروفايل البوت داخل السيرفر المحدد فقط ولا تؤثر على باقي السيرفرات.')}</p>
+    snap_options_html = "".join(
+        f"<option value='{esc(s.get('id',''))}'>#{esc(s.get('id',''))} — {esc(s.get('saved_at',''))}</option>"
+        for s in snaps
+    )
 
-      <span class="field-label">{('Select Server' if is_en else 'اختر السيرفر')}</span>
-      <select class="ctrl" name="guild_id">
+    rollback_box = (
+        f"""
+        <div class="glass-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <h3 style="margin:0;">♻️ {('Instant Snapshot Rollback' if is_en else 'الاسترجاع الفوري للقطات الصلاحيات')}</h3>
+            <span class="chip-g">PREMIUM PERK</span>
+          </div>
+          <p class="muted">{('Restore saved permissions immediately for this server.' if is_en else 'استرجاع لقطة الصلاحيات المحفوظة فوراً لهذا السيرفر.')}</p>
+          <form method="POST" action="/premium?id={esc(valid_prem_gid)}" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            <input type="hidden" name="csrf_token" value="{csrf_token}">
+            <input type="hidden" name="guild_id" value="{esc(valid_prem_gid)}">
+            <input type="hidden" name="prem_action" value="instant_rollback">
+            <select class="inp" name="snapshot_id">{snap_options_html}</select>
+            <button class="btn-c btn-sm" type="submit">{('Restore Now' if is_en else 'استرجاع فوري')}</button>
+          </form>
+          <div class="muted" style="margin-top:8px;">{('Last restored:' if is_en else 'آخر لقطة مسترجعة:')} <code>{esc(perks.get('last_restored_snapshot') or '-')}</code></div>
+        </div>
+        """
+        if snap_options_html
+        else f"""
+        <div class="glass-card">
+          <h3 style="margin:0 0 6px;">♻️ {('Instant Snapshot Rollback' if is_en else 'الاسترجاع الفوري للقطات الصلاحيات')}</h3>
+          <p class="muted">{('Save a snapshot from the Anti-Nuke tab first to enable one-click rollback.' if is_en else 'احفظ لقطة صلاحيات من تبويب Anti Nuke أولاً لتفعيل الاسترجاع الفوري بنقرة واحدة.')}</p>
+        </div>
+        """
+    )
+
+    body = f"""
+    <div class="page-head">
+      <div class="eyebrow">PER-SERVER PREMIUM SUITE</div>
+      <h1>{('Premium Command Center' if is_en else 'مركز مزايا البريميوم (Premium)')}</h1>
+    </div>
+
+    <form class="glass-card" method="POST" action="/premium?id={esc(valid_prem_gid)}">
+      <input type="hidden" name="csrf_token" value="{csrf_token}">
+      <input type="hidden" name="prem_action" value="save_all">
+      <p class="muted">{('All profile customizations and perks apply strictly to the selected server.' if is_en else 'جميع التخصيصات ومزايا البريميوم تطبق على السيرفر المحدد فقط ولا تؤثر على باقي السيرفرات.')}</p>
+
+      <span class="lbl">{('Select Server' if is_en else 'اختر السيرفر')}</span>
+      <select class="inp" name="guild_id">
         {options_html}
       </select>
 
-      <span class="field-label">{('Bot Avatar URL (Per Server)' if is_en else 'رابط صورة البوت داخل السيرفر (Avatar URL)')}</span>
-      <input class="ctrl" type="url" name="avatar_url" value="{esc(sanitize_http_url(gprof.get('avatar_url', '')))}" placeholder="https://example.com/avatar.png">
+      <h3 style="margin:18px 0 4px;">🎨 {('Per-Server Bot Identity' if is_en else 'هوية البوت داخل السيرفر')}</h3>
+      <span class="lbl">{('Bot Avatar URL (Per Server)' if is_en else 'رابط صورة البوت داخل السيرفر')}</span>
+      <input class="inp" type="url" name="avatar_url" value="{esc(sanitize_http_url(gprof.get('avatar_url', '')))}" placeholder="https://example.com/avatar.png">
 
-      <span class="field-label">{('Bot Banner URL (Per Server)' if is_en else 'رابط بنر البوت داخل السيرفر (Banner URL)')}</span>
-      <input class="ctrl" type="url" name="banner_url" value="{esc(sanitize_http_url(gprof.get('banner_url', '')))}" placeholder="https://example.com/banner.png">
+      <span class="lbl">{('Bot Banner URL (Per Server)' if is_en else 'رابط بنر البوت داخل السيرفر')}</span>
+      <input class="inp" type="url" name="banner_url" value="{esc(sanitize_http_url(gprof.get('banner_url', '')))}" placeholder="https://example.com/banner.png">
 
-      <span class="field-label">{('Bot Bio (Per Server)' if is_en else 'بايو البوت داخل السيرفر (Guild Bio)')}</span>
-      <input class="ctrl" type="text" name="bio" value="{esc(gprof.get('bio', ''))}" maxlength="190" placeholder="{('Server bot bio' if is_en else 'اكتب البايو الخاص بالبوت في هذا السيرفر')}">
+      <span class="lbl">{('Bot Bio (Per Server)' if is_en else 'بايو البوت داخل السيرفر')}</span>
+      <input class="inp" type="text" name="bio" value="{esc(gprof.get('bio', ''))}" maxlength="190" placeholder="{('Server bot bio' if is_en else 'اكتب البايو الخاص بالبوت في هذا السيرفر')}">
 
-      <div style="margin-top:16px;">
-        <button class="btn gold" type="submit">{('Save for This Server' if is_en else 'حفظ وتطبيق على هذا السيرفر')}</button>
+      <h3 style="margin:18px 0 6px;">🛡 {('Premium Shield & Alerts' if is_en else 'مزايا الحماية والتنبيهات الفورية')}</h3>
+      <div class="switch-list" style="max-width:460px;">
+        <label class="switch-row">
+          <span>{('Ultra Fortress Mode (Max Strictness)' if is_en else 'وضع الحصن الفائق (أقصى صرامة ضد الاختراق)')}</span>
+          <input type="checkbox" name="ultra_fortress_mode" {'checked' if perks.get('ultra_fortress_mode') else ''}>
+        </label>
+        <label class="switch-row">
+          <span>{('Instant Rollback Ready' if is_en else 'تفعيل الاسترجاع الفوري للقطات')}</span>
+          <input type="checkbox" name="instant_rollback_enabled" {'checked' if perks.get('instant_rollback_enabled', True) else ''}>
+        </label>
+        <label class="switch-row">
+          <span>{('Priority Shield Response' if is_en else 'أولوية قصوى في استجابة الحماية')}</span>
+          <input type="checkbox" name="priority_shield_response" {'checked' if perks.get('priority_shield_response', True) else ''}>
+        </label>
+      </div>
+
+      <span class="lbl">{('Instant Alert Channel ID' if is_en else 'قناة التنبيهات الفورية عند الاختراق (Channel ID)')}</span>
+      <input class="inp" type="text" name="alert_channel_id" value="{esc(perks.get('alert_channel_id', ''))}" placeholder="123456789012345678">
+
+      <span class="lbl">{('Custom Alert Webhook URL' if is_en else 'رابط ويب هوك للتنبيهات الخارجية (Webhook URL)')}</span>
+      <input class="inp" type="url" name="alert_webhook_url" value="{esc(sanitize_http_url(perks.get('alert_webhook_url', '')))}" placeholder="https://discord.com/api/webhooks/...">
+
+      <div style="margin-top:18px;">
+        <button class="btn-v btn-gold" type="submit">{('Save Premium Settings' if is_en else 'حفظ وتطبيق مزايا البريميوم')}</button>
       </div>
     </form>
+
+    {rollback_box}
     """
     return web.Response(text=render_page("Premium" if is_en else "البريميوم", "premium", body, request, flash=flash), content_type="text/html")
 
@@ -2777,13 +2922,13 @@ async def handle_admin(request: web.Request) -> web.Response:
     session_id, user = sess_pair
     if not is_site_admin(user):
         body = f"""
-        <div class="page-title">
-          <div class="sub">RESTRICTED ACCESS</div>
+        <div class="page-head">
+          <div class="eyebrow">RESTRICTED ACCESS</div>
           <h1>{('Admin Panel' if is_en else 'لوحة الإدارة')}</h1>
         </div>
-        <div class="card" style="text-align:center;">
+        <div class="glass-card" style="text-align:center;">
           <p class="muted">{('Admins only.' if is_en else 'هذه الصفحة مخصصة للمشرفين فقط.')}</p>
-          <a class="btn ghost" href="/servers">{('Back to Servers' if is_en else 'العودة للسيرفرات')}</a>
+          <a class="btn-g" href="/servers">{('Back to Servers' if is_en else 'العودة للسيرفرات')}</a>
         </div>
         """
         return web.Response(text=render_page("Admin Panel" if is_en else "لوحة الإدارة", "admin", body, request), content_type="text/html")
@@ -2908,12 +3053,12 @@ async def handle_admin(request: web.Request) -> web.Response:
             f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
             f"<input type='hidden' name='admin_action' value='revoke_admin'>"
             f"<input type='hidden' name='target_admin_id' value='{auid}'>"
-            f"<button class='btn ghost' type='submit'>{'Remove' if is_en else 'سحب'}</button></form>"
+            f"<button class='btn-g btn-sm' type='submit'>{'Remove' if is_en else 'سحب'}</button></form>"
             if a["user_id"] != ADMIN_USER_ID
-            else f"<span class='pill-tag pill-purple'>{'OWNER' if is_en else 'أساسي'}</span>"
+            else f"<span class='chip-v'>{'OWNER' if is_en else 'أساسي'}</span>"
         )
         admin_rows += f"""
-        <div class="member-pill">
+        <div class="list-row">
           <div><code>{auid}</code> <span class="muted">• {esc(a.get('granted_by','admin'))}</span></div>
           {rem_btn}
         </div>
@@ -2935,13 +3080,13 @@ async def handle_admin(request: web.Request) -> web.Response:
         )
         emg_lbl = "إيقاف الطوارئ" if is_emg else "طوارئ"
         icon_preview = (
-            f"<img src='https://cdn.discordapp.com/icons/{gid}/{icon}.png?size=64' loading='lazy' referrerpolicy='no-referrer' style='width:44px;height:44px;border-radius:12px;object-fit:cover;' alt=''>"
+            f"<img src='https://cdn.discordapp.com/icons/{gid}/{icon}.png?size=64' loading='lazy' referrerpolicy='no-referrer' style='width:42px;height:42px;border-radius:12px;object-fit:cover;' alt=''>"
             if icon
-            else f"<div style='width:44px;height:44px;border-radius:12px;background:#261d4d;display:flex;align-items:center;justify-content:center;font-weight:800;'>{esc((g['name'][:2] or 'SV').upper())}</div>"
+            else f"<div style='width:42px;height:42px;border-radius:12px;background:rgba(124,58,237,0.35);display:flex;align-items:center;justify-content:center;font-weight:900;'>{esc((g['name'][:2] or 'SV').upper())}</div>"
         )
         status_badges = f"{'• LOCKED ' if is_locked else ''}{'• EMERGENCY' if is_emg else ''}"
         guilds_rows += f"""
-        <div class="member-pill" style="flex-wrap:wrap;">
+        <div class="list-row">
           <div style="display:flex;align-items:center;gap:10px;">
             {icon_preview}
             <div>
@@ -2950,24 +3095,24 @@ async def handle_admin(request: web.Request) -> web.Response:
             </div>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            <a class="btn ghost" href="/guild?id={gid}&tab=antinuke">{('Manage' if is_en else 'إدارة')}</a>
+            <a class="btn-g btn-sm" href="/guild?id={gid}&tab=antinuke">{('Manage' if is_en else 'إدارة')}</a>
             <form method="POST" action="/admin" style="margin:0;">
               <input type="hidden" name="csrf_token" value="{csrf_token}">
               <input type="hidden" name="admin_action" value="toggle_lockdown">
               <input type="hidden" name="target_guild_id" value="{gid}">
-              <button class="btn gold" type="submit">{lock_lbl}</button>
+              <button class="btn-g btn-gold btn-sm" type="submit">{lock_lbl}</button>
             </form>
             <form method="POST" action="/admin" style="margin:0;">
               <input type="hidden" name="csrf_token" value="{csrf_token}">
               <input type="hidden" name="admin_action" value="toggle_emergency">
               <input type="hidden" name="target_guild_id" value="{gid}">
-              <button class="btn ghost" type="submit">{emg_lbl}</button>
+              <button class="btn-g btn-sm" type="submit">{emg_lbl}</button>
             </form>
             <form method="POST" action="/admin" style="margin:0;">
               <input type="hidden" name="csrf_token" value="{csrf_token}">
               <input type="hidden" name="admin_action" value="leave_guild">
               <input type="hidden" name="target_guild_id" value="{gid}">
-              <button class="btn danger" type="submit">{('Leave' if is_en else 'إخراج البوت')}</button>
+              <button class="btn-g btn-danger btn-sm" type="submit">{('Leave' if is_en else 'إخراج البوت')}</button>
             </form>
           </div>
         </div>
@@ -2983,12 +3128,12 @@ async def handle_admin(request: web.Request) -> web.Response:
             f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
             f"<input type='hidden' name='admin_action' value='revoke_premium'>"
             f"<input type='hidden' name='target_user_id' value='{puid}'>"
-            f"<button class='btn ghost' type='submit'>{'Remove' if is_en else 'سحب'}</button></form>"
+            f"<button class='btn-g btn-sm' type='submit'>{'Remove' if is_en else 'سحب'}</button></form>"
             if p["user_id"] != ADMIN_USER_ID
-            else f"<span class='pill-tag pill-purple'>{'OWNER' if is_en else 'أساسي'}</span>"
+            else f"<span class='chip-v'>{'OWNER' if is_en else 'أساسي'}</span>"
         )
         prem_rows += f"""
-        <div class="member-pill">
+        <div class="list-row">
           <div><code>{puid}</code> <span class="muted">• {esc(p.get('granted_by','admin'))}</span></div>
           {rem_btn}
         </div>
@@ -2998,13 +3143,13 @@ async def handle_admin(request: web.Request) -> web.Response:
     for b in backups:
         bid = esc(b.get("backup_id", ""))
         backup_rows += f"""
-        <div class="member-pill">
+        <div class="list-row">
           <div><code>{bid}</code> <span class="muted">• {esc(b.get('created_at',''))}</span></div>
           <form method="POST" action="/admin" style="margin:0;">
             <input type="hidden" name="csrf_token" value="{csrf_token}">
             <input type="hidden" name="admin_action" value="test_restore">
             <input type="hidden" name="backup_id" value="{bid}">
-            <button class="btn ghost" type="submit">اختبار الاستعادة</button>
+            <button class="btn-g btn-sm" type="submit">اختبار الاستعادة</button>
           </form>
         </div>
         """
@@ -3012,92 +3157,88 @@ async def handle_admin(request: web.Request) -> web.Response:
         backup_rows = "<p class='muted'>لا توجد نسخ احتياطية محفوظة بعد.</p>"
 
     body = f"""
-    <div class="admin-hero">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-        <div>
-          <span class="pill-tag pill-purple">COMMAND CENTER</span>
-          <h1 style="margin:6px 0 2px;font-size:24px;font-weight:900;">{('Admin Control Panel' if is_en else 'لوحة الإدارة المتقدمة')}</h1>
-          <div class="muted">{esc(db_state)} • حالة البوت: <strong>{esc(MEM_BOT_HEARTBEAT['status'])}</strong></div>
+    <div class="cyber-hero" style="padding:24px;">
+      <div class="hero-chip">⚡ {('COMMAND CENTER' if is_en else 'مركز قيادة الإدارة')}</div>
+      <h1 class="hero-h1" style="font-size:26px;">{('Admin Control Panel' if is_en else 'لوحة الإدارة المتقدمة')}</h1>
+      <div class="muted" style="margin-top:6px;">{esc(db_state)} • حالة البوت: <strong>{esc(MEM_BOT_HEARTBEAT['status'])}</strong></div>
+      <div class="kpi-grid">
+        <div class="kpi-box">
+          <div class="kpi-n">{len(all_guilds)}</div>
+          <div class="kpi-t">{('Servers' if is_en else 'السيرفرات')}</div>
         </div>
-      </div>
-      <div class="admin-kpis">
-        <div class="kpi-tile">
-          <div class="kpi-val">{len(all_guilds)}</div>
-          <div class="kpi-lbl">{('Servers' if is_en else 'السيرفرات')}</div>
+        <div class="kpi-box">
+          <div class="kpi-n">{len(admin_users)}</div>
+          <div class="kpi-t">{('Admins' if is_en else 'الأدمن')}</div>
         </div>
-        <div class="kpi-tile">
-          <div class="kpi-val">{len(admin_users)}</div>
-          <div class="kpi-lbl">{('Admins' if is_en else 'الأدمن')}</div>
+        <div class="kpi-box">
+          <div class="kpi-n">{len(prem_users)}</div>
+          <div class="kpi-t">{('Premium' if is_en else 'البريميوم')}</div>
         </div>
-        <div class="kpi-tile">
-          <div class="kpi-val">{len(prem_users)}</div>
-          <div class="kpi-lbl">{('Premium' if is_en else 'البريميوم')}</div>
-        </div>
-        <div class="kpi-tile">
-          <div class="kpi-val">{len(backups)}</div>
-          <div class="kpi-lbl">نسخ احتياطية</div>
+        <div class="kpi-box">
+          <div class="kpi-n">{len(backups)}</div>
+          <div class="kpi-t">نسخ احتياطية</div>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <h3 style="margin:0;">🛡️ {('Admin Roles by User ID' if is_en else 'إعطاء صلاحية Admin عبر User ID')}</h3>
-        <span class="pill-tag pill-purple">ADMIN</span>
+    <div class="glass-card">
+      <div class="feature-head" style="margin-bottom:10px;">
+        <h3 style="margin:0;">🛡 {('Admin Roles by User ID' if is_en else 'إعطاء صلاحية Admin عبر User ID')}</h3>
+        <span class="chip-v">ADMIN</span>
       </div>
-      <form method="POST" action="/admin" class="admin-form-row">
+      <form method="POST" action="/admin" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
         <input type="hidden" name="csrf_token" value="{csrf_token}">
         <input type="hidden" name="admin_action" value="grant_admin">
-        <input class="ctrl" type="text" name="target_admin_id" placeholder="{('Enter Account User ID' if is_en else 'أدخل User ID الحساب')}" required>
-        <button class="btn" type="submit">{('Give Admin' if is_en else 'إعطاء Admin')}</button>
+        <input class="inp" type="text" name="target_admin_id" placeholder="{('Enter Account User ID' if is_en else 'أدخل User ID الحساب')}" required>
+        <button class="btn-v btn-sm" type="submit">{('Give Admin' if is_en else 'إعطاء Admin')}</button>
       </form>
       {admin_rows}
     </div>
 
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <h3 style="margin:0;">✨ {('Premium Access by User ID' if is_en else 'منح البريميوم (Premium)')}</h3>
-        <span class="pill-tag pill-green">PREMIUM</span>
+    <div class="glass-card">
+      <div class="feature-head" style="margin-bottom:10px;">
+        <h3 style="margin:0;">✦ {('Premium Access by User ID' if is_en else 'منح البريميوم (Premium)')}</h3>
+        <span class="chip-c">PREMIUM</span>
       </div>
-      <form method="POST" action="/admin" class="admin-form-row">
+      <form method="POST" action="/admin" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
         <input type="hidden" name="csrf_token" value="{csrf_token}">
         <input type="hidden" name="admin_action" value="grant_premium">
-        <input class="ctrl" type="text" name="target_user_id" placeholder="{('Enter Account User ID' if is_en else 'أدخل User ID الشخص')}" required>
-        <button class="btn gold" type="submit">{('Give Premium' if is_en else 'إعطاء بريميوم')}</button>
+        <input class="inp" type="text" name="target_user_id" placeholder="{('Enter Account User ID' if is_en else 'أدخل User ID الشخص')}" required>
+        <button class="btn-v btn-gold btn-sm" type="submit">{('Give Premium' if is_en else 'إعطاء بريميوم')}</button>
       </form>
       {prem_rows}
     </div>
 
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+    <div class="glass-card">
+      <div class="feature-head" style="margin-bottom:10px;">
         <h3 style="margin:0;">📣 تنبيه عام، النسخ الاحتياطي، ومراقبة البوت</h3>
-        <span class="pill-tag pill-purple">OPS</span>
+        <span class="chip-g">OPS</span>
       </div>
-      <form method="POST" action="/admin" class="admin-form-row">
+      <form method="POST" action="/admin" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
         <input type="hidden" name="csrf_token" value="{csrf_token}">
         <input type="hidden" name="admin_action" value="broadcast_alert">
-        <input class="ctrl" type="text" name="broadcast_text" placeholder="رسالة تنبيه عامة للبوت">
-        <button class="btn gold" type="submit">إرسال تنبيه</button>
+        <input class="inp" type="text" name="broadcast_text" placeholder="رسالة تنبيه عامة للبوت">
+        <button class="btn-v btn-gold btn-sm" type="submit">إرسال تنبيه</button>
       </form>
-      <div class="admin-form-row">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
         <form method="POST" action="/admin" style="margin:0;">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="admin_action" value="create_backup">
-          <button class="btn" type="submit">إنشاء نسخة احتياطية</button>
+          <button class="btn-v btn-sm" type="submit">إنشاء نسخة احتياطية</button>
         </form>
         <form method="POST" action="/admin" style="margin:0;">
           <input type="hidden" name="csrf_token" value="{csrf_token}">
           <input type="hidden" name="admin_action" value="ping_bot">
-          <button class="btn ghost" type="submit">فحص تشغيل البوت</button>
+          <button class="btn-g btn-sm" type="submit">فحص تشغيل البوت</button>
         </form>
       </div>
       {backup_rows}
     </div>
 
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <h3 style="margin:0;">🌐 {('Bot Guilds' if is_en else 'السيرفرات المتواجد فيها البوت')}</h3>
-        <span class="pill-tag pill-purple">{len(all_guilds)}</span>
+    <div class="glass-card">
+      <div class="feature-head" style="margin-bottom:10px;">
+        <h3 style="margin:0;">◈ {('Bot Guilds' if is_en else 'السيرفرات المتواجد فيها البوت')}</h3>
+        <span class="chip-v">{len(all_guilds)}</span>
       </div>
       {guilds_rows}
     </div>
@@ -3108,17 +3249,19 @@ async def handle_admin(request: web.Request) -> web.Response:
 async def handle_services(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
     body = f"""
-    <div class="page-title">
-      <div class="sub">PLANS & MODULES</div>
+    <div class="page-head">
+      <div class="eyebrow">PLANS & MODULES</div>
       <h1>{('Services & Plans' if is_en else 'الخدمات والاشتراكات')}</h1>
     </div>
-    <div class="feature-card">
-      <h3>Full Security, Analytics & Recovery Suite</h3>
-      <p class="feature-desc">{('Webhooks, apps, bots, privilege escalation, role/channel permissions, mass unban/kick/timeout, behavior analysis, snapshots, rollback, simulations, API guard, and DB backups.' if is_en else 'منظومة حماية كاملة تشمل الويب هوك والتطبيقات والبوتات، تصعيد الصلاحيات، الإجراءات الجماعية، تحليل السلوك، النسخ والاسترجاع، محاكاة الهجمات، وحماية قاعدة البيانات.')}</p>
+    <div class="glass-card">
+      <span class="chip-v">{('CORE SHIELD' if is_en else 'الحماية الأساسية')}</span>
+      <h3 style="margin:8px 0 6px;">Full Security, Analytics & Recovery Suite</h3>
+      <p class="muted" style="line-height:1.65;">{('Webhooks, apps, bots, privilege escalation, role/channel permissions, mass unban/kick/timeout, behavior analysis, snapshots, rollback, simulations, API guard, and DB backups.' if is_en else 'منظومة حماية كاملة تشمل الويب هوك والتطبيقات والبوتات، تصعيد الصلاحيات، الإجراءات الجماعية، تحليل السلوك، النسخ والاسترجاع، محاكاة الهجمات، وحماية قاعدة البيانات.')}</p>
     </div>
-    <div class="feature-card">
-      <h3>Per-Server Bot Profile (Premium)</h3>
-      <p class="feature-desc">{('Customize bot avatar, banner, and bio inside a single server without affecting others.' if is_en else 'تخصيص صورة البوت وبنره وبايو البوت داخل سيرفر محدد فقط دون التأثير على باقي السيرفرات.')}</p>
+    <div class="glass-card">
+      <span class="chip-c">{('PREMIUM PERKS' if is_en else 'مزايا البريميوم')}</span>
+      <h3 style="margin:8px 0 6px;">Per-Server Identity, Ultra Fortress, Instant Rollback & Alerts</h3>
+      <p class="muted" style="line-height:1.65;">{('Customize bot avatar, banner, and bio inside a single server, activate Ultra Fortress Mode, restore permission snapshots instantly, and set alert channels or webhooks.' if is_en else 'تخصيص صورة وبنر وبايو البوت داخل سيرفر محدد، تفعيل وضع الحصن الفائق، استرجاع لقطات الصلاحيات فوراً، وضبط قناة أو ويب هوك للتنبيهات الفورية.')}</p>
     </div>
     """
     return web.Response(text=render_page("Services" if is_en else "الخدمات", "services", body, request), content_type="text/html")
@@ -3128,15 +3271,15 @@ async def handle_updates(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
     logs = get_recent_logs(40)
     rows = "".join(
-        f"<div class='log-row'><code>{esc(item.get('time',''))}</code> [{esc(item.get('level','LOG'))}] {esc(item.get('message',''))}</div>"
+        f"<div class='log-line'><code>{esc(item.get('time',''))}</code> [{esc(item.get('level','LOG'))}] {esc(item.get('message',''))}</div>"
         for item in logs
     ) or f"<p class='muted'>{'No updates or logs yet.' if is_en else 'لا توجد تحديثات أو سجلات مسجلة حالياً.'}</p>"
     body = f"""
-    <div class="page-title">
-      <div class="sub">CHANGELOG & ACTIVITY</div>
+    <div class="page-head">
+      <div class="eyebrow">CHANGELOG & ACTIVITY</div>
       <h1>{('Updates & Logs' if is_en else 'التحديثات والسجلات')}</h1>
     </div>
-    <div class="card">{rows}</div>
+    <div class="glass-card">{rows}</div>
     """
     return web.Response(text=render_page("Updates" if is_en else "التحديثات", "updates", body, request), content_type="text/html")
 
@@ -3151,15 +3294,15 @@ async def handle_links(request: web.Request) -> web.Response:
     allowed_g = user_can_manage_guild(raw_gid, user) if raw_gid else None
     guild_url = f"{web_url}/guild?id={esc(allowed_g['id'])}&tab=antinuke" if allowed_g else f"{web_url}/guild?tab=antinuke"
     body = f"""
-    <div class="page-title">
-      <div class="sub">QUICK LINKS</div>
+    <div class="page-head">
+      <div class="eyebrow">QUICK LINKS</div>
       <h1>{('Links' if is_en else 'الروابط')}</h1>
     </div>
-    <div class="card">
-      <div class="log-row"><strong>{('Main Site' if is_en else 'الموقع الرئيسي')}:</strong> <a href="{main_url}/" style="color:#a78bfa;">{main_url}/</a></div>
-      <div class="log-row"><strong>{('Servers' if is_en else 'السيرفرات')}:</strong> <a href="{web_url}/servers" style="color:#a78bfa;">{web_url}/servers</a></div>
-      <div class="log-row"><strong>{('Security Panel' if is_en else 'لوحة الحماية')}:</strong> <a href="{guild_url}" style="color:#a78bfa;">{guild_url}</a></div>
-      <div class="log-row"><strong>{('Bot Invite' if is_en else 'دعوة البوت')}:</strong> <a href="{safe_invite}" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;">{safe_invite}</a></div>
+    <div class="glass-card">
+      <div class="log-line"><strong>{('Main Site' if is_en else 'الموقع الرئيسي')}:</strong> <a href="{main_url}/" style="color:#67e8f9;">{main_url}/</a></div>
+      <div class="log-line"><strong>{('Servers' if is_en else 'السيرفرات')}:</strong> <a href="{web_url}/servers" style="color:#67e8f9;">{web_url}/servers</a></div>
+      <div class="log-line"><strong>{('Security Panel' if is_en else 'لوحة الحماية')}:</strong> <a href="{guild_url}" style="color:#67e8f9;">{guild_url}</a></div>
+      <div class="log-line"><strong>{('Bot Invite' if is_en else 'دعوة البوت')}:</strong> <a href="{safe_invite}" target="_blank" rel="noopener noreferrer" style="color:#67e8f9;">{safe_invite}</a></div>
     </div>
     """
     return web.Response(text=render_page("Links" if is_en else "الروابط", "links", body, request), content_type="text/html")
