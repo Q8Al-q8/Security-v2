@@ -46,11 +46,13 @@ BOT_INVITE_URL = os.getenv(
 ).strip()
 
 MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
-MONGO_USER = os.getenv("MONGO_USER", "").strip()
-MONGO_PASS = os.getenv("MONGO_PASS", "").strip()
+MONGO_USER = os.getenv("MONGO_USER", "soudfares02_db_user").strip()
+MONGO_PASS = os.getenv("MONGO_PASS", "XFpjfdaMuqTzcvIZ").strip()
 MONGO_HOST = os.getenv("MONGO_HOST", "").strip()
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority").strip()
-
+MONGO_URI = os.getenv(
+    "MONGO_URI",
+    "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority",
+).strip()
 
 if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     safe_user = quote(MONGO_USER, safe="")
@@ -58,7 +60,10 @@ if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     clean_host = MONGO_HOST.replace("mongodb+srv://", "").replace("mongodb://", "").strip("/")
     MONGO_URI = f"mongodb+srv://{safe_user}:{safe_pass}@{clean_host}/{MONGO_DB_NAME}?retryWrites=true&w=majority"
 
-SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
+SESSION_SECRET = (
+    os.getenv("SESSION_SECRET")
+    or "ArabSecurity_Session_Secret_2026_x9K#mP2vL8qR5tW7zY3nB6jH4cF1gD0sA"
+).strip()
 BOT_SYNC_SECRET = (os.getenv("BOT_SYNC_SECRET") or SESSION_SECRET).strip()
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "180") or "180")
 AUTH_RATE_LIMIT_PER_MIN = int(os.getenv("AUTH_RATE_LIMIT_PER_MIN", "35") or "35")
@@ -72,7 +77,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = os.getenv("COOKIE_SECURE", "").strip().lower()
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "e86TUouEB55j63-FwZFYQrsIBouxYF_r").strip()
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "NIFs1umFUtOK1ioN8X04YmzaIE1iguH-").strip()
 
 PREMIUM_DURATION_DAYS = 30
 PREMIUM_DURATION_SECONDS = PREMIUM_DURATION_DAYS * 86400
