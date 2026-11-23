@@ -2095,12 +2095,15 @@ async def handle_guild(request: web.Request) -> web.Response:
         for u in (cfg.get("whitelist") or [])
     ) or f"<p class='muted'>{('Empty' if is_en else 'فارغة')}</p>"
 
-    tr_rows = "".join(
-        f"<div class='list-row'><code>{esc(u)}</code>"
-        f"{'' if u == ADMIN_USER_ID else f\"<button class='mini-btn' type='submit' name='form_action' value='remove_trusted' onclick=\\\"this.form.target_uid.value='{esc(u)}'\\\">×</button>\"}"
-        f"</div>"
-        for u in (cfg.get("trusted_admins") or [])
-    )
+    tr_rows = ""
+    for u in (cfg.get("trusted_admins") or []):
+        safe_u = esc(u)
+        rem_btn = (
+            ""
+            if u == ADMIN_USER_ID
+            else f"<button class='mini-btn' type='submit' name='form_action' value='remove_trusted' onclick=\"this.form.target_uid.value='{safe_u}'\">×</button>"
+        )
+        tr_rows += f"<div class='list-row'><code>{safe_u}</code>{rem_btn}</div>"
 
     snaps_rows = "".join(
         f"<div class='list-row'><div><strong>#{esc(s.get('id'))}</strong> <span class='muted'>({esc(s.get('saved_at'))})</span></div><code>{esc(s.get('snapshot_hash'))}</code></div>"
