@@ -11,13 +11,14 @@ from collections import defaultdict, deque
 from datetime import datetime, timezone
 from urllib.parse import quote, urlencode, urlparse
 
-from aiohttp import ClientError, ClientSession, web
+from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
 try:
-    from pymongo import MongoClient, UpdateOne
+    from pymongo import MongoClient, ReturnDocument, UpdateOne
     from pymongo.errors import PyMongoError
 except Exception:
     MongoClient = None
+    ReturnDocument = None
     UpdateOne = None
 
     class PyMongoError(Exception):
@@ -73,6 +74,7 @@ TRUSTED_PROXY_IPS = {
     for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",")
     if ip.strip()
 }
+COOKIE_SECURE_ENV = os.getenv("COOKIE_SECURE", "").strip().lower()
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "NIFs1umFUtOK1ioN8X04YmzaIE1iguH-").strip()
@@ -266,6 +268,103 @@ def _safe_exp(val) -> float:
         return 0.0
 
 
+db = None
+logs_col = None
+incidents_col = None
+bot_guilds_col = None
+guild_settings_col = None
+queue_col = None
+premium_col = None
+admins_col = None
+stats_col = None
+backups_col = None
+sessions_col = None
+
+if MONGO_URI and MongoClient is not None:
+    try:
+        client = MongoClient(
+            MONGO_URI,
+            serverSelectionTimeoutMS=900,
+            connectTimeoutMS=900,
+            socketTimeoutMS=1200,
+            maxPoolSize=30,
+        )
+        client.admin.command("ping")
+        db = client[MONGO_DB_NAME]
+        logs_col = db["activity_logs"]
+        incidents_col = db["security_incidents"]
+        bot_guilds_col = db["bot_guilds"]
+        guild_settings_col = db["guild_settings"]
+        queue_col = db["remote_commands"]
+        premium_col = db["premium_users"]
+        admins_col = db["site_admins"]
+        stats_col = db["site_stats"]
+        backups_col = db["db_backups"]
+        sessions_col = db["web_sessions"]
+
+        premium_col.update_one(
+            {"user_id": ADMIN_USER_ID},
+            {"$set": {"user_id": ADMIN_USER_ID, "granted_by": "system", "updated_at": _now_str()}},
+            upsert=True,
+        )
+        admins_col.update_one(
+            {"user_id": ADMIN_USER_ID},
+            {"$set": {"user_id": ADMIN_USER_ID, "granted_by": "owner", "updated_at": _now_str()}},
+            upsert=True,
+        )
+    except (PyMongoError, Exception) as exc:
+        print(f"[DB] تنبيه: تشغيل بالذاكرة الاحتياطية ({type(exc).__name__})")
+
+
+def _store_session_record(sid: str, record: dict) -> None:
+    if len(SESSIONS) >= 5000:
+        oldest_sid = next(iter(SESSIONS))
+        SESSIONS.pop(oldest_sid, None)
+    SESSIONS[sid] = dict(record)
+    if sessions_col is not None:
+        try:
+            sessions_col.update_one(
+                {"sid": sid},
+                {"$set": {**record, "sid": sid}},
+                upsert=True,
+            )
+        except PyMongoError:
+            pass
+
+
+def _load_session_record(sid: str) -> dict | None:
+    now = time.time()
+    mem_sess = SESSIONS.get(sid)
+    if mem_sess:
+        if _safe_exp(mem_sess.get("exp", 0)) <= now:
+            SESSIONS.pop(sid, None)
+            mem_sess = None
+        else:
+            return mem_sess
+
+    if sessions_col is not None:
+        try:
+            doc = sessions_col.find_one({"sid": sid}, {"_id": 0})
+            if doc:
+                if _safe_exp(doc.get("exp", 0)) <= now:
+                    sessions_col.delete_one({"sid": sid})
+                    return None
+                SESSIONS[sid] = dict(doc)
+                return dict(doc)
+        except PyMongoError:
+            pass
+    return None
+
+
+def _delete_session_record(sid: str) -> None:
+    SESSIONS.pop(sid, None)
+    if sessions_col is not None:
+        try:
+            sessions_col.delete_one({"sid": sid})
+        except PyMongoError:
+            pass
+
+
 def _cleanup_expired() -> None:
     now = time.time()
     for k, meta in list(CSRF_TOKENS.items()):
@@ -280,6 +379,11 @@ def _cleanup_expired() -> None:
     for sid, sess in list(SESSIONS.items()):
         if _safe_exp(sess.get("exp", 0)) <= now:
             SESSIONS.pop(sid, None)
+    if sessions_col is not None:
+        try:
+            sessions_col.delete_many({"exp": {"$lte": now}})
+        except PyMongoError:
+            pass
 
 
 def issue_oauth_state() -> str:
@@ -344,52 +448,6 @@ def _sign_hmac(msg: str) -> str:
     return hmac.new(SESSION_SECRET.encode("utf-8"), msg.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-db = None
-logs_col = None
-incidents_col = None
-bot_guilds_col = None
-guild_settings_col = None
-queue_col = None
-premium_col = None
-admins_col = None
-stats_col = None
-backups_col = None
-
-if MONGO_URI and MongoClient is not None:
-    try:
-        client = MongoClient(
-            MONGO_URI,
-            serverSelectionTimeoutMS=900,
-            connectTimeoutMS=900,
-            socketTimeoutMS=1200,
-            maxPoolSize=30,
-        )
-        client.admin.command("ping")
-        db = client[MONGO_DB_NAME]
-        logs_col = db["activity_logs"]
-        incidents_col = db["security_incidents"]
-        bot_guilds_col = db["bot_guilds"]
-        guild_settings_col = db["guild_settings"]
-        queue_col = db["remote_commands"]
-        premium_col = db["premium_users"]
-        admins_col = db["site_admins"]
-        stats_col = db["site_stats"]
-        backups_col = db["db_backups"]
-
-        premium_col.update_one(
-            {"user_id": ADMIN_USER_ID},
-            {"$set": {"user_id": ADMIN_USER_ID, "granted_by": "system", "updated_at": _now_str()}},
-            upsert=True,
-        )
-        admins_col.update_one(
-            {"user_id": ADMIN_USER_ID},
-            {"$set": {"user_id": ADMIN_USER_ID, "granted_by": "owner", "updated_at": _now_str()}},
-            upsert=True,
-        )
-    except (PyMongoError, Exception) as exc:
-        print(f"[DB] تنبيه: تشغيل بالذاكرة الاحتياطية ({type(exc).__name__})")
-
-
 def _invalidate_perm_cache(uid: str = "") -> None:
     if uid:
         for k in list(_PERM_CACHE.keys()):
@@ -412,6 +470,20 @@ def get_client_ip(request: web.Request) -> str:
         if xff_parts:
             return xff_parts[-1][:64]
     return (remote_ip or "unknown")[:64]
+
+
+def should_use_secure_cookie(request: web.Request) -> bool:
+    if COOKIE_SECURE_ENV in ("1", "true", "yes", "on"):
+        return True
+    if COOKIE_SECURE_ENV in ("0", "false", "no", "off"):
+        return False
+    remote_ip = str(request.remote or "").strip()
+    can_trust = TRUST_PROXY and (not TRUSTED_PROXY_IPS or remote_ip in TRUSTED_PROXY_IPS)
+    proto = (
+        (request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower() if can_trust else "")
+        or str(request.scheme or "").lower()
+    )
+    return proto == "https"
 
 
 def flush_visits_if_needed(force: bool = False) -> None:
@@ -1153,6 +1225,7 @@ def detect_redirect_uri(request: web.Request) -> str:
 
 
 def sign_session(payload: dict) -> str:
+    _cleanup_expired()
     sid = secrets.token_urlsafe(24)
     exp_val = float(payload.get("exp", time.time() + 86400 * 7))
     record = {
@@ -1163,10 +1236,7 @@ def sign_session(payload: dict) -> str:
         "guilds": payload.get("guilds") or [],
         "exp": exp_val,
     }
-    if len(SESSIONS) >= 5000:
-        oldest_sid = next(iter(SESSIONS))
-        SESSIONS.pop(oldest_sid, None)
-    SESSIONS[sid] = record
+    _store_session_record(sid, record)
     raw_b64 = json.dumps({"sid": sid, "exp": exp_val}, separators=(",", ":")).encode("utf-8")
     token_body = base64.urlsafe_b64encode(raw_b64).decode("ascii")
     sig = _sign_hmac(token_body)
@@ -1174,7 +1244,6 @@ def sign_session(payload: dict) -> str:
 
 
 def verify_session(token: str | None) -> tuple[str, dict] | None:
-    _cleanup_expired()
     if not token or "." not in token:
         return None
     parts = token.rsplit(".", 1)
@@ -1191,12 +1260,13 @@ def verify_session(token: str | None) -> tuple[str, dict] | None:
         return None
     sid = str(meta.get("sid", "")).strip()
     exp_val = _safe_exp(meta.get("exp", 0))
-    if not sid or exp_val <= time.time():
-        SESSIONS.pop(sid, None)
+    now = time.time()
+    if not sid or exp_val <= now:
+        _delete_session_record(sid)
         return None
-    sess = SESSIONS.get(sid)
-    if not sess or _safe_exp(sess.get("exp", 0)) <= time.time():
-        SESSIONS.pop(sid, None)
+    sess = _load_session_record(sid)
+    if not sess or _safe_exp(sess.get("exp", 0)) <= now:
+        _delete_session_record(sid)
         return None
     return sid, sess
 
@@ -1288,9 +1358,17 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
     items: list[dict] = []
     if queue_col is not None:
         try:
-            docs = list(queue_col.find({"status": "pending"}).sort("_id", 1).limit(20))
-            for d in docs:
-                queue_col.update_one({"_id": d["_id"]}, {"$set": {"status": "done", "done_at": _now_str()}})
+            done_stamp = _now_str()
+            ret_opt = ReturnDocument.AFTER if ReturnDocument is not None else True
+            for _ in range(20):
+                d = queue_col.find_one_and_update(
+                    {"status": "pending"},
+                    {"$set": {"status": "done", "done_at": done_stamp}},
+                    sort=[("_id", 1)],
+                    return_document=ret_opt,
+                )
+                if not d:
+                    break
                 items.append(
                     {
                         "id": str(d.get("_id")),
@@ -2314,7 +2392,7 @@ async def handle_callback(request: web.Request) -> web.Response:
     network_err = False
 
     try:
-        async with ClientSession() as session:
+        async with ClientSession(timeout=ClientTimeout(total=10)) as session:
             token_resp = await session.post(
                 "https://discord.com/api/oauth2/token",
                 data={
@@ -2350,11 +2428,11 @@ async def handle_callback(request: web.Request) -> web.Response:
                                     "permissions": int(g.get("permissions", 0) or 0),
                                 }
                             )
-    except ClientError:
+    except (ClientError, asyncio.TimeoutError):
         network_err = True
 
     if network_err:
-        raise web.HTTPFound("/?msg=" + quote("حدث خطأ أثناء الاتصال بخوادم ديسكورد."))
+        raise web.HTTPFound("/?msg=" + quote("حدث خطأ أو انتهت مهلة الاتصال بخوادم ديسكورد."))
     if not access_token:
         raise web.HTTPFound("/?msg=" + quote("تعذر الحصول على رمز الوصول من ديسكورد."))
 
@@ -2377,7 +2455,7 @@ async def handle_callback(request: web.Request) -> web.Response:
         signed_tok,
         max_age=86400 * 7,
         httponly=True,
-        secure=True,
+        secure=should_use_secure_cookie(request),
         samesite="Lax",
         path="/",
     )
@@ -2387,7 +2465,7 @@ async def handle_callback(request: web.Request) -> web.Response:
 async def handle_logout(request: web.Request) -> web.Response:
     pair = get_discord_session_with_id(request)
     if pair:
-        SESSIONS.pop(pair[0], None)
+        _delete_session_record(pair[0])
     resp = web.HTTPFound("/")
     resp.del_cookie("arab_sec_session", path="/")
     return resp
