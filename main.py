@@ -288,7 +288,7 @@ def sanitize_http_url(raw_url: str | None) -> str:
     return val
 
 
-def sanitize_image_data_url(raw_val: str | None, max_len: int = 1_600_000) -> str:
+def sanitize_image_data_url(raw_val: str | None, max_len: int = 11_000_000) -> str:
     val = str(raw_val or "").strip()
     if not val:
         return ""
@@ -301,7 +301,7 @@ def sanitize_image_data_url(raw_val: str | None, max_len: int = 1_600_000) -> st
             return ""
         try:
             decoded = base64.b64decode(b64_part, validate=True)
-            if not decoded or len(decoded) > 1_150_000:
+            if not decoded or len(decoded) > 8_000_000:
                 return ""
             return f"{header.lower()};base64,{base64.b64encode(decoded).decode('ascii')}"
         except Exception:
@@ -1459,7 +1459,7 @@ def is_rate_limited(ip: str, is_sensitive: bool = False) -> bool:
     return False
 
 
-async def read_post_safe(request: web.Request, max_bytes: int = 2_200_000) -> dict | None:
+async def read_post_safe(request: web.Request, max_bytes: int = 12_000_000) -> dict | None:
     content_length = request.content_length
     if content_length is not None and content_length > max_bytes:
         return None
@@ -1603,7 +1603,7 @@ def render_page(
             f"<div class='user-box'>{avatar_html}"
             f"<div style='min-width:0;'><div class='uname'>{uname_safe} <span class='tag'>{badge_txt}</span></div>"
             f"<div class='uhandle'>ID: <code>{uid}</code></div></div></div>"
-            f"<a class='nav-item danger' href='/logout'><span>⎋</span><span>{L['logout']}</span></a>"
+            f"<a class='nav-item danger' href='/logout'><span>[EXIT]</span><span>{L['logout']}</span></a>"
         )
     else:
         account_block = f"<a class='login-btn' href='/login'>{L['login_discord']}</a>"
@@ -1618,11 +1618,10 @@ def render_page(
           <h1 class="hero-title">{esc(SITE_NAME)}</h1>
           <p class="hero-desc">{('Complete protection against tampering, behavior analysis, permission snapshots & rollback, attack simulation, and backups.' if is_en else 'منظومة حماية متكاملة ضد التخريب، تحليل السلوك، نسخ الصلاحيات والاسترجاع، محاكاة الهجمات، والنسخ الاحتياطي.')}</p>
           <a class="btn-primary-purple" href="/login">{L['login_discord']}</a>
-          <a class="btn-secondary-dark" href="/servers">Dashboard</a>
         </section>
 
         <section class="stat-card">
-          <div class="stat-shield">🛡</div>
+          <div class="stat-shield">AS</div>
           <div class="stat-number">{bot_servers_count}</div>
           <div class="stat-bar"></div>
           <div class="stat-label">{('Servers Using The Bot' if is_en else 'عدد السيرفرات التي تستخدم البوت')}</div>
@@ -1634,20 +1633,20 @@ def render_page(
     flash_banner = f"<div class='flash-banner' role='status'>{esc(safe_flash)}</div>" if safe_flash else ""
 
     nav_items = [
-        ("home", "/", "◈", L["home"]),
-        ("servers", "/servers", "❖", L["servers"]),
+        ("home", "/", "01", L["home"]),
+        ("servers", "/servers", "02", L["servers"]),
     ]
     if can_access_guild_panel:
-        nav_items.append(("guild", "/guild", "🛡", L["guild"]))
+        nav_items.append(("guild", "/guild", "03", L["guild"]))
     if is_prem:
-        nav_items.append(("premium", "/premium", "✦", L["premium"]))
+        nav_items.append(("premium", "/premium", "04", L["premium"]))
     if is_admin:
-        nav_items.append(("admin", "/admin", "⚡", L["admin"]))
+        nav_items.append(("admin", "/admin", "05", L["admin"]))
     nav_items.extend(
         [
-            ("services", "/services", "◈", L["services"]),
-            ("updates", "/updates", "▤", L["updates"]),
-            ("links", "/links", "⛓", L["links"]),
+            ("services", "/services", "06", L["services"]),
+            ("updates", "/updates", "07", L["updates"]),
+            ("links", "/links", "08", L["links"]),
         ]
     )
 
@@ -1884,7 +1883,8 @@ def render_page(
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    font-size: 15px;
+    font-weight: 900;
     color: #c4b5fd;
   }}
   .stat-number {{
@@ -1913,11 +1913,33 @@ def render_page(
     padding: 18px;
     margin-bottom: 16px;
   }}
+  .sub-panel {{
+    background: rgba(15, 10, 36, 0.78);
+    border: 1px solid rgba(139, 92, 246, 0.26);
+    border-radius: 16px;
+    padding: 15px;
+    margin-bottom: 16px;
+  }}
+  .sub-panel-head {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+  }}
+  .sub-panel-title {{
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
+  }}
   .grid-2 {{
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }}
   @media (max-width: 540px) {{
     .grid-2 {{ grid-template-columns: 1fr; }}
@@ -1951,7 +1973,8 @@ def render_page(
   .uname {{ font-weight: 800; font-size: 13px; }}
   .uhandle {{ font-size: 11px; color: #94a3b8; }}
   .tag {{ font-size: 10px; padding: 3px 8px; border-radius: 7px; background: rgba(139, 92, 246, 0.25); color: #ddd6fe; font-weight: 800; }}
-  .prem-pill {{ font-size: 10px; padding: 2px 7px; border-radius: 6px; background: rgba(245, 158, 11, 0.18); border: 1px solid rgba(251, 191, 36, 0.45); color: #fde68a; font-weight: 800; }}
+  .prem-pill {{ font-size: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(245, 158, 11, 0.18); border: 1px solid rgba(251, 191, 36, 0.45); color: #fde68a; font-weight: 800; }}
+  .admin-pill {{ font-size: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(124, 58, 237, 0.28); border: 1px solid rgba(167, 139, 250, 0.5); color: #ede9fe; font-weight: 800; }}
   .login-btn {{
     display: block;
     text-align: center;
@@ -2015,14 +2038,15 @@ def render_page(
     color: #fff;
   }}
   .mini-btn {{
-    padding: 6px 10px;
-    border-radius: 9px;
+    padding: 8px 12px;
+    border-radius: 10px;
     border: 1px solid rgba(139, 92, 246, 0.45);
     background: rgba(124, 58, 237, 0.28);
     color: #fff;
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 700;
     cursor: pointer;
+    text-align: center;
   }}
   .album-box {{
     padding: 12px;
@@ -2047,18 +2071,18 @@ def render_page(
 <div id="overlay" class="overlay" onclick="toggleDrawer(false)"></div>
 
 <aside id="drawer" class="sidebar" aria-label="{L['menu']}">
-  <a class="nav-item" href="/"><span>◈</span><span>{esc(SITE_NAME)}</span></a>
+  <a class="nav-item" href="/"><span>00</span><span>{esc(SITE_NAME)}</span></a>
   {account_block}
   <div class="sep"></div>
   {nav_links_html}
   <div class="sep"></div>
-  <a class="nav-item" href="{safe_invite_url}" target="_blank" rel="noopener noreferrer"><span>＋</span><span>{L['invite']}</span></a>
+  <a class="nav-item" href="{safe_invite_url}" target="_blank" rel="noopener noreferrer"><span>+</span><span>{L['invite']}</span></a>
 </aside>
 
 <div class="page-container">
   <header class="top-bar">
     <div class="top-left">
-      <button class="icon-btn" type="button" onclick="toggleDrawer(true)" aria-label="{L['menu']}">☰</button>
+      <button class="icon-btn" type="button" onclick="toggleDrawer(true)" aria-label="{L['menu']}">Menu</button>
       <button class="icon-btn" type="button" onclick="switchLang('{next_lang}')">{lang_label}</button>
     </div>
 
@@ -2091,8 +2115,8 @@ function switchLang(targetLang) {{
 function readAlbumFile(inputEl, hiddenId, previewId, nameId) {{
   var file = inputEl && inputEl.files && inputEl.files[0];
   if (!file) return;
-  if (file.size > 1100000) {{
-    alert("حجم الصورة كبير جداً، اختر صورة أصغر من 1.1MB");
+  if (file.size > 7500000) {{
+    alert("حجم الصورة كبير جداً، اختر صورة أصغر من 7.5MB");
     inputEl.value = "";
     return;
   }}
@@ -2136,18 +2160,17 @@ async def home_handler(request: web.Request) -> web.Response:
       <h1 class="hero-title">{esc(SITE_NAME)}</h1>
       <p class="hero-desc">{('Complete protection against tampering, behavior analysis, permission snapshots & rollback, attack simulation, and backups.' if is_en else 'منظومة حماية متكاملة ضد التخريب، تحليل السلوك، نسخ الصلاحيات والاسترجاع، محاكاة الهجمات، والنسخ الاحتياطي.')}</p>
       <a class="btn-primary-purple" href="{safe_invite}" target="_blank" rel="noopener noreferrer">Invite Arab Security Bot</a>
-      <a class="btn-secondary-dark" href="/servers">Dashboard</a>
     </section>
 
     <section class="stat-card">
-      <div class="stat-shield">🛡</div>
+      <div class="stat-shield">AS</div>
       <div class="stat-number">{bot_servers_count}</div>
       <div class="stat-bar"></div>
       <div class="stat-label">{('Servers Using The Bot' if is_en else 'عدد السيرفرات التي تستخدم البوت')}</div>
     </section>
 
     <section class="stat-card" style="padding:20px 16px;">
-      <div class="stat-shield">👁</div>
+      <div class="stat-shield">VIS</div>
       <div class="stat-number" style="font-size:26px;">{total_visits}</div>
       <div class="stat-bar"></div>
       <div class="stat-label">{('Total Visits' if is_en else 'إجمالي الزيارات')}</div>
@@ -2353,7 +2376,7 @@ async def handle_guild(request: web.Request) -> web.Response:
         rem_btn = (
             ""
             if u == ADMIN_USER_ID
-            else f"<button class='mini-btn' type='submit' name='form_action' value='remove_trusted' onclick=\"this.form.target_uid.value='{safe_u}'\">×</button>"
+            else f"<button class='mini-btn' type='submit' name='form_action' value='remove_trusted' onclick=\"this.form.target_uid.value='{safe_u}'\">x</button>"
         )
         tr_rows += f"<div class='list-row'><code>{safe_u}</code>{rem_btn}</div>"
 
@@ -2524,7 +2547,7 @@ async def handle_premium(request: web.Request) -> web.Response:
                 save_guild_cfg(gid, {"guild_profile": prof_data, "premium_perks": perks_data}, is_premium=True)
                 enqueue_remote_action(
                     gid,
-                    "update_server_bot_profile",
+                    "update_bot_profile",
                     gid,
                     extra={
                         "bio": prof_data["bio"],
@@ -2557,8 +2580,8 @@ async def handle_premium(request: web.Request) -> web.Response:
       <input type="hidden" id="banner_name" name="banner_name" value="{esc(prof.get('banner_name', ''))}">
 
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;">
-        <h2 style="margin:0;">✦ {('Premium Suite' if is_en else 'جناح البريميوم')}</h2>
-        <span class="prem-pill">⏳ {esc(rem_txt)}</span>
+        <h2 style="margin:0;">{('Premium Suite' if is_en else 'جناح البريميوم')}</h2>
+        <span class="prem-pill">{esc(rem_txt)}</span>
       </div>
 
       <label class="lbl">{('Server (Bot Inside)' if is_en else 'السيرفر (البوت متواجد داخله)')}</label>
@@ -2609,28 +2632,43 @@ async def handle_admin(request: web.Request) -> web.Response:
         form = await read_post_safe(request)
         if form and consume_csrf_token(str(form.get("csrf_token", "")), session_id) and not is_replay_request(str(form.get("req_nonce", ""))):
             act = str(form.get("admin_action", "")).strip()
-            uid = str(form.get("target_user_id", "")).strip()
-            u_name = str(form.get("target_username", "")).strip()
-            u_handle = str(form.get("target_handle", "")).strip()
             gid = str(form.get("cmd_guild_id", "")).strip()
             target_id = str(form.get("cmd_target", "")).strip()
 
-            if act == "grant_premium" and uid.isdigit():
-                set_premium_user(uid, True, granted_by=str(user.get("id", "")), username=u_name, handle=u_handle)
-                log_event(f"منح بريميوم لمدة 30 يوماً للحساب {uid}", level="ADMIN")
-                flash = f"Granted 30-day Premium to {uid}"
-            elif act == "revoke_premium" and uid.isdigit():
-                set_premium_user(uid, False)
-                log_event(f"سحب البريميوم من الحساب {uid}", level="ADMIN")
-                flash = f"Revoked Premium from {uid}"
-            elif act == "grant_admin" and uid.isdigit():
-                set_admin_user(uid, True, granted_by=str(user.get("id", "")))
-                log_event(f"منح صلاحية أدمن للحساب {uid}", level="ADMIN")
-                flash = f"Granted Admin to {uid}"
-            elif act == "revoke_admin" and uid.isdigit():
-                set_admin_user(uid, False)
-                log_event(f"سحب صلاحية أدمن من الحساب {uid}", level="ADMIN")
-                flash = f"Revoked Admin from {uid}"
+            if act == "grant_premium":
+                p_uid = str(form.get("prem_user_id", "")).strip()
+                p_name = str(form.get("prem_username", "")).strip()
+                p_handle = str(form.get("prem_handle", "")).strip()
+                if p_uid.isdigit():
+                    set_premium_user(p_uid, True, granted_by=str(user.get("id", "")), username=p_name, handle=p_handle)
+                    log_event(f"منح بريميوم لمدة 30 يوماً للحساب {p_uid}", level="ADMIN")
+                    flash = f"Granted 30-day Premium to {p_uid}" if is_en else f"تم منح بريميوم لمدة 30 يوماً للحساب {p_uid}"
+                else:
+                    flash = "Enter a valid numeric User ID for Premium." if is_en else "أدخل رقم User ID صحيحاً لإدارة البريميوم."
+            elif act == "revoke_premium":
+                p_uid = str(form.get("prem_user_id", "")).strip()
+                if p_uid.isdigit():
+                    set_premium_user(p_uid, False)
+                    log_event(f"سحب البريميوم من الحساب {p_uid}", level="ADMIN")
+                    flash = f"Revoked Premium from {p_uid}" if is_en else f"تم سحب البريميوم من الحساب {p_uid}"
+                else:
+                    flash = "Enter a valid numeric User ID for Premium." if is_en else "أدخل رقم User ID صحيحاً لسحب البريميوم."
+            elif act == "grant_admin":
+                a_uid = str(form.get("admin_user_id", "")).strip()
+                if a_uid.isdigit():
+                    set_admin_user(a_uid, True, granted_by=str(user.get("id", "")))
+                    log_event(f"منح صلاحية أدمن للحساب {a_uid}", level="ADMIN")
+                    flash = f"Granted Admin to {a_uid}" if is_en else f"تم منح صلاحية الأدمن للحساب {a_uid}"
+                else:
+                    flash = "Enter a valid numeric User ID for Admin." if is_en else "أدخل رقم User ID صحيحاً لمنح الأدمن."
+            elif act == "revoke_admin":
+                a_uid = str(form.get("admin_user_id", "")).strip()
+                if a_uid.isdigit():
+                    set_admin_user(a_uid, False)
+                    log_event(f"سحب صلاحية أدمن من الحساب {a_uid}", level="ADMIN")
+                    flash = f"Revoked Admin from {a_uid}" if is_en else f"تم سحب صلاحية الأدمن من الحساب {a_uid}"
+                else:
+                    flash = "Enter a valid numeric User ID for Admin." if is_en else "أدخل رقم User ID صحيحاً لسحب الأدمن."
             elif act in ("kick", "ban", "unban", "timeout") and gid.isdigit() and target_id.isdigit():
                 enqueue_remote_action(gid, act, target_id)
                 log_event(f"أمر إداري [{act}] على {target_id} في {gid}", guild_id=gid, level="ADMIN")
@@ -2657,7 +2695,10 @@ async def handle_admin(request: web.Request) -> web.Response:
 
     g_rows = "".join(f"<div class='list-row'><strong>{esc(g['name'])}</strong> <code>{esc(g['id'])}</code></div>" for g in guilds) or "<p class='muted'>0</p>"
     b_rows = "".join(f"<div class='list-row'><code>{esc(b.get('backup_id'))}</code><span class='muted'>{esc(b.get('created_at'))}</span></div>" for b in backups[:5]) or "<p class='muted'>-</p>"
-    a_rows = "".join(f"<div class='list-row'><code>{esc(a.get('user_id'))}</code><span class='muted'>{esc(a.get('granted_by'))}</span></div>" for a in admins) or "<p class='muted'>-</p>"
+    a_rows = "".join(
+        f"<div class='list-row'><div><strong>Admin</strong> — <code>{esc(a.get('user_id'))}</code></div><span class='admin-pill'>{esc(a.get('granted_by'))}</span></div>"
+        for a in admins
+    ) or "<p class='muted'>-</p>"
 
     p_rows = ""
     for p in prems:
@@ -2668,52 +2709,94 @@ async def handle_admin(request: web.Request) -> web.Response:
         p_rows += (
             f"<div class='list-row' style='flex-wrap:wrap;'>"
             f"<div><strong>{p_name}</strong> <span class='muted'>{p_handle}</span> — <code>{p_uid}</code></div>"
-            f"<span class='prem-pill'>⏳ {p_rem}</span></div>"
+            f"<span class='prem-pill'>{p_rem}</span></div>"
         )
     if not p_rows:
         p_rows = "<p class='muted'>-</p>"
 
     body = f"""
-    <form method="post" class="glass-card">
-      <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
-      <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
-      <h2 style="margin:0 0 12px;">⚡ {('Admin Control Center' if is_en else 'لوحة الإدارة المطوّرة')}</h2>
-
-      <h3 style="margin:10px 0 8px;">{('Premium (30 Days) & Admins' if is_en else 'إدارة البريميوم (30 يوماً) والمشرفين')}</h3>
-      <input class="inp" type="text" name="target_user_id" placeholder="كود المستخدم (User ID) *">
-      <div class="grid-2" style="margin-bottom:6px;">
-        <input class="inp" style="margin:0;" type="text" name="target_username" placeholder="الاسم (Username)">
-        <input class="inp" style="margin:0;" type="text" name="target_handle" placeholder="اليوزر (@handle)">
-      </div>
-      <div class="grid-2" style="margin-bottom:6px;">
-        <button class="btn-primary-purple" type="submit" name="admin_action" value="grant_premium">{('Grant 30d Premium' if is_en else 'منح بريميوم 30 يوم')}</button>
-        <button class="btn-secondary-dark" type="submit" name="admin_action" value="revoke_premium">{('Revoke Premium' if is_en else 'سحب بريميوم')}</button>
-        <button class="btn-primary-purple" type="submit" name="admin_action" value="grant_admin">{('Grant Admin' if is_en else 'منح أدمن')}</button>
-        <button class="btn-secondary-dark" type="submit" name="admin_action" value="revoke_admin">{('Revoke Admin' if is_en else 'سحب أدمن')}</button>
+    <div class="glass-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
+        <h2 style="margin:0;">{('Admin Control Center' if is_en else 'لوحة الإدارة المطوّرة')}</h2>
+        <span class="tag">{('OWNER / ADMIN' if is_en else 'إدارة النظام')}</span>
       </div>
 
-      <h3 style="margin:16px 0 8px;">{('Remote Actions & Broadcast' if is_en else 'الأوامر عن بُعد والبث')}</h3>
-      <input class="inp" type="text" name="cmd_guild_id" placeholder="Guild ID">
-      <input class="inp" type="text" name="cmd_target" placeholder="Target User ID or Broadcast Message">
-      <div class="grid-2" style="margin-bottom:6px;">
-        <button class="mini-btn" type="submit" name="admin_action" value="kick">Kick</button>
-        <button class="mini-btn" type="submit" name="admin_action" value="ban">Ban</button>
-        <button class="mini-btn" type="submit" name="admin_action" value="timeout">Timeout</button>
-        <button class="mini-btn" type="submit" name="admin_action" value="broadcast">Broadcast</button>
-      </div>
+      <form method="post" class="sub-panel">
+        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+        <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+        <div class="sub-panel-head">
+          <h3 class="sub-panel-title">{('Premium Subscription Management (30 Days)' if is_en else 'لوحة إدارة البريميوم (30 يوماً)')}</h3>
+          <span class="prem-pill">PREMIUM ({len(prems)})</span>
+        </div>
+        <label class="lbl">{('Target User ID' if is_en else 'معرف المستخدم (User ID)')}</label>
+        <input class="inp" type="text" name="prem_user_id" placeholder="مثال: 1395418036919468073">
+        <div class="grid-2">
+          <div>
+            <label class="lbl">{('Display Name' if is_en else 'الاسم (اختياري)')}</label>
+            <input class="inp" style="margin-bottom:0;" type="text" name="prem_username" placeholder="اسم العضو">
+          </div>
+          <div>
+            <label class="lbl">{('Handle' if is_en else 'اليوزر (اختياري)')}</label>
+            <input class="inp" style="margin-bottom:0;" type="text" name="prem_handle" placeholder="@username">
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top:10px;margin-bottom:10px;">
+          <button class="btn-primary-purple" style="margin-bottom:0;" type="submit" name="admin_action" value="grant_premium">{('Grant 30d Premium' if is_en else 'منح بريميوم 30 يوم')}</button>
+          <button class="btn-secondary-dark" style="margin-bottom:0;" type="submit" name="admin_action" value="revoke_premium">{('Revoke Premium' if is_en else 'سحب البريميوم')}</button>
+        </div>
+        {p_rows}
+      </form>
 
-      <h3 style="margin:16px 0 8px;">{('Attack Simulation & Backups' if is_en else 'محاكاة الهجمات والنسخ الاحتياطي')}</h3>
-      <input class="inp" type="text" name="sim_scenario" value="Role, Channel & Selfbot Attack">
-      <button class="btn-secondary-dark" type="submit" name="admin_action" value="simulate">{('Run Simulation' if is_en else 'تشغيل المحاكاة')}</button>
-      <div class="grid-2" style="margin-bottom:0;">
-        <button class="btn-primary-purple" type="submit" name="admin_action" value="create_backup">{('Create Backup' if is_en else 'نسخة احتياطية')}</button>
-        <button class="btn-secondary-dark" type="submit" name="admin_action" value="test_restore">{('Test Restore' if is_en else 'اختبار الاستعادة')}</button>
-      </div>
-      <div style="margin-top:10px;">{b_rows}</div>
-    </form>
+      <form method="post" class="sub-panel">
+        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+        <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+        <div class="sub-panel-head">
+          <h3 class="sub-panel-title">{('Site Admins Management' if is_en else 'لوحة إدارة الأدمن')}</h3>
+          <span class="admin-pill">ADMINS ({len(admins)})</span>
+        </div>
+        <label class="lbl">{('Target Admin User ID' if is_en else 'معرف المشرف الجديد (User ID)')}</label>
+        <input class="inp" type="text" name="admin_user_id" placeholder="مثال: 1395418036919468073">
+        <div class="grid-2" style="margin-bottom:10px;">
+          <button class="btn-primary-purple" style="margin-bottom:0;" type="submit" name="admin_action" value="grant_admin">{('Grant Admin' if is_en else 'منح صلاحية أدمن')}</button>
+          <button class="btn-secondary-dark" style="margin-bottom:0;" type="submit" name="admin_action" value="revoke_admin">{('Revoke Admin' if is_en else 'سحب صلاحية أدمن')}</button>
+        </div>
+        {a_rows}
+      </form>
 
-    <div class="glass-card"><h3 style="margin:0 0 10px;">✦ {('Active Premium Members' if is_en else 'المشتركون في البريميوم')} ({len(prems)})</h3>{p_rows}</div>
-    <div class="glass-card"><h3 style="margin:0 0 10px;">Admins ({len(admins)})</h3>{a_rows}</div>
+      <form method="post" class="sub-panel">
+        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+        <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+        <div class="sub-panel-head">
+          <h3 class="sub-panel-title">{('Remote Actions & Broadcast' if is_en else 'الأوامر عن بُعد والبث')}</h3>
+          <span class="tag">REMOTE</span>
+        </div>
+        <input class="inp" type="text" name="cmd_guild_id" placeholder="Guild ID">
+        <input class="inp" type="text" name="cmd_target" placeholder="Target User ID or Broadcast Message">
+        <div class="grid-2" style="margin-bottom:0;">
+          <button class="mini-btn" type="submit" name="admin_action" value="kick">Kick</button>
+          <button class="mini-btn" type="submit" name="admin_action" value="ban">Ban</button>
+          <button class="mini-btn" type="submit" name="admin_action" value="timeout">Timeout</button>
+          <button class="mini-btn" type="submit" name="admin_action" value="broadcast">Broadcast</button>
+        </div>
+      </form>
+
+      <form method="post" class="sub-panel" style="margin-bottom:0;">
+        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+        <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+        <div class="sub-panel-head">
+          <h3 class="sub-panel-title">{('Attack Simulation & Backups' if is_en else 'محاكاة الهجمات والنسخ الاحتياطي')}</h3>
+          <span class="tag">SYSTEM</span>
+        </div>
+        <input class="inp" type="text" name="sim_scenario" value="Role, Channel & Selfbot Attack">
+        <button class="btn-secondary-dark" type="submit" name="admin_action" value="simulate">{('Run Simulation' if is_en else 'تشغيل المحاكاة')}</button>
+        <div class="grid-2" style="margin-bottom:0;">
+          <button class="btn-primary-purple" style="margin-bottom:0;" type="submit" name="admin_action" value="create_backup">{('Create Backup' if is_en else 'نسخة احتياطية')}</button>
+          <button class="btn-secondary-dark" style="margin-bottom:0;" type="submit" name="admin_action" value="test_restore">{('Test Restore' if is_en else 'اختبار الاستعادة')}</button>
+        </div>
+        <div style="margin-top:10px;">{b_rows}</div>
+      </form>
+    </div>
+
     <div class="glass-card"><h3 style="margin:0 0 10px;">Bot Guilds ({len(guilds)})</h3>{g_rows}</div>
     """
     return web.Response(text=render_page("Admin" if is_en else "الإدارة", "admin", body, request, flash=flash), content_type="text/html")
