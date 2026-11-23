@@ -46,13 +46,11 @@ BOT_INVITE_URL = os.getenv(
 ).strip()
 
 MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
-MONGO_USER = os.getenv("MONGO_USER", "soudfares02_db_user").strip()
-MONGO_PASS = os.getenv("MONGO_PASS", "XFpjfdaMuqTzcvIZ").strip()
+MONGO_USER = os.getenv("MONGO_USER", "").strip()
+MONGO_PASS = os.getenv("MONGO_PASS", "").strip()
 MONGO_HOST = os.getenv("MONGO_HOST", "").strip()
-MONGO_URI = os.getenv(
-    "MONGO_URI",
-    "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority",
-).strip()
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority
+").strip()
 
 if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     safe_user = quote(MONGO_USER, safe="")
@@ -60,10 +58,7 @@ if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     clean_host = MONGO_HOST.replace("mongodb+srv://", "").replace("mongodb://", "").strip("/")
     MONGO_URI = f"mongodb+srv://{safe_user}:{safe_pass}@{clean_host}/{MONGO_DB_NAME}?retryWrites=true&w=majority"
 
-SESSION_SECRET = (
-    os.getenv("SESSION_SECRET")
-    or "NIFs1umFUtOK1ioN8X04YmzaIE1iguH-"
-).strip()
+SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
 BOT_SYNC_SECRET = (os.getenv("BOT_SYNC_SECRET") or SESSION_SECRET).strip()
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "180") or "180")
 AUTH_RATE_LIMIT_PER_MIN = int(os.getenv("AUTH_RATE_LIMIT_PER_MIN", "35") or "35")
@@ -77,15 +72,18 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = os.getenv("COOKIE_SECURE", "").strip().lower()
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "NIFs1umFUtOK1ioN8X04YmzaIE1iguH-").strip()
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "e86TUouEB55j63-FwZFYQrsIBouxYF_r").strip()
 
 PREMIUM_DURATION_DAYS = 30
 PREMIUM_DURATION_SECONDS = PREMIUM_DURATION_DAYS * 86400
 
+MAX_IMAGE_BYTES = 1_500_000
+MAX_IMAGE_DATA_URL_LEN = 2_100_000
+
 if not SESSION_SECRET or len(SESSION_SECRET) < 16:
-    raise RuntimeError("SESSION_SECRET مطلوب ويجب أن يكون بطول 16 حرفاً على الأقل.")
+    raise RuntimeError("A1234567890112314566") 
 if not ADMIN_USER_ID.isdigit():
-    raise RuntimeError("ADMIN_USER_ID يجب أن يكون رقماً صحيحاً.")
+    raise RuntimeError("A1234567890112314566")
 
 MANAGE_GUILD_PERM = 0x20
 ADMIN_PERM = 0x8
@@ -288,7 +286,7 @@ def sanitize_http_url(raw_url: str | None) -> str:
     return val
 
 
-def sanitize_image_data_url(raw_val: str | None, max_len: int = 11_000_000) -> str:
+def sanitize_image_data_url(raw_val: str | None, max_len: int = MAX_IMAGE_DATA_URL_LEN) -> str:
     val = str(raw_val or "").strip()
     if not val:
         return ""
@@ -301,7 +299,7 @@ def sanitize_image_data_url(raw_val: str | None, max_len: int = 11_000_000) -> s
             return ""
         try:
             decoded = base64.b64decode(b64_part, validate=True)
-            if not decoded or len(decoded) > 8_000_000:
+            if not decoded or len(decoded) > MAX_IMAGE_BYTES:
                 return ""
             return f"{header.lower()};base64,{base64.b64encode(decoded).decode('ascii')}"
         except Exception:
@@ -1340,11 +1338,17 @@ def test_backup_restore(backup_id: str = "") -> tuple[bool, str]:
 
 
 def enqueue_remote_action(guild_id: str, action: str, target: str, extra: dict | None = None) -> None:
+    safe_extra: dict = {}
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            if k in ("avatar_data_url", "banner_data_url"):
+                continue
+            safe_extra[k] = v
     payload = {
         "guild_id": str(guild_id),
         "action": str(action),
         "target": str(target),
-        "extra": extra or {},
+        "extra": safe_extra,
         "status": "pending",
         "created_at": datetime.now(timezone.utc),
     }
@@ -1459,7 +1463,7 @@ def is_rate_limited(ip: str, is_sensitive: bool = False) -> bool:
     return False
 
 
-async def read_post_safe(request: web.Request, max_bytes: int = 12_000_000) -> dict | None:
+async def read_post_safe(request: web.Request, max_bytes: int = 3_500_000) -> dict | None:
     content_length = request.content_length
     if content_length is not None and content_length > max_bytes:
         return None
@@ -1621,7 +1625,6 @@ def render_page(
         </section>
 
         <section class="stat-card">
-          <div class="stat-shield">AS</div>
           <div class="stat-number">{bot_servers_count}</div>
           <div class="stat-bar"></div>
           <div class="stat-label">{('Servers Using The Bot' if is_en else 'عدد السيرفرات التي تستخدم البوت')}</div>
@@ -1873,20 +1876,6 @@ def render_page(
     text-align: center;
     margin-bottom: 18px;
   }}
-  .stat-shield {{
-    width: 44px;
-    height: 44px;
-    margin: 0 auto 14px;
-    border-radius: 13px;
-    background: rgba(88, 28, 135, 0.45);
-    border: 1px solid rgba(168, 85, 247, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 15px;
-    font-weight: 900;
-    color: #c4b5fd;
-  }}
   .stat-number {{
     font-size: 32px;
     font-weight: 900;
@@ -2115,8 +2104,8 @@ function switchLang(targetLang) {{
 function readAlbumFile(inputEl, hiddenId, previewId, nameId) {{
   var file = inputEl && inputEl.files && inputEl.files[0];
   if (!file) return;
-  if (file.size > 7500000) {{
-    alert("حجم الصورة كبير جداً، اختر صورة أصغر من 7.5MB");
+  if (file.size > 1500000) {{
+    alert("حجم الصورة كبير جداً، اختر صورة أصغر من 1.5MB");
     inputEl.value = "";
     return;
   }}
@@ -2163,14 +2152,12 @@ async def home_handler(request: web.Request) -> web.Response:
     </section>
 
     <section class="stat-card">
-      <div class="stat-shield">AS</div>
       <div class="stat-number">{bot_servers_count}</div>
       <div class="stat-bar"></div>
       <div class="stat-label">{('Servers Using The Bot' if is_en else 'عدد السيرفرات التي تستخدم البوت')}</div>
     </section>
 
     <section class="stat-card" style="padding:20px 16px;">
-      <div class="stat-shield">VIS</div>
       <div class="stat-number" style="font-size:26px;">{total_visits}</div>
       <div class="stat-bar"></div>
       <div class="stat-label">{('Total Visits' if is_en else 'إجمالي الزيارات')}</div>
@@ -2303,22 +2290,27 @@ async def handle_guild(request: web.Request) -> web.Response:
                             pun_val = "Kick"
                         antinuke_upd[rk] = {"enabled": en_val, "limit": lim_val, "punishment": pun_val}
 
-                    updates = {
+                    updates: dict = {
                         "prefix": form.get("prefix", "!"),
                         "mod_log_channel": form.get("mod_log_channel", ""),
                         "anti_spam": form.get("anti_spam") == "on",
                         "spam_punishment": form.get("spam_punishment", "Timeout"),
                         "spam_timeout_seconds": form.get("spam_timeout_seconds", 600),
-                        "anti_link": form.get("anti_link") == "on" if is_prem else False,
-                        "link_punishment": form.get("link_punishment", "Delete & Timeout"),
-                        "link_timeout_seconds": form.get("link_timeout_seconds", 300),
                         "beast_mode": form.get("beast_mode") == "on",
                         "anti_raid": form.get("anti_raid") == "on",
                         "lockdown": form.get("lockdown") == "on",
                         "antinuke_updates": antinuke_upd,
                     }
+                    if is_prem:
+                        updates["anti_link"] = form.get("anti_link") == "on"
+                        updates["link_punishment"] = form.get("link_punishment", "Delete & Timeout")
+                        updates["link_timeout_seconds"] = form.get("link_timeout_seconds", 300)
+
                     for sk in SHIELD_TOGGLE_KEYS:
+                        if sk in PREMIUM_ONLY_KEYS and not is_prem:
+                            continue
                         updates[sk] = form.get(f"sh_{sk}") == "on"
+
                     save_guild_cfg(gid, updates, is_premium=is_prem)
                     enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
                     log_event(f"تحديث إعدادات الحماية والسبام/الروابط في السيرفر {gid}", guild_id=gid, level="SEC")
@@ -2550,9 +2542,10 @@ async def handle_premium(request: web.Request) -> web.Response:
                     "update_bot_profile",
                     gid,
                     extra={
+                        "guild_id": gid,
                         "bio": prof_data["bio"],
-                        "avatar_data_url": prof_data["avatar_data_url"],
-                        "banner_data_url": prof_data["banner_data_url"],
+                        "has_avatar": bool(prof_data["avatar_data_url"]),
+                        "has_banner": bool(prof_data["banner_data_url"]),
                     },
                 )
                 log_event(f"تحديث بروفايل البوت داخل السيرفر {gid} من البريميوم", guild_id=gid, level="ADMIN")
@@ -2591,14 +2584,14 @@ async def handle_premium(request: web.Request) -> web.Response:
       <input class="inp" type="text" name="bio" value="{esc(prof.get('bio', ''))}" placeholder="نبذة البوت في هذا السيرفر">
 
       <div class="album-box">
-        <label class="lbl" style="margin-top:0;">{('Server Bot Avatar From Gallery' if is_en else 'صورة البوت في السيرفر من ألبوم الصور')}</label>
+        <label class="lbl" style="margin-top:0;">{('Server Bot Avatar From Gallery' if is_en else 'صورة البوت في السيرفر من ألبوم الصور (حد أقصى 1.5MB)')}</label>
         <input class="inp" style="margin-bottom:4px;" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="readAlbumFile(this, 'avatar_data_url', 'ava_preview', 'avatar_name')">
         <span class="muted">{esc(prof.get('avatar_name') or 'لم يتم اختيار ملف')}</span>
         {ava_img_tag}
       </div>
 
       <div class="album-box">
-        <label class="lbl" style="margin-top:0;">{('Server Bot Banner From Gallery' if is_en else 'بنر البوت في السيرفر من ألبوم الصور')}</label>
+        <label class="lbl" style="margin-top:0;">{('Server Bot Banner From Gallery' if is_en else 'بنر البوت في السيرفر من ألبوم الصور (حد أقصى 1.5MB)')}</label>
         <input class="inp" style="margin-bottom:4px;" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="readAlbumFile(this, 'banner_data_url', 'ban_preview', 'banner_name')">
         <span class="muted">{esc(prof.get('banner_name') or 'لم يتم اختيار ملف')}</span>
         {ban_img_tag}
