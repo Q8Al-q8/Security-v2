@@ -44,13 +44,14 @@ BOT_INVITE_URL = os.getenv(
     "https://discord.com/oauth2/authorize?client_id=1573635674551357550&permissions=8&integration_type=0&scope=bot%20applications.commands",
 ).strip()
 
-
 MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
 MONGO_USER = os.getenv("MONGO_USER", "soudfares02_db_user").strip()
 MONGO_PASS = os.getenv("MONGO_PASS", "XFpjfdaMuqTzcvIZ").strip()
 MONGO_HOST = os.getenv("MONGO_HOST", "").strip()
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority").strip()
-
+MONGO_URI = os.getenv(
+    "MONGO_URI",
+    "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority",
+).strip()
 
 if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     safe_user = quote(MONGO_USER, safe="")
@@ -1894,7 +1895,10 @@ async def handle_servers(request: web.Request) -> web.Response:
         )
 
     if not rows:
-        rows = f"<p class='muted'>{('No servers found where you have Manage Server or Administrator permission.' if is_en else 'لا توجد سيرفرات تملك فيها صلاحية Manage Server أو Administrator لإدخال البوتات.')}</p>"
+        rows = (
+            f"<p class='muted'>{('No servers found where you have Manage Server or Administrator permission.' if is_en else 'لا توجد سيرفرات تملك فيها صلاحية Manage Server أو Administrator لإدخال البوتات.')}</p>"
+            f"<a class='btn-secondary-dark' href='/login'>{('Refresh Discord Servers' if is_en else 'تحديث سيرفرات ديسكورد')}</a>"
+        )
 
     body = f"<div class='glass-card'><h2 style='margin:0 0 12px;'>{('My Servers' if is_en else 'سيرفراتي')}</h2>{rows}</div>"
     return web.Response(text=render_page("Servers" if is_en else "سيرفراتي", "servers", body, request), content_type="text/html")
@@ -2202,8 +2206,10 @@ async def handle_admin(request: web.Request) -> web.Response:
     req_nonce = secrets.token_hex(12)
     guilds = get_all_guilds()
     backups = get_db_backups()
+    admins = get_admin_list()
     g_rows = "".join(f"<div class='list-row'><strong>{esc(g['name'])}</strong> <code>{esc(g['id'])}</code></div>" for g in guilds) or "<p class='muted'>0</p>"
     b_rows = "".join(f"<div class='list-row'><code>{esc(b.get('backup_id'))}</code><span class='muted'>{esc(b.get('created_at'))}</span></div>" for b in backups[:5]) or "<p class='muted'>-</p>"
+    a_rows = "".join(f"<div class='list-row'><code>{esc(a.get('user_id'))}</code><span class='muted'>{esc(a.get('granted_by'))}</span></div>" for a in admins) or "<p class='muted'>-</p>"
 
     body = f"""
     <form method="post" class="glass-card">
@@ -2238,6 +2244,7 @@ async def handle_admin(request: web.Request) -> web.Response:
       </div>
       <div style="margin-top:10px;">{b_rows}</div>
     </form>
+    <div class="glass-card"><h3 style="margin:0 0 10px;">Admins ({len(admins)})</h3>{a_rows}</div>
     <div class="glass-card"><h3 style="margin:0 0 10px;">Bot Guilds ({len(guilds)})</h3>{g_rows}</div>
     """
     return web.Response(text=render_page("Admin" if is_en else "الإدارة", "admin", body, request, flash=flash), content_type="text/html")
@@ -2303,6 +2310,8 @@ async def handle_callback(request: web.Request) -> web.Response:
     redirect_uri = detect_redirect_uri(request)
     user_info: dict = {}
     compact_guilds: list[dict] = []
+    access_token = ""
+    network_err = False
 
     try:
         async with ClientSession() as session:
@@ -2318,30 +2327,36 @@ async def handle_callback(request: web.Request) -> web.Response:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             token_data = await token_resp.json()
-            access_token = str(token_data.get("access_token", "")).strip()
-            if not access_token:
-                raise web.HTTPFound("/?msg=" + quote("تعذر الحصول على رمز الوصول من ديسكورد."))
+            access_token = str(token_data.get("access_token", "")).strip() if isinstance(token_data, dict) else ""
 
-            auth_headers = {"Authorization": f"Bearer {access_token}"}
-            u_resp = await session.get("https://discord.com/api/users/@me", headers=auth_headers)
-            user_info = await u_resp.json()
+            if access_token:
+                auth_headers = {"Authorization": f"Bearer {access_token}"}
+                u_resp = await session.get("https://discord.com/api/users/@me", headers=auth_headers)
+                u_json = await u_resp.json()
+                if isinstance(u_json, dict):
+                    user_info = u_json
 
-            g_resp = await session.get("https://discord.com/api/users/@me/guilds", headers=auth_headers)
-            g_list = await g_resp.json()
-            if isinstance(g_list, list):
-                for g in g_list[:200]:
-                    if isinstance(g, dict) and str(g.get("id", "")).isdigit():
-                        compact_guilds.append(
-                            {
-                                "id": str(g["id"]),
-                                "name": str(g.get("name", ""))[:100],
-                                "icon": str(g.get("icon", "") or "")[:60],
-                                "owner": bool(g.get("owner", False)),
-                                "permissions": int(g.get("permissions", 0) or 0),
-                            }
-                        )
+                g_resp = await session.get("https://discord.com/api/users/@me/guilds", headers=auth_headers)
+                g_list = await g_resp.json()
+                if isinstance(g_list, list):
+                    for g in g_list[:200]:
+                        if isinstance(g, dict) and str(g.get("id", "")).isdigit():
+                            compact_guilds.append(
+                                {
+                                    "id": str(g["id"]),
+                                    "name": str(g.get("name", ""))[:100],
+                                    "icon": str(g.get("icon", "") or "")[:60],
+                                    "owner": bool(g.get("owner", False)),
+                                    "permissions": int(g.get("permissions", 0) or 0),
+                                }
+                            )
     except ClientError:
+        network_err = True
+
+    if network_err:
         raise web.HTTPFound("/?msg=" + quote("حدث خطأ أثناء الاتصال بخوادم ديسكورد."))
+    if not access_token:
+        raise web.HTTPFound("/?msg=" + quote("تعذر الحصول على رمز الوصول من ديسكورد."))
 
     uid = str(user_info.get("id", "")).strip()
     if not uid.isdigit():
