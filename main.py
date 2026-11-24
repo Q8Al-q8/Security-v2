@@ -130,7 +130,6 @@ SHIELD_TOGGLE_KEYS = (
     "quarantine_on_nuke",
 )
 
-# أغلب المميزات مخصصة للبريميوم
 PREMIUM_ONLY_KEYS = {
     "anti_link",
     "anti_invites",
@@ -211,8 +210,8 @@ def _fresh_default_guild_cfg() -> dict:
         "trusted_admins": [ADMIN_USER_ID],
         "perms_snapshots": [],
         "antinuke": {
-            "anti_ban": {"enabled": True, "limit": 1, "punishment": "Kick"},
-            "anti_kick": {"enabled": True, "limit": 1, "punishment": "Kick"},
+            "anti_ban": {"enabled": True, "limit": 1, "punishment": "Ban"},
+            "anti_kick": {"enabled": True, "limit": 1, "punishment": "Ban"},
             "anti_role_create": {"enabled": True, "limit": 1, "punishment": "Kick"},
             "anti_role_delete": {"enabled": True, "limit": 1, "punishment": "Ban"},
             "anti_channel_create": {"enabled": True, "limit": 2, "punishment": "Kick"},
@@ -220,7 +219,7 @@ def _fresh_default_guild_cfg() -> dict:
             "anti_webhook_create": {"enabled": True, "limit": 1, "punishment": "Ban"},
             "anti_bot_add": {"enabled": True, "limit": 1, "punishment": "Ban"},
             "anti_guild_update": {"enabled": True, "limit": 1, "punishment": "Kick"},
-            "anti_emoji_delete": {"enabled": True, "limit": 3, "punishment": "Kick"},
+            "anti_emoji_delete": {"enabled": True, "limit": 2, "punishment": "Kick"},
         },
         "guild_profile": {
             "bio": "",
@@ -270,11 +269,11 @@ MEM_BOT_HEARTBEAT: dict[str, str] = {
 }
 
 _CFG_CACHE: dict[str, tuple[float, dict]] = {}
-_CFG_TTL = 10.0
+_CFG_TTL = 5.0
 _PERM_CACHE: dict[str, tuple[float, object]] = {}
 _PERM_TTL = 15.0
 _GUILDS_CACHE: tuple[float, list[dict]] = (0.0, [])
-_GUILDS_TTL = 2.0
+_GUILDS_TTL = 1.5
 _VISIT_STATS_CACHE: tuple[float, int, int] = (0.0, 0, 0)
 _VISIT_STATS_TTL = 8.0
 _PENDING_VISITS = 0
@@ -1024,6 +1023,7 @@ def get_user_visible_guilds(user: dict | None) -> tuple[list[dict], bool]:
                 }
             )
 
+    matched.sort(key=lambda item: (bool(item.get("bot_missing")), str(item.get("name", "")).lower()))
     return matched, True
 
 
@@ -1525,7 +1525,7 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
         try:
             done_stamp = _now_str()
             ret_opt = ReturnDocument.AFTER if ReturnDocument is not None else True
-            for _ in range(20):
+            for _ in range(25):
                 d = queue_col.find_one_and_update(
                     {"status": "pending"},
                     {"$set": {"status": "done", "done_at": done_stamp}},
@@ -1546,7 +1546,7 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
         except PyMongoError:
             pass
 
-    while MEM_QUEUE and len(items) < 20:
+    while MEM_QUEUE and len(items) < 25:
         d = MEM_QUEUE.popleft()
         items.append(
             {
@@ -1559,6 +1559,41 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
         )
 
     return web.json_response({"ok": True, "commands": items})
+
+
+def _render_guild_card(g: dict, is_en: bool, show_admin_meta: bool = False) -> str:
+    gid_raw = str(g.get("id", ""))
+    gid = esc(gid_raw)
+    gname_raw = str(g.get("name", f"Server {gid_raw}"))
+    gname = esc(gname_raw)
+    mcount = int(g.get("member_count", 0) or 0)
+    missing = bool(g.get("bot_missing"))
+    icon_url = guild_icon_url(gid_raw, g.get("icon"))
+    if icon_url:
+        icon_html = f"<img class='guild-icon' src='{esc(icon_url)}' alt='' loading='lazy' referrerpolicy='no-referrer'>"
+    else:
+        initial = esc((gname_raw[:1] or "S").upper())
+        icon_html = f"<div class='guild-icon-ph'>{initial}</div>"
+
+    href = "/invite" if missing else f"/guild?id={gid}"
+    if missing:
+        badge_cls = "warn-pill"
+        status_txt = "إضافة البوت" if not is_en else "Add Bot"
+    else:
+        badge_cls = "ok-pill"
+        status_txt = f"البوت متصل ({mcount})" if not is_en else f"Bot Connected ({mcount})"
+
+    sub_line = f"ID: {gid}"
+    if show_admin_meta and g.get("updated_at"):
+        sub_line += f" • {esc(g.get('updated_at'))}"
+
+    return (
+        f"<a class='list-row' style='text-decoration:none;color:#fff;' href='{href}'>"
+        f"<div style='display:flex;align-items:center;gap:10px;min-width:0;'>{icon_html}"
+        f"<div style='min-width:0;'><div style='font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>{gname}</div>"
+        f"<div class='muted' style='font-size:11.5px;'>{sub_line}</div></div></div>"
+        f"<span class='{badge_cls}'>{esc(status_txt)}</span></a>"
+    )
 
 
 def render_page(
@@ -1641,7 +1676,7 @@ def render_page(
 
     nav_items = [
         ("home", "/", L["home"]),
-        ("servers", "/servers", L["servers"]),
+        ("servers", "/servers", f"{L['servers']} ({len(user_active_guilds)})" if user else L["servers"]),
     ]
     if can_access_guild_panel:
         nav_items.append(("guild", "/guild", L["guild"]))
@@ -1850,7 +1885,9 @@ def render_page(
   .avatar {{ background: #7c3aed; display: flex; align-items: center; justify-content: center; font-weight: 800; }}
   .uname {{ font-weight: 800; font-size: 13px; }}
   .uhandle {{ font-size: 11px; color: #94a3b8; }}
-  .tag {{ font-size: 10px; padding: 3px 8px; border-radius: 7px; background: rgba(139, 92, 246, 0.25); color: #ddd6fe; font-weight: 800; }}
+  .tag {{ font-size: 10.5px; padding: 4px 9px; border-radius: 8px; background: rgba(139, 92, 246, 0.25); color: #ddd6fe; font-weight: 800; white-space: nowrap; }}
+  .ok-pill {{ font-size: 10.5px; padding: 4px 9px; border-radius: 8px; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(52, 211, 153, 0.45); color: #a7f3d0; font-weight: 800; white-space: nowrap; }}
+  .warn-pill {{ font-size: 10.5px; padding: 4px 9px; border-radius: 8px; background: rgba(245, 158, 11, 0.18); border: 1px solid rgba(251, 191, 36, 0.45); color: #fde68a; font-weight: 800; white-space: nowrap; }}
   .prem-pill {{ font-size: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(245, 158, 11, 0.18); border: 1px solid rgba(251, 191, 36, 0.45); color: #fde68a; font-weight: 800; }}
   .admin-pill {{ font-size: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(124, 58, 237, 0.28); border: 1px solid rgba(167, 139, 250, 0.5); color: #ede9fe; font-weight: 800; }}
   .login-btn {{
@@ -1997,6 +2034,22 @@ async def home_handler(request: web.Request) -> web.Response:
     total_visits = get_total_visits()
     invite_href = "/invite" if user else ("/login?next=" + quote("/invite") + "&msg=" + quote("سجّل دخولك بديسكورد أولاً لإضافة البوت للسيرفر."))
 
+    connected_section = ""
+    if user:
+        visible_guilds, _ = get_user_visible_guilds(user)
+        connected_guilds = [g for g in visible_guilds if not g.get("bot_missing")]
+        if connected_guilds:
+            cards = "".join(_render_guild_card(g, is_en) for g in connected_guilds[:6])
+            connected_section = f"""
+            <section class="glass-card">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;">
+                <h3 style="margin:0;font-size:15.5px;">{('Your Connected Servers' if is_en else 'سيرفراتك المدخلة بالبوت')}</h3>
+                <span class="ok-pill">{len(connected_guilds)}</span>
+              </div>
+              {cards}
+            </section>
+            """
+
     body = f"""
     <section class="hero-card">
       <div class="hero-pill">{('Discord Server Security Suite' if is_en else 'منظومة حماية سيرفرات ديسكورد')}</div>
@@ -2005,6 +2058,8 @@ async def home_handler(request: web.Request) -> web.Response:
       <a class="btn-primary-purple" href="{esc(invite_href)}">Invite Arab Security Bot</a>
       <a class="btn-secondary-dark" href="/dashboard">{('Dashboard' if is_en else 'الداشبورد')}</a>
     </section>
+
+    {connected_section}
 
     <section class="stat-card">
       <div class="stat-number">{bot_servers_count}</div>
@@ -2034,37 +2089,53 @@ async def handle_servers(request: web.Request) -> web.Response:
         )
 
     guilds, _ = get_user_visible_guilds(user)
-    rows = ""
-    for g in guilds:
-        gid_raw = g["id"]
-        gid = esc(gid_raw)
-        gname_raw = g["name"]
-        gname = esc(gname_raw)
-        mcount = int(g.get("member_count", 0) or 0)
-        missing = bool(g.get("bot_missing"))
-        icon_url = guild_icon_url(gid_raw, g.get("icon"))
-        if icon_url:
-            icon_html = f"<img class='guild-icon' src='{esc(icon_url)}' alt='' loading='lazy' referrerpolicy='no-referrer'>"
-        else:
-            initial = esc((gname_raw[:1] or "S").upper())
-            icon_html = f"<div class='guild-icon-ph'>{initial}</div>"
+    connected = [g for g in guilds if not g.get("bot_missing")]
+    not_connected = [g for g in guilds if g.get("bot_missing")]
 
-        href = "/invite" if missing else f"/guild?id={gid}"
-        status_txt = ("Add Bot (Not Inside)" if is_en else "إضافة البوت (غير داخل)") if missing else f"{mcount} {'members' if is_en else 'عضو'}"
-        rows += (
-            f"<a class='list-row' style='text-decoration:none;color:#fff;' href='{href}'>"
-            f"<div style='display:flex;align-items:center;gap:10px;min-width:0;'>{icon_html}"
-            f"<div style='min-width:0;'><strong>{gname}</strong> <span class='muted'>({gid})</span></div></div>"
-            f"<span class='tag'>{esc(status_txt)}</span></a>"
-        )
+    conn_html = "".join(_render_guild_card(g, is_en) for g in connected) or (
+        f"<p class='muted'>{('No connected servers yet. Add the bot to one of your servers below.' if is_en else 'لا توجد سيرفرات متصلة بالبوت حالياً. أضف البوت لأحد سيرفراتك بالأسفل.')}</p>"
+    )
+    not_conn_html = "".join(_render_guild_card(g, is_en) for g in not_connected)
 
-    if not rows:
-        rows = (
-            f"<p class='muted'>{('No servers found where you have Manage Server or Administrator permission.' if is_en else 'لا توجد سيرفرات تملك فيها صلاحية Manage Server أو Administrator لإدخال البوتات.')}</p>"
-            f"<a class='btn-secondary-dark' href='/login?next=/servers'>{('Refresh Discord Servers' if is_en else 'تحديث سيرفرات ديسكورد')}</a>"
-        )
+    admin_all_html = ""
+    if is_site_admin(user):
+        all_bot_guilds = get_all_guilds()
+        all_cards = "".join(_render_guild_card(g, is_en, show_admin_meta=True) for g in all_bot_guilds) or "<p class='muted'>0</p>"
+        admin_all_html = f"""
+        <div class="glass-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <h3 style="margin:0;">{('All Bot Connected Servers (Admin)' if is_en else 'جميع السيرفرات التي فيها البوت (إدارة)')}</h3>
+            <span class="tag">{len(all_bot_guilds)}</span>
+          </div>
+          {all_cards}
+        </div>
+        """
 
-    body = f"<div class='glass-card'><h2 style='margin:0 0 12px;'>{('My Servers' if is_en else 'سيرفراتي')}</h2>{rows}</div>"
+    body = f"""
+    <div class="glass-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">{('Connected Servers (Bot Inside)' if is_en else 'السيرفرات المدخلة بالبوت')}</h2>
+        <span class="ok-pill">{len(connected)}</span>
+      </div>
+      {conn_html}
+    </div>
+
+    {f'''
+    <div class="glass-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3 style="margin:0;">{('Other Manageable Servers' if is_en else 'سيرفراتك الأخرى (غير مضاف لها البوت)')}</h3>
+        <span class="warn-pill">{len(not_connected)}</span>
+      </div>
+      {not_conn_html}
+    </div>
+    ''' if not_conn_html else ''}
+
+    <div class="glass-card" style="padding:14px;">
+      <a class="btn-secondary-dark" href="/login?next=/servers">{('Refresh Discord Servers List' if is_en else 'تحديث قائمة سيرفرات ديسكورد')}</a>
+    </div>
+
+    {admin_all_html}
+    """
     return web.Response(text=render_page("Servers" if is_en else "سيرفراتي", "servers", body, request), content_type="text/html")
 
 
@@ -2138,9 +2209,9 @@ async def handle_guild(request: web.Request) -> web.Response:
                             lim_val = max(1, min(50, int(form.get(f"an_{rk}_limit", 1) or 1)))
                         except Exception:
                             lim_val = 1
-                        pun_val = str(form.get(f"an_{rk}_punishment", "Kick")).strip()
+                        pun_val = str(form.get(f"an_{rk}_punishment", "Ban")).strip()
                         if pun_val not in ("Kick", "Ban", "Remove Roles"):
-                            pun_val = "Kick"
+                            pun_val = "Ban"
                         antinuke_upd[rk] = {"enabled": en_val, "limit": lim_val, "punishment": pun_val}
 
                     updates: dict = {
@@ -2186,8 +2257,8 @@ async def handle_guild(request: web.Request) -> web.Response:
 
     rules_html = ""
     for rk in ANTINUKE_RULE_KEYS:
-        r_cfg = (cfg.get("antinuke") or {}).get(rk, {"enabled": True, "limit": 1, "punishment": "Kick"})
-        pun_cur = r_cfg.get("punishment", "Kick")
+        r_cfg = (cfg.get("antinuke") or {}).get(rk, {"enabled": True, "limit": 1, "punishment": "Ban"})
+        pun_cur = r_cfg.get("punishment", "Ban")
         dis_attr = "" if is_prem else " disabled"
         rules_html += f"""
         <div class="list-row" style="flex-wrap:wrap;opacity:{'1' if is_prem else '0.65'};">
@@ -2315,7 +2386,7 @@ async def handle_guild(request: web.Request) -> web.Response:
       </details>
 
       <details class="sec-group">
-        <summary>Anti-Nuke Rules <span class='prem-pill'>PREMIUM</span></summary>
+        <summary>Anti-Nuke Rules (Ultra-Fast) <span class='prem-pill'>PREMIUM</span></summary>
         {rules_html}
       </details>
 
@@ -2543,7 +2614,7 @@ async def handle_admin(request: web.Request) -> web.Response:
     admins = get_admin_list()
     prems = get_premium_list()
 
-    g_rows = "".join(f"<div class='list-row'><strong>{esc(g['name'])}</strong> <code>{esc(g['id'])}</code></div>" for g in guilds) or "<p class='muted'>0</p>"
+    g_rows = "".join(_render_guild_card(g, is_en, show_admin_meta=True) for g in guilds) or "<p class='muted'>0</p>"
     b_rows = "".join(f"<div class='list-row'><code>{esc(b.get('backup_id'))}</code><span class='muted'>{esc(b.get('created_at'))}</span></div>" for b in backups[:5]) or "<p class='muted'>-</p>"
     a_rows = "".join(
         f"<div class='list-row'><div><strong>Admin</strong> — <code>{esc(a.get('user_id'))}</code></div><span class='admin-pill'>{esc(a.get('granted_by'))}</span></div>"
@@ -2629,7 +2700,7 @@ async def handle_admin(request: web.Request) -> web.Response:
       </form>
     </div>
 
-    <div class="glass-card"><h3 style="margin:0 0 10px;">Bot Guilds ({len(guilds)})</h3>{g_rows}</div>
+    <div class="glass-card"><h3 style="margin:0 0 10px;">{('Servers Using The Bot' if is_en else 'السيرفرات المدخلة بالبوت')} ({len(guilds)})</h3>{g_rows}</div>
     """
     return web.Response(text=render_page("Admin" if is_en else "الإدارة", "admin", body, request, flash=flash), content_type="text/html")
 
@@ -2640,9 +2711,9 @@ async def handle_services(request: web.Request) -> web.Response:
         """
         <div class='glass-card'>
           <h2 style='margin:0 0 10px;'>خدمات بوت ARAB SECURITY</h2>
-          <p class='muted'>معظم أنظمة الحماية المتقدمة مخصصة للبريميوم لضمان أعلى كفاءة واستقرار.</p>
+          <p class='muted'>استجابة فورية بأجزاء من الثانية ضد محاولات التخريب وحذف الرومات والرتب والحظر الجماعي.</p>
           <div class='list-row'><div><strong>مكافحة السبام الأساسية</strong><div class='muted'>حذف السبام وتطبيق العقوبة المحددة.</div></div><span class='tag'>أساسي</span></div>
-          <div class='list-row'><div><strong>مكافحة النيوك والسلف بوت والمداهمات</strong><div class='muted'>حماية شاملة ضد حذف الرومات/الرتب، الروابط، الدعوات، البوتات المخربة، وتغيير الرابط/الإيموجي.</div></div><span class='prem-pill'>بريميوم</span></div>
+          <div class='list-row'><div><strong>مكافحة النيوك فائقة السرعة (Instant Anti-Nuke)</strong><div class='muted'>لقط فوري لأي حذف روم أو رتبة أو حظر أو إضافة بوت مع سحب الرتب والحظر الفوري.</div></div><span class='prem-pill'>بريميوم</span></div>
           <div class='list-row'><div><strong>لقطات الصلاحيات وتعديل بروفايل البوت بالسيرفر</strong><div class='muted'>حفظ لقطات الصلاحيات وتخصيص صورة/بنر/نبذة البوت داخل السيرفر.</div></div><span class='prem-pill'>بريميوم</span></div>
         </div>
         """
@@ -2650,9 +2721,9 @@ async def handle_services(request: web.Request) -> web.Response:
         else """
         <div class='glass-card'>
           <h2 style='margin:0 0 10px;'>Arab Security Bot — Services</h2>
-          <p class='muted'>Most advanced protection modules are included in Premium.</p>
+          <p class='muted'>Sub-second detection and neutralization for destructive actions.</p>
           <div class='list-row'><div><strong>Basic Anti-Spam</strong><div class='muted'>Spam detection and configured punishment.</div></div><span class='tag'>Core</span></div>
-          <div class='list-row'><div><strong>Anti-Nuke, Selfbot, Raid & Tamper Shield</strong><div class='muted'>Protection against nuke bursts, selfbots, raids, links, invites, and vanity/emoji tampering.</div></div><span class='prem-pill'>PREMIUM</span></div>
+          <div class='list-row'><div><strong>Ultra-Fast Anti-Nuke & Tamper Shield</strong><div class='muted'>Instant audit-log tracking, role stripping, and immediate ban/kick.</div></div><span class='prem-pill'>PREMIUM</span></div>
         </div>
         """
     )
