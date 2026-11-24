@@ -49,14 +49,10 @@ MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security
 MONGO_USER = os.getenv("MONGO_USER", "").strip()
 MONGO_PASS = os.getenv("MONGO_PASS", "").strip()
 MONGO_HOST = os.getenv("MONGO_HOST", "").strip()
-MONGO_URI = os.getenv("MONGO_URI", "").strip()
-
-if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
-    safe_user = quote(MONGO_USER, safe="")
-    safe_pass = quote(MONGO_PASS, safe="")
-    clean_host = MONGO_HOST.replace("mongodb+srv://", "").replace("mongodb://", "").strip("/")
-    MONGO_URI = f"mongodb+srv://{safe_user}:{safe_pass}@{clean_host}/{MONGO_DB_NAME}?retryWrites=true&w=majority"
-
+MONGO_URI = os.getenv(
+    "MONGO_URI",
+    "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority",
+).strip()
 
 if not MONGO_URI and MONGO_HOST and MONGO_USER and MONGO_PASS:
     safe_user = quote(MONGO_USER, safe="")
