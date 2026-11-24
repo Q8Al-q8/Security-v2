@@ -26,7 +26,7 @@ except Exception:
 
 
 SITE_NAME = os.getenv("SITE_NAME", "ARAB SECURITY").strip() or "ARAB SECURITY"
-OWNER_NAME = os.getenv("OWNER_NAME", "سعود السويط").strip() or "سعود السويط"
+OWNER_NAME = os.getenv("OWNER_NAME", "SAUD & Othman").strip() or "سعود السويط"
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1395418036919468073").strip() or "1395418036919468073"
 
 DEFAULT_DOMAIN_URL = "https://3rabsecurity.de5.net"
@@ -48,13 +48,19 @@ MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security
 DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
+DEFAULT_SYNC_SECRET = "tRAkV01Rc-VNzIWWb4LGrlqGDDijRL9W"
+
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
     _env_secret
     if len(_env_secret) >= 16
     else "ArabSecurity_Session_Secret_2026_x9K#mP2vL8qR5tW7zY3nB6jH4cF1gD0sA"
 )
-BOT_SYNC_SECRET = ((os.environ.get("BOT_SYNC_SECRET") or "").strip() or SESSION_SECRET)
+BOT_SYNC_SECRET = (
+    (os.environ.get("BOT_SYNC_SECRET") or "").strip()
+    or (os.environ.get("SILENT_SECRET") or "").strip()
+    or DEFAULT_SYNC_SECRET
+)
 
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "180") or "180")
 AUTH_RATE_LIMIT_PER_MIN = int(os.getenv("AUTH_RATE_LIMIT_PER_MIN", "35") or "35")
@@ -68,7 +74,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = os.getenv("COOKIE_SECURE", "").strip().lower()
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "tRAkV01Rc-VNzIWWb4LGrlqGDDijRL9W").strip()
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "").strip()
 
 PREMIUM_DURATION_DAYS = 30
 PREMIUM_DURATION_SECONDS = PREMIUM_DURATION_DAYS * 86400
@@ -205,7 +211,7 @@ FEATURE_LABELS_AR = {
     "anti_mention_spam": "منع المنشن الجماعي",
     "quarantine_on_nuke": "سحب الرتب وعزل المخالف",
     "dangerous_perms_guard": "حماية الصلاحيات الخطيرة",
-    "anti_selfbot": "حماية الحسابات الآلية",
+    "anti_selfbot": "ماية الحسابات الآلية",
     "anti_webhook_abuse": "حماية الويب هوك",
     "anti_app_abuse": "حماية تطبيقات الربط",
     "anti_privilege_escalation": "منع رفع الصلاحيات غير المصرح به",
@@ -231,7 +237,7 @@ ANTINUKE_LABELS_AR = {
     "anti_ban": "حماية من الحظر المتكرر",
     "anti_kick": "حماية من الطرد المتكرر",
     "anti_role_create": "حماية من إنشاء الرتب",
-    "anti_role_delete": "حماية من حذف الرتب",
+    "anti_role_delete": "حماية من حذف الرولات",
     "anti_channel_create": "حماية من إنشاء الرومات",
     "anti_channel_delete": "حماية من حذف الرومات",
     "anti_webhook_create": "حماية من إنشاء الويب هوك",
@@ -1644,6 +1650,7 @@ async def read_post_safe(request: web.Request, max_bytes: int = 16_000_000) -> d
 def _is_valid_bot_sync_request(request: web.Request) -> bool:
     provided = str(
         request.headers.get("X-Bot-Secret")
+        or request.headers.get("X-Silent-Secret")
         or request.headers.get("Authorization", "").replace("Bearer ", "")
         or ""
     ).strip()
@@ -1764,6 +1771,24 @@ def _render_guild_card(g: dict, is_en: bool, show_admin_meta: bool = False) -> s
     )
 
 
+def _render_intro_hero_html(is_en: bool, bot_servers_count: int, invite_href: str, secondary_href: str, secondary_txt: str, login_txt: str) -> str:
+    return f"""
+    <section class="hero-card anim-card">
+      <div class="hero-pill">{('Server Protection & Control' if is_en else 'حماية وإدارة السيرفرات')}</div>
+      <h1 class="hero-title">{esc(SITE_NAME)}</h1>
+      <p class="hero-desc">{('Real-time protection for your server, rule controls, role and channel guards, and quick server actions.' if is_en else 'حماية للسيرفر، ضبط القواعد، حماية الرولات والرومات، وإدارة إعدادات السيرفر بسهولة.')}</p>
+      <a class="btn-primary-blue" href="{esc(invite_href)}">{esc(login_txt)}</a>
+      <a class="btn-secondary-dark" href="{esc(secondary_href)}">{esc(secondary_txt)}</a>
+    </section>
+
+    <section class="stat-card anim-card">
+      <div class="stat-number">{bot_servers_count}</div>
+      <div class="stat-bar"></div>
+      <div class="stat-label">{('Servers Using The Bot' if is_en else 'عدد السيرفرات التي تستخدم البوت')}</div>
+    </section>
+    """
+
+
 def render_page(
     title: str,
     active_nav: str,
@@ -1822,20 +1847,14 @@ def render_page(
     bot_servers_count = len(get_all_guilds())
 
     if require_auth_view and not user:
-        final_content = f"""
-        <section class="hero-card anim-card">
-          <div class="hero-pill">{('Server Protection & Control' if is_en else 'حماية وإدارة السيرفرات')}</div>
-          <h1 class="hero-title">{esc(SITE_NAME)}</h1>
-          <p class="hero-desc">{('Real-time protection for your server, rule controls, role and channel guards, and quick server actions.' if is_en else 'حماية للسيرفر، ضبط القواعد، حماية الرولات والرومات، وإدارة إعدادات السيرفر بسهولة.')}</p>
-          <a class="btn-primary-blue" href="/login?next=/servers">{L['login_discord']}</a>
-        </section>
-
-        <section class="stat-card anim-card">
-          <div class="stat-number">{bot_servers_count}</div>
-          <div class="stat-bar"></div>
-          <div class="stat-label">{('Servers Using The Bot' if is_en else 'عدد السيرفرات التي تستخدم البوت')}</div>
-        </section>
-        """
+        final_content = _render_intro_hero_html(
+            is_en=is_en,
+            bot_servers_count=bot_servers_count,
+            invite_href="/login?next=/servers",
+            secondary_href="/invite",
+            secondary_txt=L["invite"],
+            login_txt=L["login_discord"],
+        )
     else:
         final_content = content_html
 
@@ -2299,64 +2318,19 @@ async def home_handler(request: web.Request) -> web.Response:
         )
 
     bot_servers_count = len(get_all_guilds())
-    total_visits = get_total_visits()
-    invite_href = "/invite" if user else ("/login?next=" + quote("/invite") + "&msg=" + quote("Please login with Discord first."))
-    secondary_href = "/servers" if user else "/login?next=/servers"
-    secondary_txt = ("My Servers" if is_en else "سيرفراتي") if user else "Login with Discord"
-    bot_status = MEM_BOT_HEARTBEAT.get("status", "ONLINE")
-    bot_ping = MEM_BOT_HEARTBEAT.get("latency_ms", "6ms")
+    login_txt = "Login with Discord"
+    secondary_txt = ("My Servers" if is_en else "سيرفراتي") if user else "Invite Arab Security Bot"
+    secondary_href = "/servers" if user else "/invite"
+    primary_href = "/servers" if user else "/login?next=/servers"
 
-    connected_section = ""
-    if user:
-        visible_guilds, _ = get_user_visible_guilds(user)
-        connected_guilds = [g for g in visible_guilds if not g.get("bot_missing")]
-        if connected_guilds:
-            cards = "".join(_render_guild_card(g, is_en) for g in connected_guilds[:6])
-            connected_section = f"""
-            <section class="glass-card anim-card">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;">
-                <h3 style="margin:0;font-size:15.5px;">{('Your Connected Servers' if is_en else 'سيرفراتك المدخلة بالبوت')}</h3>
-                <span class="ok-pill">{len(connected_guilds)}</span>
-              </div>
-              {cards}
-            </section>
-            """
-
-    body = f"""
-    <section class="hero-card anim-card">
-      <div class="hero-pill">{('Server Protection & Control' if is_en else 'حماية وإدارة السيرفرات')}</div>
-      <h1 class="hero-title">{esc(SITE_NAME)}</h1>
-      <p class="hero-desc">{('Real-time protection for your server, rule controls, role and channel guards, and quick server actions.' if is_en else 'حماية للسيرفر، ضبط القواعد، حماية الرولات والرومات، وإدارة إعدادات السيرفر بسهولة.')}</p>
-      <a class="btn-primary-blue" href="{esc(invite_href)}">Invite Arab Security Bot</a>
-      <a class="btn-secondary-dark" href="{esc(secondary_href)}">{secondary_txt}</a>
-    </section>
-
-    {connected_section}
-
-    <div class="grid-2 anim-card">
-      <section class="stat-card" style="margin-bottom:0;">
-        <div class="stat-number">{bot_servers_count}</div>
-        <div class="stat-bar"></div>
-        <div class="stat-label">{('Servers Using The Bot' if is_en else 'السيرفرات المفعلة')}</div>
-      </section>
-
-      <section class="stat-card" style="margin-bottom:0;">
-        <div class="stat-number">{total_visits}</div>
-        <div class="stat-bar"></div>
-        <div class="stat-label">{('Total Visits' if is_en else 'إجمالي الزيارات')}</div>
-      </section>
-    </div>
-
-    <section class="glass-card anim-card" style="margin-top:16px;padding:14px 16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-        <div>
-          <div style="font-weight:800;font-size:13.5px;">{('Bot Connection & Ping' if is_en else 'اتصال البوت والبنق')}</div>
-          <div class="muted" style="font-size:12px;">{('Bot status and sync connection' if is_en else 'حالة البوت ومزامنة البيانات')}</div>
-        </div>
-        <span class="ok-pill">{esc(bot_status)} • {esc(bot_ping)}</span>
-      </div>
-    </section>
-    """
+    body = _render_intro_hero_html(
+        is_en=is_en,
+        bot_servers_count=bot_servers_count,
+        invite_href=primary_href,
+        secondary_href=secondary_href,
+        secondary_txt=secondary_txt,
+        login_txt=login_txt,
+    )
     return web.Response(
         text=render_page("Home" if is_en else "الرئيسية", "home", body, request, flash=flash),
         content_type="text/html",
