@@ -25,30 +25,31 @@ except Exception:
         pass
 
 
-SITE_NAME = os.getenv("SITE_NAME", "ARAB SECURITY").strip() or "ARAB SECURITY"
-OWNER_NAME = os.getenv("OWNER_NAME", "SAUD & Othman").strip() or "سعود السويط"
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1395418036919468073").strip() or "1395418036919468073"
+SITE_NAME = (os.getenv("SITE_NAME", "ARAB SECURITY") or "ARAB SECURITY").strip()[:60]
+OWNER_NAME = (os.getenv("OWNER_NAME", "SAUD ") or "سعود السويط").strip()[:60]
+ADMIN_USER_ID = (os.getenv("ADMIN_USER_ID", "1395418036919468073") or "1395418036919468073").strip()
 
 DEFAULT_DOMAIN_URL = "https://arabsecurity.de5.net"
-SUPPORT_SERVER_URL = os.getenv("SUPPORT_SERVER_URL", "https://discord.gg/khQXQCtjMS").strip()
+SUPPORT_SERVER_URL = (os.getenv("SUPPORT_SERVER_URL", "https://discord.gg/khQXQCtjMS") or "").strip()
 
-HOST = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
-PORT = int(os.getenv("PORT", "8080") or "8080")
+HOST = (os.getenv("HOST", "0.0.0.0") or "0.0.0.0").strip()
+PORT = int((os.getenv("PORT", "8080") or "8080").strip())
 
-EXPLICIT_MAIN_URL = os.getenv("MAIN_SITE_URL", DEFAULT_DOMAIN_URL).strip().rstrip("/")
-EXPLICIT_WEB_URL = os.getenv("WEB_BASE_URL", DEFAULT_DOMAIN_URL).strip().rstrip("/")
-EXPLICIT_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "").strip()
+EXPLICIT_MAIN_URL = (os.getenv("MAIN_SITE_URL", DEFAULT_DOMAIN_URL) or DEFAULT_DOMAIN_URL).strip().rstrip("/")
+EXPLICIT_WEB_URL = (os.getenv("WEB_BASE_URL", DEFAULT_DOMAIN_URL) or DEFAULT_DOMAIN_URL).strip().rstrip("/")
+EXPLICIT_REDIRECT_URI = (os.getenv("DISCORD_REDIRECT_URI", "") or "").strip()
 
-BOT_INVITE_URL = os.getenv(
-    "BOT_INVITE_URL",
-    "https://discord.com/oauth2/authorize?client_id=1573635674551357550&permissions=8&integration_type=0&scope=bot%20applications.commands",
+BOT_INVITE_URL = (
+    os.getenv(
+        "BOT_INVITE_URL",
+        "https://discord.com/oauth2/authorize?client_id=1573635674551357550&permissions=8&integration_type=0&scope=bot%20applications.commands",
+    )
+    or ""
 ).strip()
-MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
-DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:l7NNZgApujQiNNX5@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority"
 
+MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").strip()
+DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
-
-
 
 DEFAULT_SYNC_SECRET = "tRAkV01Rc-VNzIWWb4LGrlqGDDijRL9W"
 
@@ -64,19 +65,19 @@ BOT_SYNC_SECRET = (
     or DEFAULT_SYNC_SECRET
 )
 
-RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "180") or "180")
-AUTH_RATE_LIMIT_PER_MIN = int(os.getenv("AUTH_RATE_LIMIT_PER_MIN", "35") or "35")
+RATE_LIMIT_PER_MIN = max(30, min(1000, int((os.getenv("RATE_LIMIT_PER_MIN", "180") or "180").strip())))
+AUTH_RATE_LIMIT_PER_MIN = max(10, min(200, int((os.getenv("AUTH_RATE_LIMIT_PER_MIN", "35") or "35").strip())))
 
-TRUST_PROXY = os.getenv("TRUST_PROXY", "true").strip().lower() in ("1", "true", "yes", "on")
+TRUST_PROXY = (os.getenv("TRUST_PROXY", "true") or "true").strip().lower() in ("1", "true", "yes", "on")
 TRUSTED_PROXY_IPS = {
     ip.strip()
-    for ip in os.getenv("TRUSTED_PROXY_IPS", "").split(",")
+    for ip in (os.getenv("TRUSTED_PROXY_IPS", "") or "").split(",")
     if ip.strip()
 }
-COOKIE_SECURE_ENV = os.getenv("COOKIE_SECURE", "").strip().lower()
+COOKIE_SECURE_ENV = (os.getenv("COOKIE_SECURE", "") or "").strip().lower()
 
-DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "Nkjk7Izbv_0jg3pPsbpDz5RkEiQZKymZ").strip()
+DISCORD_CLIENT_ID = (os.getenv("DISCORD_CLIENT_ID", "1573635674551357550") or "").strip()
+DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "dUUc2oQpoHD7Gt95kGEfmu23ctl-IYgr") or "").strip()
 
 PREMIUM_DURATION_DAYS = 30
 PREMIUM_DURATION_SECONDS = PREMIUM_DURATION_DAYS * 86400
@@ -233,13 +234,13 @@ FEATURE_LABELS_AR = {
     "anti_mass_kick": "مراقبة الطرد الجماعي",
     "anti_mass_timeout": "مراقبة التايم أوت الجماعي",
     "anti_mention_spam": "منع المنشن الجماعي",
-    "quarantine_on_nuke": "سحب الرتب وعزل المخالف",
+    "quarantine_on_nuke": "سحب الرتب وعزل المخالف من التخريب",
     "dangerous_perms_guard": "حماية الصلاحيات الخطيرة",
     "anti_selfbot": "حماية الحسابات الآلية",
     "anti_webhook_abuse": "حماية الويب هوك",
     "anti_app_abuse": "حماية تطبيقات الربط",
     "anti_privilege_escalation": "منع رفع الصلاحيات غير المصرح به",
-    "anti_role_tamper": "حماية من حذف/تعديل الرتب",
+    "anti_role_tamper": "حماية من حذف أو تعديل الرتب",
     "anti_channel_perms_tamper": "حماية تعديل صلاحيات الرومات",
     "audit_log_watch": "مراقبة سجل التدقيق الفورية",
     "admin_behavior_analysis": "مراقبة نشاط المشرفين",
@@ -436,7 +437,7 @@ def esc(val) -> str:
 
 def sanitize_next_url(raw_next: str | None) -> str:
     val = str(raw_next or "").strip()
-    if not val.startswith("/") or val.startswith("//"):
+    if not val.startswith("/") or val.startswith("//") or "\\" in val:
         return "/"
     return val[:120]
 
@@ -509,9 +510,9 @@ if MONGO_URI and MongoClient is not None:
     try:
         client = MongoClient(
             MONGO_URI,
-            serverSelectionTimeoutMS=900,
-            connectTimeoutMS=900,
-            socketTimeoutMS=1200,
+            serverSelectionTimeoutMS=3000,
+            connectTimeoutMS=3000,
+            socketTimeoutMS=3000,
             maxPoolSize=30,
         )
         client.admin.command("ping")
@@ -554,8 +555,9 @@ if MONGO_URI and MongoClient is not None:
             },
             upsert=True,
         )
+        print(f"[WEB DB] Connected to MongoDB ({MONGO_DB_NAME})")
     except (PyMongoError, Exception) as exc:
-        print(f"[DB] Fallback memory mode ({type(exc).__name__})")
+        print(f"[WEB DB] Fallback memory mode ({type(exc).__name__})")
 
 
 def _store_session_record(sid: str, record: dict) -> None:
@@ -1787,14 +1789,29 @@ def _render_guild_card(g: dict, is_en: bool, show_admin_meta: bool = False) -> s
     )
 
 
-def _render_intro_hero_html(is_en: bool, bot_servers_count: int, invite_href: str, secondary_href: str, secondary_txt: str, login_txt: str) -> str:
+def _render_intro_hero_html(
+    is_en: bool,
+    bot_servers_count: int,
+    is_logged_in: bool,
+    primary_href: str,
+    primary_txt: str,
+    secondary_href: str,
+    secondary_txt: str,
+) -> str:
+    status_badge = (
+        ("Authenticated Session • Ready" if is_en else "جلسة مفعلة • جاهز للإدارة")
+        if is_logged_in
+        else ("Server Protection & Control" if is_en else "حماية وإدارة السيرفرات")
+    )
     return f"""
     <section class="hero-card anim-card">
-      <div class="hero-pill">{('Server Protection & Control' if is_en else 'حماية وإدارة السيرفرات')}</div>
+      <div class="hero-pill">{esc(status_badge)}</div>
       <h1 class="hero-title">{esc(SITE_NAME)}</h1>
       <p class="hero-desc">{('Real-time protection for your server, rule controls, role and channel guards, and quick server actions.' if is_en else 'حماية فخمة للسيرفر، ضبط القواعد، حماية الرولات والرومات وصورة السيرفر، وإدارة كاملة بسهولة.')}</p>
-      <a class="btn-primary-purple" href="{esc(invite_href)}">{esc(login_txt)}</a>
-      <a class="btn-secondary-dark" href="{esc(secondary_href)}">{esc(secondary_txt)}</a>
+      <div class="hero-actions">
+        <a class="btn-primary-purple" href="{esc(primary_href)}">{esc(primary_txt)}</a>
+        <a class="btn-secondary-dark" href="{esc(secondary_href)}">{esc(secondary_txt)}</a>
+      </div>
     </section>
 
     <section class="stat-card anim-card">
@@ -1817,6 +1834,7 @@ def render_page(
     is_en = lang == "en"
     dir_attr = "ltr" if is_en else "rtl"
     user = get_discord_session(request)
+    is_logged_in = bool(user)
     is_admin = is_site_admin(user)
     is_prem = is_premium_user(user)
     safe_flash = sanitize_flash_msg(flash)
@@ -1836,6 +1854,7 @@ def render_page(
         "links": "Links" if is_en else "الروابط",
         "invite": "Invite Arab Security Bot",
         "login_discord": "Login with Discord",
+        "dashboard": "Dashboard",
         "logout": "Logout" if is_en else "تسجيل الخروج",
         "supervised": "Supervised by" if is_en else "بإشراف",
         "menu": "Menu" if is_en else "القائمة",
@@ -1855,21 +1874,34 @@ def render_page(
             f"<div class='user-box'>{avatar_html}"
             f"<div style='min-width:0;'><div class='uname'>{uname_safe} <span class='tag'>{badge_txt}</span></div>"
             f"<div class='uhandle'>ID: <code>{uid}</code></div></div></div>"
+            f"<a class='nav-item dash-link' href='/dashboard'><span>{L['dashboard']}</span></a>"
             f"<a class='nav-item danger' href='/logout'><span>{L['logout']}</span></a>"
         )
     else:
-        account_block = f"<a class='login-btn' href='/login?next=/servers'>{L['login_discord']}</a>"
+        account_block = f"<a class='login-btn' href='/login?next=/dashboard'>{L['login_discord']}</a>"
 
     bot_servers_count = len(get_all_guilds())
+
+    if is_logged_in:
+        primary_href = "/dashboard"
+        primary_txt = L["dashboard"]
+        secondary_href = "/servers"
+        secondary_txt = L["servers"]
+    else:
+        primary_href = "/login?next=/dashboard"
+        primary_txt = L["login_discord"]
+        secondary_href = "/invite"
+        secondary_txt = L["invite"]
 
     if require_auth_view and not user:
         final_content = _render_intro_hero_html(
             is_en=is_en,
             bot_servers_count=bot_servers_count,
-            invite_href="/login?next=/servers",
-            secondary_href="/invite",
-            secondary_txt=L["invite"],
-            login_txt=L["login_discord"],
+            is_logged_in=False,
+            primary_href=primary_href,
+            primary_txt=primary_txt,
+            secondary_href=secondary_href,
+            secondary_txt=secondary_txt,
         )
     else:
         final_content = content_html
@@ -1878,8 +1910,10 @@ def render_page(
 
     nav_items = [
         ("home", "/", L["home"]),
-        ("servers", "/servers", f"{L['servers']} ({len(user_active_guilds)})" if user else L["servers"]),
     ]
+    if is_logged_in:
+        nav_items.append(("dashboard", "/dashboard", L["dashboard"]))
+    nav_items.append(("servers", "/servers", f"{L['servers']} ({len(user_active_guilds)})" if user else L["servers"]))
     if can_access_guild_panel:
         nav_items.append(("guild", "/guild", L["guild"]))
     if is_prem:
@@ -1912,15 +1946,15 @@ def render_page(
   :root {{
     --bg-deep: #07040f;
     --bg-grad:
-      radial-gradient(circle at 50% -8%, rgba(147, 51, 234, 0.34), rgba(109, 40, 217, 0.1) 46%, #07040f 80%),
+      radial-gradient(circle at 50% -8%, rgba(147, 51, 234, 0.36), rgba(109, 40, 217, 0.12) 48%, #07040f 82%),
       radial-gradient(circle at 12% 24%, rgba(168, 85, 247, 0.16), transparent 44%),
       linear-gradient(180deg, #0c061a 0%, #07040f 100%);
-    --card-bg: rgba(18, 10, 34, 0.9);
+    --card-bg: rgba(18, 10, 34, 0.92);
     --card-border: rgba(168, 85, 247, 0.28);
-    --card-border-bright: rgba(192, 132, 252, 0.56);
-    --prem-border: rgba(232, 121, 249, 0.52);
+    --card-border-bright: rgba(192, 132, 252, 0.58);
+    --prem-border: rgba(232, 121, 249, 0.54);
     --text-main: #ffffff;
-    --text-sub: #d8b4fe;
+    --text-sub: #ddd6fe;
     --purple: #9333ea;
     --purple-bright: #a855f7;
   }}
@@ -1931,7 +1965,7 @@ def render_page(
   }}
   @keyframes pulseGlow {{
     0%, 100% {{ box-shadow: 0 0 0 rgba(168, 85, 247, 0); }}
-    50% {{ box-shadow: 0 0 24px rgba(168, 85, 247, 0.24); }}
+    50% {{ box-shadow: 0 0 26px rgba(168, 85, 247, 0.24); }}
   }}
   .anim-card {{
     animation: fadeSlideUp 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -1962,7 +1996,7 @@ def render_page(
     position: fixed;
     top: 0;
     {('left' if is_en else 'right')}: 0;
-    width: 278px;
+    width: 282px;
     max-width: 86vw;
     height: 100vh;
     background: rgba(12, 7, 24, 0.98);
@@ -1979,7 +2013,7 @@ def render_page(
   .sidebar.open {{ transform: translateX(0); }}
   .page-container {{
     width: 100%;
-    max-width: 780px;
+    max-width: 800px;
     margin: 0 auto;
     padding: 18px 16px 56px;
   }}
@@ -1990,13 +2024,13 @@ def render_page(
     gap: 10px;
     padding: 11px 15px;
     border-radius: 18px;
-    background: rgba(18, 10, 34, 0.94);
+    background: rgba(18, 10, 34, 0.95);
     border: 1px solid var(--card-border-bright);
     margin-bottom: 18px;
-    box-shadow: 0 8px 24px rgba(88, 28, 135, 0.22);
+    box-shadow: 0 8px 24px rgba(88, 28, 135, 0.24);
     animation: fadeSlideUp 0.2s ease both;
   }}
-  .top-left {{ display: flex; align-items: center; gap: 8px; }}
+  .top-left {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
   .icon-btn {{
     height: 36px;
     padding: 0 12px;
@@ -2010,15 +2044,21 @@ def render_page(
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    text-decoration: none;
     transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   }}
   .icon-btn:hover {{
-    background: rgba(147, 51, 234, 0.36);
+    background: rgba(147, 51, 234, 0.38);
     border-color: var(--card-border-bright);
     transform: translateY(-1px);
   }}
   .icon-btn:active {{ transform: scale(0.96); }}
   .lang-btn {{ font-size: 12.5px; }}
+  .dash-top-btn {{
+    font-size: 12.5px;
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.45), rgba(192, 132, 252, 0.24));
+    border-color: var(--card-border-bright);
+  }}
   .top-right {{
     display: flex;
     align-items: center;
@@ -2035,7 +2075,7 @@ def render_page(
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }}
   .flash-banner {{
-    background: rgba(88, 28, 135, 0.42);
+    background: rgba(88, 28, 135, 0.45);
     border: 1.5px solid var(--card-border-bright);
     color: #faf5ff; border-radius: 16px; padding: 13px 16px;
     margin-bottom: 18px; font-size: 13.5px; font-weight: 800; line-height: 1.55; text-align: center;
@@ -2051,12 +2091,13 @@ def render_page(
     color: #e9d5ff; font-size: 12px; font-weight: 800; margin-bottom: 14px;
   }}
   .hero-title {{ margin: 0 0 12px; font-size: 28px; font-weight: 900; letter-spacing: 0.6px; color: #ffffff; }}
-  .hero-desc {{ margin: 0 auto 22px; max-width: 520px; font-size: 14px; line-height: 1.75; color: var(--text-sub); font-weight: 600; }}
+  .hero-desc {{ margin: 0 auto 22px; max-width: 540px; font-size: 14px; line-height: 1.75; color: var(--text-sub); font-weight: 600; }}
+  .hero-actions {{ display: flex; flex-direction: column; gap: 10px; }}
   .btn-primary-purple {{
     display: block; width: 100%; padding: 13px 18px; border-radius: 13px;
     background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
     border: 1px solid var(--card-border-bright); color: #fff; text-decoration: none;
-    font-weight: 800; font-size: 14.5px; text-align: center; margin-bottom: 10px; cursor: pointer;
+    font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
     transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
   }}
   .btn-primary-purple:hover {{
@@ -2069,7 +2110,7 @@ def render_page(
     display: block; width: 100%; padding: 13px 18px; border-radius: 13px;
     background: linear-gradient(135deg, #be185d 0%, #831843 100%);
     border: 1px solid rgba(244, 114, 182, 0.42); color: #fff; text-decoration: none;
-    font-weight: 800; font-size: 14.5px; text-align: center; margin-bottom: 10px; cursor: pointer;
+    font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
     transition: transform 0.16s ease, filter 0.16s ease;
   }}
   .btn-crimson:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
@@ -2099,6 +2140,34 @@ def render_page(
     border-radius: 20px; padding: 18px; margin-bottom: 16px;
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
   }}
+  .admin-hero {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 18px;
+    background: linear-gradient(145deg, rgba(147, 51, 234, 0.24), rgba(18, 10, 34, 0.96));
+    border: 1px solid var(--card-border-bright);
+    margin-bottom: 16px;
+  }}
+  .admin-kpis {{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }}
+  @media (max-width: 540px) {{ .admin-kpis {{ grid-template-columns: 1fr; }} }}
+  .kpi-box {{
+    padding: 13px;
+    border-radius: 14px;
+    background: rgba(12, 7, 24, 0.9);
+    border: 1px solid var(--card-border);
+    text-align: center;
+  }}
+  .kpi-num {{ font-size: 20px; font-weight: 900; color: #fff; }}
+  .kpi-lbl {{ font-size: 11.5px; color: #c4b5fd; margin-top: 3px; font-weight: 700; }}
   .cat-tabs {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
@@ -2178,12 +2247,14 @@ def render_page(
     color: #ffffff;
   }}
   .sub-panel {{
-    background: rgba(12, 7, 24, 0.86); border: 1px solid var(--card-border);
-    border-radius: 16px; padding: 15px; margin-bottom: 16px;
+    background: rgba(12, 7, 24, 0.9); border: 1px solid var(--card-border);
+    border-radius: 18px; padding: 16px; margin-bottom: 16px;
+    transition: border-color 0.16s ease;
   }}
+  .sub-panel:hover {{ border-color: var(--card-border-bright); }}
   .sub-panel-head {{
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--card-border);
+    margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--card-border);
   }}
   .sub-panel-title {{ margin: 0; font-size: 15px; font-weight: 800; color: #ffffff; }}
   .grid-2 {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }}
@@ -2195,6 +2266,7 @@ def render_page(
   }}
   .nav-item:hover {{ background: rgba(147, 51, 234, 0.24); transform: translateX({('2px' if is_en else '-2px')}); }}
   .nav-item.active {{ background: rgba(147, 51, 234, 0.38); border: 1px solid var(--card-border-bright); color: #ffffff; }}
+  .nav-item.dash-link {{ background: rgba(168, 85, 247, 0.22); border: 1px solid var(--card-border); color: #fff; }}
   .nav-item.danger {{ color: #f9a8d4; }}
   .sep {{ height: 1px; background: var(--card-border); margin: 6px 0; }}
   .user-box {{
@@ -2245,8 +2317,8 @@ def render_page(
     display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; color: #fff;
   }}
   .mini-btn {{
-    padding: 8px 12px; border-radius: 10px; border: 1px solid var(--card-border-bright);
-    background: rgba(147, 51, 234, 0.34); color: #fff; font-size: 12.5px; font-weight: 700; cursor: pointer; text-align: center;
+    padding: 9px 12px; border-radius: 11px; border: 1px solid var(--card-border-bright);
+    background: rgba(147, 51, 234, 0.34); color: #fff; font-size: 12.5px; font-weight: 800; cursor: pointer; text-align: center;
     transition: background 0.15s ease, transform 0.15s ease;
   }}
   .mini-btn:hover {{ background: rgba(168, 85, 247, 0.52); transform: translateY(-1px); }}
@@ -2284,6 +2356,7 @@ def render_page(
     <div class="top-left">
       <button class="icon-btn" type="button" onclick="toggleDrawer(true)" aria-label="{L['menu']}">&#9776;</button>
       <button class="icon-btn lang-btn" type="button" onclick="switchLang('{next_lang}')">{lang_label}</button>
+      {f"<a class='icon-btn dash-top-btn' href='/dashboard'>{L['dashboard']}</a>" if is_logged_in else ""}
     </div>
 
     <div class="top-right">
@@ -2358,7 +2431,7 @@ async def handle_invite_redirect(request: web.Request) -> web.Response:
 async def handle_dashboard_redirect(request: web.Request) -> web.Response:
     user = get_discord_session(request)
     if not user:
-        raise web.HTTPFound("/login?next=" + quote("/servers"))
+        raise web.HTTPFound("/login?next=" + quote("/dashboard"))
     visible, _ = get_user_visible_guilds(user)
     active = [g for g in visible if not g.get("bot_missing")]
     if active:
@@ -2369,6 +2442,7 @@ async def handle_dashboard_redirect(request: web.Request) -> web.Response:
 async def home_handler(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
     user = get_discord_session(request)
+    is_logged_in = bool(user)
     flash = sanitize_flash_msg(request.query.get("msg"))
     if not flash and not DISCORD_CLIENT_SECRET:
         flash = (
@@ -2378,18 +2452,25 @@ async def home_handler(request: web.Request) -> web.Response:
         )
 
     bot_servers_count = len(get_all_guilds())
-    login_txt = "Login with Discord"
-    secondary_txt = ("My Servers" if is_en else "سيرفراتي") if user else "Invite Arab Security Bot"
-    secondary_href = "/servers" if user else "/invite"
-    primary_href = "/servers" if user else "/login?next=/servers"
+    if is_logged_in:
+        primary_href = "/dashboard"
+        primary_txt = "Dashboard"
+        secondary_href = "/servers"
+        secondary_txt = "My Servers" if is_en else "سيرفراتي"
+    else:
+        primary_href = "/login?next=/dashboard"
+        primary_txt = "Login with Discord"
+        secondary_href = "/invite"
+        secondary_txt = "Invite Arab Security Bot"
 
     body = _render_intro_hero_html(
         is_en=is_en,
         bot_servers_count=bot_servers_count,
-        invite_href=primary_href,
+        is_logged_in=is_logged_in,
+        primary_href=primary_href,
+        primary_txt=primary_txt,
         secondary_href=secondary_href,
         secondary_txt=secondary_txt,
-        login_txt=login_txt,
     )
     return web.Response(
         text=render_page("Home" if is_en else "الرئيسية", "home", body, request, flash=flash),
@@ -2505,7 +2586,13 @@ async def handle_guild(request: web.Request) -> web.Response:
     flash = ""
     if request.method == "POST":
         form = await read_post_safe(request)
-        if form and consume_csrf_token(str(form.get("csrf_token", "")), session_id) and not is_replay_request(str(form.get("req_nonce", ""))):
+        if not form:
+            flash = "Invalid request body." if is_en else "بيانات الطلب غير صالحة."
+        elif not consume_csrf_token(str(form.get("csrf_token", "")), session_id):
+            flash = "Security token expired. Refresh and try again." if is_en else "انتهت صلاحية رمز الحماية، أعد المحاولة."
+        elif is_replay_request(str(form.get("req_nonce", ""))):
+            flash = "Duplicate request blocked." if is_en else "تم منع طلب مكرر."
+        else:
             posted_gid = resolve_guild_id_from_input(str(form.get("guild_id", gid)), user, require_bot_present=True)
             if posted_gid and user_can_manage_guild(posted_gid, user, require_bot_present=True):
                 gid = posted_gid
@@ -2521,16 +2608,20 @@ async def handle_guild(request: web.Request) -> web.Response:
                     flash = "Snapshot saved." if is_en else "تم حفظ لقطة الصلاحيات."
                 elif action_type == "add_trusted":
                     uid = str(form.get("trusted_uid", "")).strip()
-                    save_guild_cfg(gid, {"trusted_add": uid}, is_premium=is_prem)
-                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
-                    log_event(f"Added trusted admin ({uid}) to {gid}", guild_id=gid, level="SEC")
-                    flash = "Trusted admin added." if is_en else "تمت إضافة مشرف موثوق."
+                    if uid.isdigit():
+                        save_guild_cfg(gid, {"trusted_add": uid}, is_premium=is_prem)
+                        enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
+                        log_event(f"Added trusted admin ({uid}) to {gid}", guild_id=gid, level="SEC")
+                        flash = "Trusted admin added." if is_en else "تمت إضافة مشرف موثوق."
+                    else:
+                        flash = "Enter a valid numeric User ID." if is_en else "أدخل آيدي مستخدم رقمي صحيح."
                 elif action_type == "remove_trusted":
                     uid = str(form.get("target_uid", "")).strip()
-                    save_guild_cfg(gid, {"trusted_remove": uid}, is_premium=is_prem)
-                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
-                    log_event(f"Removed trusted admin ({uid}) from {gid}", guild_id=gid, level="SEC")
-                    flash = "Trusted admin removed." if is_en else "تمت إزالة المشرف الموثوق."
+                    if uid.isdigit() and uid != ADMIN_USER_ID:
+                        save_guild_cfg(gid, {"trusted_remove": uid}, is_premium=is_prem)
+                        enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
+                        log_event(f"Removed trusted admin ({uid}) from {gid}", guild_id=gid, level="SEC")
+                        flash = "Trusted admin removed." if is_en else "تمت إزالة المشرف الموثوق."
                 else:
                     cur_cfg = get_guild_cfg(gid)
                     cur_prof = cur_cfg.get("guild_profile") or {}
@@ -2561,15 +2652,20 @@ async def handle_guild(request: web.Request) -> web.Response:
                     for sk in SHIELD_TOGGLE_KEYS:
                         updates[sk] = form.get(f"sh_{sk}") == "on"
 
-                    avatar_changed = False
+                    profile_changed = False
                     if is_prem:
                         ava_raw = sanitize_image_data_url(form.get("avatar_data_url", ""))
                         ban_raw = sanitize_image_data_url(form.get("banner_data_url", ""))
+                        bio_clean = str(form.get("bio", cur_prof.get("bio", ""))).strip()[:190]
                         ava_data = ava_raw if ava_raw else str(cur_prof.get("avatar_data_url", ""))
                         ban_data = ban_raw if ban_raw else str(cur_prof.get("banner_data_url", ""))
-                        avatar_changed = bool(ava_raw) and ava_raw != str(cur_prof.get("avatar_data_url", ""))
+                        profile_changed = (
+                            (bool(ava_raw) and ava_raw != str(cur_prof.get("avatar_data_url", "")))
+                            or (bool(ban_raw) and ban_raw != str(cur_prof.get("banner_data_url", "")))
+                            or (bio_clean != str(cur_prof.get("bio", "")))
+                        )
                         updates["guild_profile"] = {
-                            "bio": str(form.get("bio", cur_prof.get("bio", ""))).strip()[:190],
+                            "bio": bio_clean,
                             "avatar_data_url": ava_data,
                             "avatar_name": str(form.get("avatar_name", cur_prof.get("avatar_name", ""))).strip()[:80],
                             "banner_data_url": ban_data,
@@ -2584,8 +2680,18 @@ async def handle_guild(request: web.Request) -> web.Response:
 
                     save_guild_cfg(gid, updates, is_premium=is_prem)
                     enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
-                    if is_prem and avatar_changed:
-                        enqueue_remote_action(gid, "update_bot_profile", gid, extra={"guild_id": gid})
+                    if is_prem and profile_changed:
+                        enqueue_remote_action(
+                            gid,
+                            "update_bot_profile",
+                            gid,
+                            extra={
+                                "guild_id": gid,
+                                "bio": updates["guild_profile"]["bio"],
+                                "has_avatar": bool(updates["guild_profile"]["avatar_data_url"]),
+                                "has_banner": bool(updates["guild_profile"]["banner_data_url"]),
+                            },
+                        )
                     log_event(f"Updated guild settings for {gid}", guild_id=gid, level="SEC")
                     flash = "Settings saved and synced." if is_en else "تم حفظ الإعدادات ومزامنتها."
 
@@ -2707,7 +2813,7 @@ async def handle_guild(request: web.Request) -> web.Response:
 
       <div class="cat-tabs" role="tablist">
         <button type="button" class="cat-tab-btn active" onclick="switchCat('general', this)">General</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('antinuke', this)">Anti Nuke</button>
+        <button type="button" class="cat-tab-btn" onclick="switchCat('antinuke', this)">{('Anti-Sabotage' if is_en else 'حماية التخريب')}</button>
         <button type="button" class="cat-tab-btn" onclick="switchCat('antiraid', this)">Anti Raid</button>
         <button type="button" class="cat-tab-btn" onclick="switchCat('moderation', this)">Moderation</button>
         <button type="button" class="cat-tab-btn" onclick="switchCat('whitelist', this)">Whitelist</button>
@@ -2738,7 +2844,7 @@ async def handle_guild(request: web.Request) -> web.Response:
       <div id="cat-antinuke" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">ANTI NUKE</h3>
+            <h3 class="panel-section-title">{('ANTI-SABOTAGE' if is_en else 'حماية التخريب')}</h3>
             <span class="admin-pill">{('ROLES & ICON' if is_en else 'الرتب والصورة')}</span>
           </div>
           {antinuke_html}
@@ -2833,8 +2939,10 @@ async def handle_guild(request: web.Request) -> web.Response:
         </div>
       </div>
 
-      <button class="btn-primary-purple" type="submit" name="form_action" value="save">{('Save Settings' if is_en else 'حفظ الإعدادات')}</button>
-      <button class="btn-secondary-dark" type="submit" name="form_action" value="reset_defaults">{('Reset Defaults' if is_en else 'استعادة الافتراضي')}</button>
+      <div class="hero-actions">
+        <button class="btn-primary-purple" type="submit" name="form_action" value="save">{('Save Settings' if is_en else 'حفظ الإعدادات')}</button>
+        <button class="btn-secondary-dark" type="submit" name="form_action" value="reset_defaults">{('Reset Defaults' if is_en else 'استعادة الافتراضي')}</button>
+      </div>
     </form>
     """
     return web.Response(text=render_page("Security Panel" if is_en else "لوحة الحماية", "guild", body, request, flash=flash), content_type="text/html")
@@ -2881,7 +2989,13 @@ async def handle_premium(request: web.Request) -> web.Response:
     flash = ""
     if request.method == "POST":
         form = await read_post_safe(request)
-        if form and consume_csrf_token(str(form.get("csrf_token", "")), session_id) and not is_replay_request(str(form.get("req_nonce", ""))):
+        if not form:
+            flash = "Invalid request body." if is_en else "بيانات الطلب غير صالحة."
+        elif not consume_csrf_token(str(form.get("csrf_token", "")), session_id):
+            flash = "Security token expired. Refresh and try again." if is_en else "انتهت صلاحية رمز الحماية، أعد المحاولة."
+        elif is_replay_request(str(form.get("req_nonce", ""))):
+            flash = "Duplicate request blocked." if is_en else "تم منع طلب مكرر."
+        else:
             posted_gid = resolve_guild_id_from_input(str(form.get("guild_id", gid)), user, require_bot_present=True)
             if posted_gid and user_can_manage_guild(posted_gid, user, require_bot_present=True):
                 gid = posted_gid
@@ -2889,12 +3003,17 @@ async def handle_premium(request: web.Request) -> web.Response:
                 cur_prof = cur_cfg.get("guild_profile") or {}
                 ava_raw = sanitize_image_data_url(form.get("avatar_data_url", ""))
                 ban_raw = sanitize_image_data_url(form.get("banner_data_url", ""))
+                bio_clean = str(form.get("bio", "")).strip()[:190]
                 ava_data = ava_raw if ava_raw else str(cur_prof.get("avatar_data_url", ""))
                 ban_data = ban_raw if ban_raw else str(cur_prof.get("banner_data_url", ""))
-                avatar_changed = bool(ava_raw) and ava_raw != str(cur_prof.get("avatar_data_url", ""))
+                profile_changed = (
+                    (bool(ava_raw) and ava_raw != str(cur_prof.get("avatar_data_url", "")))
+                    or (bool(ban_raw) and ban_raw != str(cur_prof.get("banner_data_url", "")))
+                    or (bio_clean != str(cur_prof.get("bio", "")))
+                )
 
                 prof_data = {
-                    "bio": str(form.get("bio", "")).strip()[:190],
+                    "bio": bio_clean,
                     "avatar_data_url": ava_data,
                     "avatar_name": str(form.get("avatar_name", cur_prof.get("avatar_name", ""))).strip()[:80],
                     "banner_data_url": ban_data,
@@ -2916,10 +3035,10 @@ async def handle_premium(request: web.Request) -> web.Response:
                         "has_banner": bool(prof_data["banner_data_url"]),
                     },
                 )
-                if avatar_changed:
+                if profile_changed:
                     enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
                 log_event(f"Updated server bot profile for {gid}", guild_id=gid, level="ADMIN")
-                flash = "Premium settings saved." if is_en else "تم حفظ إعدادات البريميوم وتحديث صورة البوت."
+                flash = "Premium settings saved." if is_en else "تم حفظ إعدادات البريميوم وتحديث بيانات البوت."
 
     cfg = get_guild_cfg(gid)
     prof = cfg.get("guild_profile") or {}
@@ -3006,7 +3125,13 @@ async def handle_admin(request: web.Request) -> web.Response:
     flash = ""
     if request.method == "POST":
         form = await read_post_safe(request)
-        if form and consume_csrf_token(str(form.get("csrf_token", "")), session_id) and not is_replay_request(str(form.get("req_nonce", ""))):
+        if not form:
+            flash = "Invalid request body." if is_en else "بيانات الطلب غير صالحة."
+        elif not consume_csrf_token(str(form.get("csrf_token", "")), session_id):
+            flash = "Security token expired. Refresh and try again." if is_en else "انتهت صلاحية رمز الحماية، أعد المحاولة."
+        elif is_replay_request(str(form.get("req_nonce", ""))):
+            flash = "Duplicate request blocked." if is_en else "تم منع طلب مكرر."
+        else:
             act = str(form.get("admin_action", "")).strip()
             gid = str(form.get("cmd_guild_id", "")).strip()
             target_id = str(form.get("cmd_target", "")).strip()
@@ -3022,6 +3147,8 @@ async def handle_admin(request: web.Request) -> web.Response:
                         set_premium_user(p_uid, True, granted_by=str(user.get("id", "")), username=p_name, handle=p_handle)
                         log_event(f"Granted 30d Premium to {p_uid}", level="ADMIN")
                         flash = f"Granted 30-day Premium to {p_uid}" if is_en else f"تم منح بريميوم لمدة 30 يوماً للحساب {p_uid}"
+                    else:
+                        flash = "Enter a valid User ID." if is_en else "أدخل آيدي مستخدم رقمي صحيح."
             elif act == "revoke_premium":
                 if not has_admin_perm(user, "manage_premium"):
                     flash = "Missing permission: Manage Premium" if is_en else "ينقصك صلاحية: إدارة البريميوم"
@@ -3031,6 +3158,8 @@ async def handle_admin(request: web.Request) -> web.Response:
                         set_premium_user(p_uid, False)
                         log_event(f"Revoked Premium from {p_uid}", level="ADMIN")
                         flash = f"Revoked Premium from {p_uid}" if is_en else f"تم سحب البريميوم من الحساب {p_uid}"
+                    else:
+                        flash = "Enter a valid User ID." if is_en else "أدخل آيدي مستخدم رقمي صحيح."
             elif act == "grant_admin":
                 if not has_admin_perm(user, "manage_admins"):
                     flash = "Missing permission: Manage Admins" if is_en else "ينقصك صلاحية: إدارة الأدمن والصلاحيات"
@@ -3041,6 +3170,8 @@ async def handle_admin(request: web.Request) -> web.Response:
                         set_admin_user(a_uid, True, granted_by=str(user.get("id", "")), permissions=selected_perms)
                         log_event(f"Updated Admin & permissions for {a_uid}", level="ADMIN")
                         flash = f"Saved Admin & permissions for {a_uid}" if is_en else f"تم حفظ الأدمن وصلاحياته للحساب {a_uid}"
+                    else:
+                        flash = "Enter a valid Admin User ID." if is_en else "أدخل آيدي أدمن رقمي صحيح."
             elif act == "revoke_admin":
                 if not has_admin_perm(user, "manage_admins"):
                     flash = "Missing permission: Manage Admins" if is_en else "ينقصك صلاحية: إدارة الأدمن والصلاحيات"
@@ -3057,12 +3188,12 @@ async def handle_admin(request: web.Request) -> web.Response:
                 else:
                     enqueue_remote_action(gid, act, target_id)
                     log_event(f"Remote action [{act}] on {target_id} in {gid}", guild_id=gid, level="ADMIN")
-                    flash = f"Queued [{act}] for {target_id} in {gid}"
+                    flash = f"Queued [{act}] for {target_id} in {gid}" if is_en else f"تم إرسال أمر [{act}] للعضو {target_id} في السيرفر {gid}"
             elif act == "broadcast" and target_id:
                 if not has_admin_perm(user, "remote_actions"):
                     flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
                 else:
-                    enqueue_remote_action(gid or "0", "broadcast", target_id)
+                    enqueue_remote_action(gid or "0", "broadcast", target_id[:400])
                     log_event("Queued broadcast message", level="ADMIN")
                     flash = "Broadcast queued." if is_en else "تم إرسال البث للقائمة."
             elif act == "simulate" and gid.isdigit():
@@ -3075,13 +3206,15 @@ async def handle_admin(request: web.Request) -> web.Response:
                     flash = "Missing permission: Backups" if is_en else "ينقصك صلاحية: النسخ الاحتياطي"
                 else:
                     b = create_db_backup()
-                    flash = f"Backup created: {b.get('backup_id')}"
+                    flash = f"Backup created: {b.get('backup_id')}" if is_en else f"تم إنشاء نسخة احتياطية: {b.get('backup_id')}"
             elif act == "test_restore":
                 if not has_admin_perm(user, "backups"):
                     flash = "Missing permission: Backups" if is_en else "ينقصك صلاحية: النسخ الاحتياطي"
                 else:
                     _, msg = test_backup_restore(str(form.get("backup_id", "")), is_en=is_en)
                     flash = msg
+            else:
+                flash = "Check required IDs or fields." if is_en else "تأكد من إدخال الآيدي أو الحقول المطلوبة بشكل صحيح."
 
     csrf_tok = issue_csrf_token(session_id)
     req_nonce = secrets.token_hex(12)
@@ -3124,9 +3257,27 @@ async def handle_admin(request: web.Request) -> web.Response:
 
     body = f"""
     <div class="glass-card anim-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
-        <h2 style="margin:0;">{('Admin Control Center' if is_en else 'لوحة الإدارة')}</h2>
+      <div class="admin-hero">
+        <div>
+          <h2 style="margin:0 0 4px;">{('Admin Control Center' if is_en else 'لوحة الإدارة المركزية')}</h2>
+          <div class="muted">{('Manage subscriptions, staff permissions, remote actions, and backups' if is_en else 'إدارة الاشتراكات، صلاحيات المشرفين، الأوامر عن بُعد، والنسخ الاحتياطي')}</div>
+        </div>
         <span class="tag">{esc(role_label)}</span>
+      </div>
+
+      <div class="admin-kpis">
+        <div class="kpi-box">
+          <div class="kpi-num">{len(guilds)}</div>
+          <div class="kpi-lbl">{('Servers' if is_en else 'السيرفرات')}</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-num">{len(prems)}</div>
+          <div class="kpi-lbl">{('Premium Users' if is_en else 'مشتركو البريميوم')}</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-num">{len(admins)}</div>
+          <div class="kpi-lbl">{('Staff Admins' if is_en else 'طاقم الإدارة')}</div>
+        </div>
       </div>
 
       <form method="post" class="sub-panel">
@@ -3191,7 +3342,7 @@ async def handle_admin(request: web.Request) -> web.Response:
         </div>
         <input class="inp" type="text" name="sim_scenario" value="{'Roles, Channels & Bot Permissions Check' if is_en else 'فحص صلاحيات الرتب والرومات والبوتات'}">
         <button class="btn-secondary-dark" type="submit" name="admin_action" value="simulate">{('Run Check' if is_en else 'تشغيل الفحص')}</button>
-        <div class="grid-2" style="margin-bottom:0;">
+        <div class="grid-2" style="margin-top:10px;margin-bottom:0;">
           <button class="btn-primary-purple" style="margin-bottom:0;" type="submit" name="admin_action" value="create_backup">{('Create Backup' if is_en else 'نسخة احتياطية')}</button>
           <button class="btn-secondary-dark" style="margin-bottom:0;" type="submit" name="admin_action" value="test_restore">{('Test Restore' if is_en else 'اختبار الاستعادة')}</button>
         </div>
@@ -3220,7 +3371,7 @@ async def handle_services(request: web.Request) -> web.Response:
         <div class='glass-card anim-card'>
           <h2 style='margin:0 0 10px;'>خدمات بوت ARAB SECURITY</h2>
           <p class='muted'>إعدادات الحماية للرولات والرومات وصورة السيرفر والسبام والروابط.</p>
-          <div class='list-row'><div><strong>حماية السيرفر</strong><div class='muted'>منع السبام، الروابط، الدعوات، حماية الرولات والرومات، وحماية صورة السيرفر.</div></div><span class='ok-pill'>متاح للجميع</span></div>
+          <div class='list-row'><div><strong>حماية السيرفر</strong><div class='muted'>منع السبام، الروابط، الدعوات، حماية الرولات والرومات من التخريب، وحماية صورة السيرفر.</div></div><span class='ok-pill'>متاح للجميع</span></div>
           <div class='list-row'><div><strong>إضافات البريميوم</strong><div class='muted'>تغيير صورة البوت، نبذة إضافية، بنر، وتنبيهات ويبهوك.</div></div><span class='prem-pill'>بريميوم</span></div>
         </div>
         """
@@ -3244,7 +3395,7 @@ async def handle_links(request: web.Request) -> web.Response:
     user = get_discord_session(request)
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
     invite_href = "/invite" if user else ("/login?next=" + quote("/invite") + "&msg=" + quote("Please login with Discord first."))
-    servers_href = "/servers" if user else "/login?next=/servers"
+    servers_href = "/servers" if user else "/login?next=/dashboard"
     arrow = "&#8594;" if is_en else "&#8592;"
 
     body = f"""
@@ -3288,7 +3439,7 @@ async def handle_login(request: web.Request) -> web.Response:
         return web.Response(text="Too many login requests.", status=429)
     if not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
         raise web.HTTPFound("/?msg=" + quote("Set DISCORD_CLIENT_SECRET in environment variables to enable Discord login."))
-    next_url = sanitize_next_url(request.query.get("next", "/servers"))
+    next_url = sanitize_next_url(request.query.get("next", "/dashboard"))
     state = issue_oauth_state(next_url=next_url)
     params = {
         "client_id": DISCORD_CLIENT_ID,
@@ -3380,7 +3531,7 @@ async def handle_callback(request: web.Request) -> web.Response:
         }
     )
     log_event(f"User {uid} logged in via Discord", level="AUTH")
-    resp = web.HTTPFound(next_url or "/servers")
+    resp = web.HTTPFound(next_url or "/dashboard")
     resp.set_cookie(
         "arab_sec_session",
         signed_tok,
@@ -3421,7 +3572,14 @@ async def security_and_visit_middleware(request: web.Request, handler):
         return web.Response(text="Rate limit exceeded.", status=429)
 
     record_site_visit(request)
-    response = await handler(request)
+    try:
+        response = await handler(request)
+    except web.HTTPException:
+        raise
+    except Exception as exc:
+        log_event(f"Unhandled web error on {request.path}: {type(exc).__name__}", level="ERROR")
+        return web.Response(text="Internal server error.", status=500)
+
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
