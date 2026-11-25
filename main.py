@@ -42,11 +42,10 @@ EXPLICIT_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "").strip()
 BOT_INVITE_URL = os.getenv(
     "BOT_INVITE_URL",
     "https://discord.com/oauth2/authorize?client_id=1573635674551357550&permissions=8&integration_type=0&scope=bot%20applications.commands",
-).strip()
-
+).strip()majority
 MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
-DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:l7NNZgApujQiNNX5@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority
-"
+DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:l7NNZgApujQiNNX5@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority"
+
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
 DEFAULT_SYNC_SECRET = "tRAkV01Rc-VNzIWWb4LGrlqGDDijRL9W"
