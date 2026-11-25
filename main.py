@@ -29,7 +29,7 @@ SITE_NAME = os.getenv("SITE_NAME", "ARAB SECURITY").strip() or "ARAB SECURITY"
 OWNER_NAME = os.getenv("OWNER_NAME", "SAUD & Othman").strip() or "سعود السويط"
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "1395418036919468073").strip() or "1395418036919468073"
 
-DEFAULT_DOMAIN_URL = "https://3rabsecurity.de5.net"
+DEFAULT_DOMAIN_URL = "https://arabsecurity.de5.net"
 SUPPORT_SERVER_URL = os.getenv("SUPPORT_SERVER_URL", "https://discord.gg/khQXQCtjMS").strip()
 
 HOST = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
@@ -74,7 +74,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = os.getenv("COOKIE_SECURE", "").strip().lower()
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1573635674551357550").strip()
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "tRAkV01Rc-VNzIWWb4LGrlqGDDijRL9W").strip()
+DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET", "xm-EWkUx1y8PiGkHrsc_yeiVZOD2g1x9").strip()
 
 PREMIUM_DURATION_DAYS = 30
 PREMIUM_DURATION_SECONDS = PREMIUM_DURATION_DAYS * 86400
@@ -1372,7 +1372,6 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
             if ak in cfg["antinuke"]:
                 cfg["antinuke"][ak].update(av)
 
-    # ميزات البروفايل والبريميوم مقيدة باشتراك البريميوم فقط
     if is_premium:
         if "guild_profile" in updates and isinstance(updates["guild_profile"], dict):
             prof = cfg["guild_profile"]
@@ -2098,8 +2097,6 @@ def render_page(
     border-radius: 20px; padding: 18px; margin-bottom: 16px;
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
   }}
-
-  /* شبكة الكاتقوريات في لوحة الحماية */
   .cat-tabs {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
@@ -2130,7 +2127,6 @@ def render_page(
   }}
   .cat-pane {{ display: none; }}
   .cat-pane.active {{ display: block; animation: fadeSlideUp 0.2s ease both; }}
-
   .link-card {{
     display: flex;
     align-items: center;
@@ -2717,7 +2713,6 @@ async def handle_guild(request: web.Request) -> web.Response:
         <button type="button" class="cat-tab-btn" onclick="switchCat('premium', this)">★ Premium</button>
       </div>
 
-      <!-- 1. GENERAL -->
       <div id="cat-general" class="cat-pane active">
         <div class="panel-section">
           <div class="panel-section-head">
@@ -2738,7 +2733,6 @@ async def handle_guild(request: web.Request) -> web.Response:
         </div>
       </div>
 
-      <!-- 2. ANTI NUKE -->
       <div id="cat-antinuke" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
@@ -2750,7 +2744,6 @@ async def handle_guild(request: web.Request) -> web.Response:
         </div>
       </div>
 
-      <!-- 3. ANTI RAID -->
       <div id="cat-antiraid" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
@@ -2761,7 +2754,6 @@ async def handle_guild(request: web.Request) -> web.Response:
         </div>
       </div>
 
-      <!-- 4. MODERATION -->
       <div id="cat-moderation" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
@@ -2802,7 +2794,6 @@ async def handle_guild(request: web.Request) -> web.Response:
         </div>
       </div>
 
-      <!-- 5. WHITELIST -->
       <div id="cat-whitelist" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
@@ -2819,7 +2810,6 @@ async def handle_guild(request: web.Request) -> web.Response:
         </div>
       </div>
 
-      <!-- 6. LOGS -->
       <div id="cat-logs" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
@@ -2831,7 +2821,6 @@ async def handle_guild(request: web.Request) -> web.Response:
         </div>
       </div>
 
-      <!-- 7. PREMIUM -->
       <div id="cat-premium" class="cat-pane">
         <div class="panel-section prem-sec">
           <div class="panel-section-head">
