@@ -45,7 +45,8 @@ BOT_INVITE_URL = os.getenv(
 ).strip()
 
 MONGO_DB_NAME = os.getenv("MONGO_DB", "arab_security").strip() or "arab_security"
-DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority"
+DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:l7NNZgApujQiNNX5@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority
+"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
 DEFAULT_SYNC_SECRET = "tRAkV01Rc-VNzIWWb4LGrlqGDDijRL9W"
