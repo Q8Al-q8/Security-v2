@@ -8,7 +8,7 @@ import os
 import secrets
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from urllib.parse import quote, urlencode, urlparse
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
@@ -51,7 +51,7 @@ MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").stri
 DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "pg2otjvl5seRnrP9GTTmrFXLDar_0RRG"
+DEFAULT_SYNC_SECRET = "tRAkV01Rc-VNzIWWb4LGrlqGDDijRL9W"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -77,7 +77,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = (os.getenv("COOKIE_SECURE", "") or "").strip().lower()
 
 DISCORD_CLIENT_ID = (os.getenv("DISCORD_CLIENT_ID", "1573635674551357550") or "").strip()
-DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "pg2otjvl5seRnrP9GTTmrFXLDar_0RRG") or "").strip()
+DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "6OomLIMV6sTKesukHnxdfwHjKv4U4PqX") or "").strip()
 
 MAX_IMAGE_BYTES = 10_000_000
 MAX_IMAGE_DATA_URL_LEN = 14_000_000
@@ -1087,12 +1087,13 @@ def set_premium_user(
 
 
 def sync_boosters_premium(boosters: list[dict]) -> tuple[int, int]:
+    stamp = _now_str()
     active_map: dict[str, dict] = {}
     for b in boosters or []:
         if not isinstance(b, dict):
             continue
         uid = str(b.get("user_id", "")).strip()
-        if not uid.isdigit():
+        if not uid.isdigit() or uid == ADMIN_USER_ID:
             continue
         uname = str(b.get("username") or f"Booster {uid}").strip()[:40]
         active_map[uid] = {
@@ -1101,12 +1102,11 @@ def sync_boosters_premium(boosters: list[dict]) -> tuple[int, int]:
             "handle": f"@{uname.lstrip('@')}",
             "granted_by": "boost",
             "source": "boost",
-            "granted_at": _now_str(),
+            "granted_at": stamp,
             "expires_at": 0.0,
             "permanent": False,
         }
 
-    # سحب بريميوم البوست ممن سحب البوست أو خرج
     for uid, rec in list(MEM_PREMIUM.items()):
         if uid == ADMIN_USER_ID:
             continue
@@ -1116,19 +1116,32 @@ def sync_boosters_premium(boosters: list[dict]) -> tuple[int, int]:
 
     if premium_col is not None:
         try:
-            premium_col.delete_many({"source": "boost", "user_id": {"$nin": list(active_map.keys())}})
+            if active_map:
+                premium_col.delete_many({"source": "boost", "user_id": {"$nin": list(active_map.keys())}})
+            else:
+                premium_col.delete_many({"source": "boost"})
         except PyMongoError:
             pass
 
-    # منح أو تحديث بريميوم البوست للداعمين الحاليين
     for uid, rec in active_map.items():
-        if uid == ADMIN_USER_ID:
+        existing_mem = MEM_PREMIUM.get(uid)
+        existing_db = None
+        if not existing_mem and premium_col is not None:
+            try:
+                existing_db = premium_col.find_one({"user_id": uid}, {"_id": 0})
+            except PyMongoError:
+                existing_db = None
+        current_src = (existing_mem or existing_db or {}).get("source")
+        if current_src in ("manual", "admin", "owner"):
             continue
-        MEM_PREMIUM[uid] = dict(rec)
+
+        preserved_granted = (existing_mem or existing_db or {}).get("granted_at") or stamp
+        record_to_save = {**rec, "granted_at": preserved_granted}
+        MEM_PREMIUM[uid] = dict(record_to_save)
         _invalidate_perm_cache(uid)
         if premium_col is not None:
             try:
-                premium_col.update_one({"user_id": uid}, {"$set": rec}, upsert=True)
+                premium_col.update_one({"user_id": uid}, {"$set": record_to_save}, upsert=True)
             except PyMongoError:
                 pass
 
@@ -1880,15 +1893,8 @@ def _render_intro_hero_html(
     secondary_txt: str,
     prem_badge_html: str = "",
 ) -> str:
-    status_badge = (
-        ("Authenticated Session • Ready" if is_en else "جلسة مفعلة • جاهز للإدارة")
-        if is_logged_in
-        else ("Server Protection & Control" if is_en else "حماية وإدارة السيرفرات")
-    )
     return f"""
     <section class="hero-card anim-card">
-      <div class="hero-pill">{esc(status_badge)}</div>
-      {prem_badge_html}
       <h1 class="hero-title">{esc(SITE_NAME)}</h1>
       <p class="hero-desc">{('Real-time protection for your server, rule controls, role and channel guards, and quick server actions.' if is_en else 'حماية فخمة للسيرفر، ضبط القواعد، حماية الرولات والرومات وصورة السيرفر، وإدارة كاملة بسهولة.')}</p>
       <div class="hero-actions">
@@ -1980,12 +1986,6 @@ def render_page(
         primary_txt = L["login_discord"]
         secondary_href = "/invite"
         secondary_txt = L["invite"]
-
-    prem_badge_html = (
-        f"<div class='hero-prem-banner'>★ {'Premium Active' if is_en else 'اشتراك البريميوم مفعل'} ({esc(format_remaining_time(prem_rec, is_en=is_en))})</div>"
-        if (is_logged_in and is_prem and prem_rec)
-        else ""
-    )
 
     if require_auth_view and not user:
         final_content = _render_intro_hero_html(
@@ -2169,16 +2169,6 @@ def render_page(
     background: var(--card-bg); border: 1px solid var(--card-border-bright);
     border-radius: 22px; padding: 28px 20px; text-align: center; margin-bottom: 18px;
     animation: fadeSlideUp 0.28s ease both, pulseGlow 4s infinite ease-in-out;
-  }}
-  .hero-pill {{
-    display: inline-block; padding: 6px 16px; border-radius: 999px;
-    background: rgba(147, 51, 234, 0.24); border: 1px solid var(--card-border-bright);
-    color: #e9d5ff; font-size: 12px; font-weight: 800; margin-bottom: 10px;
-  }}
-  .hero-prem-banner {{
-    display: inline-block; padding: 6px 14px; border-radius: 999px;
-    background: rgba(217, 70, 239, 0.22); border: 1px solid var(--prem-border);
-    color: #fdf4ff; font-size: 12px; font-weight: 800; margin-bottom: 12px; margin-inline-start: 6px;
   }}
   .prem-active-box {{
     padding: 8px 11px; border-radius: 11px;
@@ -2536,8 +2526,6 @@ async def home_handler(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
     user = get_discord_session(request)
     is_logged_in = bool(user)
-    is_prem = is_premium_user(user)
-    prem_rec = _get_premium_record(str(user.get("id", "")).strip()) if user else None
     flash = sanitize_flash_msg(request.query.get("msg"))
     if not flash and not DISCORD_CLIENT_SECRET:
         flash = (
@@ -2558,12 +2546,6 @@ async def home_handler(request: web.Request) -> web.Response:
         secondary_href = "/invite"
         secondary_txt = "Invite Arab Security Bot"
 
-    prem_badge_html = (
-        f"<div class='hero-prem-banner'>★ {'Premium Active' if is_en else 'اشتراك البريميوم مفعل'} ({esc(format_remaining_time(prem_rec, is_en=is_en))})</div>"
-        if (is_logged_in and is_prem and prem_rec)
-        else ""
-    )
-
     body = _render_intro_hero_html(
         is_en=is_en,
         bot_servers_count=bot_servers_count,
@@ -2572,7 +2554,7 @@ async def home_handler(request: web.Request) -> web.Response:
         primary_txt=primary_txt,
         secondary_href=secondary_href,
         secondary_txt=secondary_txt,
-        prem_badge_html=prem_badge_html,
+        prem_badge_html="",
     )
     return web.Response(
         text=render_page("Home" if is_en else "الرئيسية", "home", body, request, flash=flash),
