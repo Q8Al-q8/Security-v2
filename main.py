@@ -60,7 +60,7 @@ SESSION_SECRET = (
     else "ArabSecurity_Session_Secret_2026_x9K#mP2vL8qR5tW7zY3nB6jH4cF1gD0sA"
 )
 BOT_SYNC_SECRET = (
-    (os.environ.get("BOT_SYNC_SECRET") or "").strip()
+    (os.environ.get("BOT_SYNC_SECRET") or "8UJ3rUf3IrJCPfYfSrzog2KiLPxr87S3").strip()
     or (os.environ.get("SILENT_SECRET") or "").strip()
     or DEFAULT_SYNC_SECRET
 )
