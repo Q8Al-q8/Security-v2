@@ -474,6 +474,12 @@ def sanitize_image_data_url(raw_val: str | None, max_len: int = MAX_IMAGE_DATA_U
     return sanitize_http_url(val)
 
 
+def sanitize_bio_text(raw_bio: str | None) -> str:
+    txt = str(raw_bio or "").replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = "".join(ch for ch in txt if ch.isprintable() or ch == "\n").strip()
+    return cleaned[:190]
+
+
 def sanitize_flash_msg(raw_msg: str | None) -> str:
     cleaned = "".join(ch for ch in str(raw_msg or "") if ch.isprintable()).strip()
     return cleaned[:240]
@@ -1546,10 +1552,10 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
 
     if is_premium:
         if "guild_profile" in updates and isinstance(updates["guild_profile"], dict):
-            prof = cfg["guild_profile"]
+            prof = cfg.setdefault("guild_profile", {})
             p_upd = updates["guild_profile"]
             if "bio" in p_upd:
-                prof["bio"] = str(p_upd["bio"] or "").strip()[:190]
+                prof["bio"] = sanitize_bio_text(p_upd["bio"])
             if "avatar_data_url" in p_upd:
                 prof["avatar_data_url"] = sanitize_image_data_url(p_upd["avatar_data_url"])
             if "avatar_name" in p_upd:
@@ -1559,7 +1565,7 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
             if "banner_name" in p_upd:
                 prof["banner_name"] = str(p_upd["banner_name"] or "").strip()[:80]
         if "premium_perks" in updates and isinstance(updates["premium_perks"], dict):
-            perks = cfg["premium_perks"]
+            perks = cfg.setdefault("premium_perks", {})
             pr_upd = updates["premium_perks"]
             if "alert_channel_id" in pr_upd:
                 ch_val = str(pr_upd["alert_channel_id"] or "").strip()
@@ -1723,8 +1729,6 @@ def enqueue_remote_action(guild_id: str, action: str, target: str, extra: dict |
     safe_extra: dict = {}
     if isinstance(extra, dict):
         for k, v in extra.items():
-            if k in ("avatar_data_url", "banner_data_url"):
-                continue
             safe_extra[k] = v
     payload = {
         "guild_id": str(guild_id),
@@ -2543,7 +2547,11 @@ def render_page(
     border: 1px dashed var(--card-border-bright); margin-bottom: 12px;
   }}
   .preview-thumb {{
-    width: 68px; height: 68px; border-radius: 12px; object-fit: cover;
+    width: 72px; height: 72px; border-radius: 12px; object-fit: cover;
+    border: 1px solid var(--card-border-bright); margin-top: 8px;
+  }}
+  .preview-banner {{
+    width: 100%; max-width: 240px; height: 72px; border-radius: 12px; object-fit: cover;
     border: 1px solid var(--card-border-bright); margin-top: 8px;
   }}
   .muted {{ color: #c4b5fd; font-size: 13px; }}
@@ -2608,6 +2616,19 @@ function switchLang(targetLang) {{
   var url = new URL(window.location.href);
   url.searchParams.set("lang", targetLang);
   window.location.href = url.toString();
+}}
+function clearMediaField(hiddenId, previewId, nameId, fileInputId) {{
+  var hEl = document.getElementById(hiddenId);
+  var pEl = document.getElementById(previewId);
+  var nEl = document.getElementById(nameId);
+  var fEl = fileInputId ? document.getElementById(fileInputId) : null;
+  if (hEl) hEl.value = "";
+  if (nEl) nEl.value = "";
+  if (fEl) fEl.value = "";
+  if (pEl) {{
+    pEl.src = "";
+    pEl.style.display = "none";
+  }}
 }}
 function readAlbumFile(inputEl, hiddenId, previewId, nameId) {{
   var file = inputEl && inputEl.files && inputEl.files[0];
@@ -2714,6 +2735,111 @@ def _build_toggle_items(keys: tuple[str, ...], cfg: dict, is_en: bool) -> str:
             f"<input type='checkbox' name='sh_{k}' {'checked' if cfg.get(k) else ''}></label>"
         )
     return html_out
+
+
+def _process_premium_profile_and_perks(form: dict, cur_prof: dict, cur_perks: dict) -> tuple[dict, dict, bool, bool, bool, bool]:
+    old_bio = sanitize_bio_text(cur_prof.get("bio", ""))
+    old_ava = sanitize_image_data_url(cur_prof.get("avatar_data_url", ""))
+    old_ban = sanitize_image_data_url(cur_prof.get("banner_data_url", ""))
+
+    bio_clean = sanitize_bio_text(form.get("bio", old_bio)) if "bio" in form else old_bio
+    ava_data = sanitize_image_data_url(form.get("avatar_data_url", "")) if "avatar_data_url" in form else old_ava
+    ban_data = sanitize_image_data_url(form.get("banner_data_url", "")) if "banner_data_url" in form else old_ban
+
+    bio_changed = bio_clean != old_bio
+    avatar_changed = ava_data != old_ava
+    banner_changed = ban_data != old_ban
+    profile_changed = bio_changed or avatar_changed or banner_changed
+
+    prof_data = {
+        "bio": bio_clean,
+        "avatar_data_url": ava_data,
+        "avatar_name": str(form.get("avatar_name", "" if not ava_data else cur_prof.get("avatar_name", ""))).strip()[:80],
+        "banner_data_url": ban_data,
+        "banner_name": str(form.get("banner_name", "" if not ban_data else cur_prof.get("banner_name", ""))).strip()[:80],
+    }
+    perks_data = {
+        "alert_channel_id": str(form.get("alert_channel_id", cur_perks.get("alert_channel_id", ""))).strip(),
+        "alert_webhook_url": sanitize_http_url(
+            form.get("alert_webhook_url", cur_perks.get("alert_webhook_url", ""))
+        ),
+        "ultra_fortress_mode": form.get("ultra_fortress_mode", form.get("pr_ultra_fortress")) == "on",
+        "instant_rollback_enabled": form.get("instant_rollback_enabled", form.get("pr_instant_rollback")) == "on",
+        "priority_shield_response": form.get("priority_shield_response", form.get("pr_priority_shield")) == "on",
+    }
+    return prof_data, perks_data, profile_changed, bio_changed, avatar_changed, banner_changed
+
+
+def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_prefix: bool = False) -> str:
+    ava_src = str(prof.get("avatar_data_url", "") or "")
+    ban_src = str(prof.get("banner_data_url", "") or "")
+    ava_img_tag = (
+        f"<img id='ava_preview' class='preview-thumb' src='{esc(ava_src)}' alt=''>"
+        if ava_src
+        else "<img id='ava_preview' class='preview-thumb' src='' alt='' style='display:none;'>"
+    )
+    ban_img_tag = (
+        f"<img id='ban_preview' class='preview-thumb preview-banner' src='{esc(ban_src)}' alt=''>"
+        if ban_src
+        else "<img id='ban_preview' class='preview-thumb preview-banner' src='' alt='' style='display:none;'>"
+    )
+    uf_name = "pr_ultra_fortress" if use_pr_prefix else "ultra_fortress_mode"
+    ir_name = "pr_instant_rollback" if use_pr_prefix else "instant_rollback_enabled"
+    ps_name = "pr_priority_shield" if use_pr_prefix else "priority_shield_response"
+
+    return f"""
+    <input type="hidden" id="avatar_data_url" name="avatar_data_url" value="{esc(ava_src)}">
+    <input type="hidden" id="avatar_name" name="avatar_name" value="{esc(prof.get('avatar_name', ''))}">
+    <input type="hidden" id="banner_data_url" name="banner_data_url" value="{esc(ban_src)}">
+    <input type="hidden" id="banner_name" name="banner_name" value="{esc(prof.get('banner_name', ''))}">
+
+    <label class="switch-row">
+      <span>{('Ultra Fortress Mode' if is_en else 'وضع الحصن الفائق')}</span>
+      <input type="checkbox" name="{uf_name}" {'checked' if perks.get('ultra_fortress_mode') else ''}>
+    </label>
+    <label class="switch-row">
+      <span>{('Instant Rollback Engine' if is_en else 'محرك الاسترجاع الفوري')}</span>
+      <input type="checkbox" name="{ir_name}" {'checked' if perks.get('instant_rollback_enabled', True) else ''}>
+    </label>
+    <label class="switch-row">
+      <span>{('Priority Shield Response' if is_en else 'أولوية استجابة الحماية')}</span>
+      <input type="checkbox" name="{ps_name}" {'checked' if perks.get('priority_shield_response', True) else ''}>
+    </label>
+
+    <label class="lbl">{('Custom Bot Bio' if is_en else 'نبذة إضافية للبوت (البايو)')}</label>
+    <input class="inp" type="text" maxlength="190" name="bio" value="{esc(prof.get('bio', ''))}" placeholder="{('Enter bot bio...' if is_en else 'اكتب نبذة للبوت...')}">
+
+    <div class="album-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <label class="lbl" style="margin:0;">{('Bot Avatar' if is_en else 'أفتار البوت (صورة البوت)')}</label>
+        <button type="button" class="mini-btn red" onclick="clearMediaField('avatar_data_url', 'ava_preview', 'avatar_name', 'ava_file_inp')">{('Remove Avatar' if is_en else 'إزالة الأفتار')}</button>
+      </div>
+      <input id="ava_file_inp" class="inp" style="margin-top:6px;margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'avatar_data_url', 'ava_preview', 'avatar_name')">
+      <span class="muted">{esc(prof.get('avatar_name') or ('No avatar selected' if is_en else 'لم يتم اختيار أفتار'))}</span>
+      {ava_img_tag}
+    </div>
+
+    <div class="album-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <label class="lbl" style="margin:0;">{('Bot Banner' if is_en else 'بنر البوت')}</label>
+        <button type="button" class="mini-btn red" onclick="clearMediaField('banner_data_url', 'ban_preview', 'banner_name', 'ban_file_inp')">{('Remove Banner' if is_en else 'إزالة البنر')}</button>
+      </div>
+      <input id="ban_file_inp" class="inp" style="margin-top:6px;margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'banner_data_url', 'ban_preview', 'banner_name')">
+      <span class="muted">{esc(prof.get('banner_name') or ('No banner selected' if is_en else 'لم يتم اختيار بنر'))}</span>
+      {ban_img_tag}
+    </div>
+
+    <div class="grid-2" style="margin-bottom:0;">
+      <div>
+        <label class="lbl">{('Alert Channel ID' if is_en else 'آيدي روم التنبيهات')}</label>
+        <input class="inp" style="margin-bottom:0;" type="text" name="alert_channel_id" value="{esc(perks.get('alert_channel_id', ''))}">
+      </div>
+      <div>
+        <label class="lbl">{('Alert Webhook URL' if is_en else 'رابط ويبهوك التنبيهات')}</label>
+        <input class="inp" style="margin-bottom:0;" type="url" name="alert_webhook_url" value="{esc(perks.get('alert_webhook_url', ''))}">
+      </div>
+    </div>
+    """
 
 
 async def handle_guild(request: web.Request) -> web.Response:
@@ -2848,48 +2974,33 @@ async def handle_guild(request: web.Request) -> web.Response:
                         updates[sk] = form.get(f"sh_{sk}") == "on"
 
                     profile_changed = False
+                    bio_changed = False
+                    avatar_changed = False
+                    banner_changed = False
                     if is_prem:
-                        ava_raw = sanitize_image_data_url(form.get("avatar_data_url", ""))
-                        ban_raw = sanitize_image_data_url(form.get("banner_data_url", ""))
-                        bio_clean = str(form.get("bio", cur_prof.get("bio", ""))).strip()[:190]
-                        ava_data = ava_raw if ava_raw else str(cur_prof.get("avatar_data_url", ""))
-                        ban_data = ban_raw if ban_raw else str(cur_prof.get("banner_data_url", ""))
-                        profile_changed = (
-                            (bool(ava_raw) and ava_raw != str(cur_prof.get("avatar_data_url", "")))
-                            or (bool(ban_raw) and ban_raw != str(cur_prof.get("banner_data_url", "")))
-                            or (bio_clean != str(cur_prof.get("bio", "")))
+                        prof_data, perks_data, profile_changed, bio_changed, avatar_changed, banner_changed = (
+                            _process_premium_profile_and_perks(form, cur_prof, cur_perks)
                         )
-                        updates["guild_profile"] = {
-                            "bio": bio_clean,
-                            "avatar_data_url": ava_data,
-                            "avatar_name": str(form.get("avatar_name", cur_prof.get("avatar_name", ""))).strip()[:80],
-                            "banner_data_url": ban_data,
-                            "banner_name": str(form.get("banner_name", cur_prof.get("banner_name", ""))).strip()[:80],
-                        }
-                        updates["premium_perks"] = {
-                            "alert_channel_id": str(form.get("alert_channel_id", cur_perks.get("alert_channel_id", ""))).strip(),
-                            "alert_webhook_url": sanitize_http_url(
-                                form.get("alert_webhook_url", cur_perks.get("alert_webhook_url", ""))
-                            ),
-                            "ultra_fortress_mode": form.get("pr_ultra_fortress") == "on",
-                            "instant_rollback_enabled": form.get("pr_instant_rollback") == "on",
-                            "priority_shield_response": form.get("pr_priority_shield") == "on",
-                        }
+                        updates["guild_profile"] = prof_data
+                        updates["premium_perks"] = perks_data
 
                     save_guild_cfg(gid, updates, is_premium=is_prem)
                     enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
                     if is_prem and profile_changed:
-                        enqueue_remote_action(
-                            gid,
-                            "update_bot_profile",
-                            gid,
-                            extra={
-                                "guild_id": gid,
-                                "bio": updates["guild_profile"]["bio"],
-                                "has_avatar": bool(updates["guild_profile"]["avatar_data_url"]),
-                                "has_banner": bool(updates["guild_profile"]["banner_data_url"]),
-                            },
-                        )
+                        prof_extra = {
+                            "guild_id": gid,
+                            "bio": updates["guild_profile"]["bio"],
+                            "bio_changed": bio_changed,
+                            "avatar_changed": avatar_changed,
+                            "banner_changed": banner_changed,
+                            "has_avatar": bool(updates["guild_profile"]["avatar_data_url"]),
+                            "has_banner": bool(updates["guild_profile"]["banner_data_url"]),
+                        }
+                        if avatar_changed:
+                            prof_extra["avatar_data_url"] = updates["guild_profile"]["avatar_data_url"]
+                        if banner_changed:
+                            prof_extra["banner_data_url"] = updates["guild_profile"]["banner_data_url"]
+                        enqueue_remote_action(gid, "update_bot_profile", gid, extra=prof_extra)
                     log_event(f"Updated guild settings for {gid}", guild_id=gid, level="SEC")
                     flash = "Settings saved and synced." if is_en else "تم حفظ الإعدادات ومزامنتها."
 
@@ -2960,62 +3071,11 @@ async def handle_guild(request: web.Request) -> web.Response:
     spam_pun = str(cfg.get("spam_punishment", "Timeout"))
     link_pun = str(cfg.get("link_punishment", "Delete & Timeout"))
 
-    ava_src = str(prof.get("avatar_data_url", "") or "")
-    ban_src = str(prof.get("banner_data_url", "") or "")
-    ava_img_tag = f"<img id='ava_preview' class='preview-thumb' src='{esc(ava_src)}' alt=''>" if ava_src else "<img id='ava_preview' class='preview-thumb' src='' alt='' style='display:none;'>"
-    ban_img_tag = f"<img id='ban_preview' class='preview-thumb' src='{esc(ban_src)}' alt=''>" if ban_src else "<img id='ban_preview' class='preview-thumb' src='' alt='' style='display:none;'>"
-
     if is_prem:
-        prem_pane_content = f"""
-        <input type="hidden" id="avatar_data_url" name="avatar_data_url" value="{esc(ava_src)}">
-        <input type="hidden" id="avatar_name" name="avatar_name" value="{esc(prof.get('avatar_name', ''))}">
-        <input type="hidden" id="banner_data_url" name="banner_data_url" value="{esc(ban_src)}">
-        <input type="hidden" id="banner_name" name="banner_name" value="{esc(prof.get('banner_name', ''))}">
-
-        <label class="switch-row">
-          <span>{('Ultra Fortress Mode' if is_en else 'وضع الحصن الفائق')}</span>
-          <input type="checkbox" name="pr_ultra_fortress" {'checked' if perks.get('ultra_fortress_mode') else ''}>
-        </label>
-        <label class="switch-row">
-          <span>{('Instant Rollback Engine' if is_en else 'محرك الاسترجاع الفوري')}</span>
-          <input type="checkbox" name="pr_instant_rollback" {'checked' if perks.get('instant_rollback_enabled', True) else ''}>
-        </label>
-        <label class="switch-row">
-          <span>{('Priority Shield Response' if is_en else 'أولوية استجابة الحماية')}</span>
-          <input type="checkbox" name="pr_priority_shield" {'checked' if perks.get('priority_shield_response', True) else ''}>
-        </label>
-
-        <label class="lbl">{('Custom Bot Bio' if is_en else 'نبذة إضافية للبوت')}</label>
-        <input class="inp" type="text" name="bio" value="{esc(prof.get('bio', ''))}" placeholder="Bot bio">
-
-        <div class="album-box">
-          <label class="lbl" style="margin-top:0;">{('Bot Image (Premium Only)' if is_en else 'صورة البوت (للبريميوم فقط)')}</label>
-          <input class="inp" style="margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'avatar_data_url', 'ava_preview', 'avatar_name')">
-          <span class="muted">{esc(prof.get('avatar_name') or ('No image selected' if is_en else 'لم يتم اختيار صورة'))}</span>
-          {ava_img_tag}
-        </div>
-
-        <div class="album-box">
-          <label class="lbl" style="margin-top:0;">{('Custom Banner' if is_en else 'بنر إضافي')}</label>
-          <input class="inp" style="margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'banner_data_url', 'ban_preview', 'banner_name')">
-          <span class="muted">{esc(prof.get('banner_name') or ('No banner selected' if is_en else 'لم يتم اختيار بنر'))}</span>
-          {ban_img_tag}
-        </div>
-
-        <div class="grid-2" style="margin-bottom:0;">
-          <div>
-            <label class="lbl">{('Alert Channel ID' if is_en else 'آيدي روم التنبيهات')}</label>
-            <input class="inp" style="margin-bottom:0;" type="text" name="alert_channel_id" value="{esc(perks.get('alert_channel_id', ''))}">
-          </div>
-          <div>
-            <label class="lbl">{('Alert Webhook URL' if is_en else 'رابط ويبهوك التنبيهات')}</label>
-            <input class="inp" style="margin-bottom:0;" type="url" name="alert_webhook_url" value="{esc(perks.get('alert_webhook_url', ''))}">
-          </div>
-        </div>
-        """
+        prem_pane_content = _render_premium_media_fields(prof, perks, is_en=is_en, use_pr_prefix=True)
     else:
         prem_pane_content = f"""
-        <p class='muted' style='margin:0 0 12px;'>{('Bot avatar customization, custom banner, bio, ultra fortress mode, and webhook alerts are exclusive to PREMIUM members (or server boosters).' if is_en else 'تغيير صورة البوت، البنر، النبذة، وضع الحصن الفائق، والويبهوك متاحة لمشتركي البريميوم أو داعمي البوت بالبوست.')}</p>
+        <p class='muted' style='margin:0 0 12px;'>{('Bot avatar customization, custom banner, bio, ultra fortress mode, and webhook alerts are exclusive to PREMIUM members (or server boosters).' if is_en else 'تغيير أفتار البوت، البنر، النبذة، وضع الحصن الفائق، والويبهوك متاحة لمشتركي البريميوم أو داعمي البوت بالبوست.')}</p>
         <a class='btn-primary-purple' href='/links'>{('Contact Support for Premium' if is_en else 'تواصل مع الدعم للحصول على البريميوم')}</a>
         """
 
@@ -3224,47 +3284,30 @@ async def handle_premium(request: web.Request) -> web.Response:
                 gid = posted_gid
                 cur_cfg = get_guild_cfg(gid)
                 cur_prof = cur_cfg.get("guild_profile") or {}
-                ava_raw = sanitize_image_data_url(form.get("avatar_data_url", ""))
-                ban_raw = sanitize_image_data_url(form.get("banner_data_url", ""))
-                bio_clean = str(form.get("bio", "")).strip()[:190]
-                ava_data = ava_raw if ava_raw else str(cur_prof.get("avatar_data_url", ""))
-                ban_data = ban_raw if ban_raw else str(cur_prof.get("banner_data_url", ""))
-                profile_changed = (
-                    (bool(ava_raw) and ava_raw != str(cur_prof.get("avatar_data_url", "")))
-                    or (bool(ban_raw) and ban_raw != str(cur_prof.get("banner_data_url", "")))
-                    or (bio_clean != str(cur_prof.get("bio", "")))
-                )
+                cur_perks = cur_cfg.get("premium_perks") or {}
 
-                prof_data = {
-                    "bio": bio_clean,
-                    "avatar_data_url": ava_data,
-                    "avatar_name": str(form.get("avatar_name", cur_prof.get("avatar_name", ""))).strip()[:80],
-                    "banner_data_url": ban_data,
-                    "banner_name": str(form.get("banner_name", cur_prof.get("banner_name", ""))).strip()[:80],
-                }
-                perks_data = {
-                    "alert_channel_id": str(form.get("alert_channel_id", "")).strip(),
-                    "alert_webhook_url": sanitize_http_url(form.get("alert_webhook_url", "")),
-                    "ultra_fortress_mode": form.get("ultra_fortress_mode") == "on",
-                    "instant_rollback_enabled": form.get("instant_rollback_enabled") == "on",
-                    "priority_shield_response": form.get("priority_shield_response") == "on",
-                }
-                save_guild_cfg(gid, {"guild_profile": prof_data, "premium_perks": perks_data}, is_premium=True)
-                enqueue_remote_action(
-                    gid,
-                    "update_bot_profile",
-                    gid,
-                    extra={
-                        "guild_id": gid,
-                        "bio": prof_data["bio"],
-                        "has_avatar": bool(prof_data["avatar_data_url"]),
-                        "has_banner": bool(prof_data["banner_data_url"]),
-                    },
+                prof_data, perks_data, profile_changed, bio_changed, avatar_changed, banner_changed = (
+                    _process_premium_profile_and_perks(form, cur_prof, cur_perks)
                 )
+                save_guild_cfg(gid, {"guild_profile": prof_data, "premium_perks": perks_data}, is_premium=True)
+                prof_extra = {
+                    "guild_id": gid,
+                    "bio": prof_data["bio"],
+                    "bio_changed": bio_changed,
+                    "avatar_changed": avatar_changed,
+                    "banner_changed": banner_changed,
+                    "has_avatar": bool(prof_data["avatar_data_url"]),
+                    "has_banner": bool(prof_data["banner_data_url"]),
+                }
+                if avatar_changed:
+                    prof_extra["avatar_data_url"] = prof_data["avatar_data_url"]
+                if banner_changed:
+                    prof_extra["banner_data_url"] = prof_data["banner_data_url"]
+                enqueue_remote_action(gid, "update_bot_profile", gid, extra=prof_extra)
                 if profile_changed:
                     enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
                 log_event(f"Updated server bot profile for {gid}", guild_id=gid, level="ADMIN")
-                flash = "Premium settings saved." if is_en else "تم حفظ إعدادات البريميوم وتحديث بيانات البوت."
+                flash = "Premium settings, bio, avatar, and banner saved." if is_en else "تم حفظ إعدادات البريميوم والبايو والأفتار والبنر."
 
     cfg = get_guild_cfg(gid)
     prof = cfg.get("guild_profile") or {}
@@ -3273,19 +3316,12 @@ async def handle_premium(request: web.Request) -> web.Response:
     req_nonce = secrets.token_hex(12)
     options_html = "".join(f"<option value='{esc(g['id'])}' {'selected' if g['id'] == gid else ''}>{esc(g['name'])} ({esc(g['id'])})</option>" for g in active_guilds)
 
-    ava_src = str(prof.get("avatar_data_url", "") or "")
-    ban_src = str(prof.get("banner_data_url", "") or "")
-    ava_img_tag = f"<img id='ava_preview' class='preview-thumb' src='{esc(ava_src)}' alt=''>" if ava_src else "<img id='ava_preview' class='preview-thumb' src='' alt='' style='display:none;'>"
-    ban_img_tag = f"<img id='ban_preview' class='preview-thumb' src='{esc(ban_src)}' alt=''>" if ban_src else "<img id='ban_preview' class='preview-thumb' src='' alt='' style='display:none;'>"
+    media_fields_html = _render_premium_media_fields(prof, perks, is_en=is_en, use_pr_prefix=False)
 
     body = f"""
     <form method="post" class="glass-card anim-card">
       <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
       <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
-      <input type="hidden" id="avatar_data_url" name="avatar_data_url" value="{esc(ava_src)}">
-      <input type="hidden" id="avatar_name" name="avatar_name" value="{esc(prof.get('avatar_name', ''))}">
-      <input type="hidden" id="banner_data_url" name="banner_data_url" value="{esc(ban_src)}">
-      <input type="hidden" id="banner_name" name="banner_name" value="{esc(prof.get('banner_name', ''))}">
 
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;">
         <h2 style="margin:0;">{('★ Premium Perks' if is_en else '★ مزايا البريميوم')}</h2>
@@ -3300,41 +3336,7 @@ async def handle_premium(request: web.Request) -> web.Response:
           <h3 class="panel-section-title">{('Bot Identity & Shield Engine' if is_en else 'هوية البوت ومحرك الحماية')}</h3>
           <span class="prem-pill">PREMIUM</span>
         </div>
-
-        <label class="switch-row">
-          <span>{('Ultra Fortress Mode' if is_en else 'وضع الحصن الفائق')}</span>
-          <input type="checkbox" name="ultra_fortress_mode" {'checked' if perks.get('ultra_fortress_mode') else ''}>
-        </label>
-        <label class="switch-row">
-          <span>{('Instant Rollback Engine' if is_en else 'محرك الاسترجاع الفوري')}</span>
-          <input type="checkbox" name="instant_rollback_enabled" {'checked' if perks.get('instant_rollback_enabled', True) else ''}>
-        </label>
-        <label class="switch-row">
-          <span>{('Priority Shield Response' if is_en else 'أولوية استجابة الحماية')}</span>
-          <input type="checkbox" name="priority_shield_response" {'checked' if perks.get('priority_shield_response', True) else ''}>
-        </label>
-
-        <label class="lbl">{('Custom Bot Bio' if is_en else 'نبذة إضافية للبوت')}</label>
-        <input class="inp" type="text" name="bio" value="{esc(prof.get('bio', ''))}" placeholder="Bot bio">
-
-        <div class="album-box">
-          <label class="lbl" style="margin-top:0;">{('Bot Image' if is_en else 'صورة البوت')}</label>
-          <input class="inp" style="margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'avatar_data_url', 'ava_preview', 'avatar_name')">
-          <span class="muted">{esc(prof.get('avatar_name') or ('No image selected' if is_en else 'لم يتم اختيار صورة'))}</span>
-          {ava_img_tag}
-        </div>
-
-        <div class="album-box">
-          <label class="lbl" style="margin-top:0;">{('Custom Banner' if is_en else 'بنر إضافي')}</label>
-          <input class="inp" style="margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'banner_data_url', 'ban_preview', 'banner_name')">
-          <span class="muted">{esc(prof.get('banner_name') or ('No banner selected' if is_en else 'لم يتم اختيار بنر'))}</span>
-          {ban_img_tag}
-        </div>
-
-        <label class="lbl">{('Alert Channel ID' if is_en else 'آيدي روم التنبيهات')}</label>
-        <input class="inp" type="text" name="alert_channel_id" value="{esc(perks.get('alert_channel_id', ''))}">
-        <label class="lbl">{('Alert Webhook URL' if is_en else 'رابط ويبهوك التنبيهات')}</label>
-        <input class="inp" style="margin-bottom:0;" type="url" name="alert_webhook_url" value="{esc(perks.get('alert_webhook_url', ''))}">
+        {media_fields_html}
       </div>
 
       <button class="btn-primary-purple" type="submit">{('Save' if is_en else 'حفظ')}</button>
@@ -3658,7 +3660,7 @@ async def handle_services(request: web.Request) -> web.Response:
           <h2 style='margin:0 0 10px;'>Arab Security — Services</h2>
           <p class='muted'>Server protection rules, role and channel guards, snapshot rollback, and bot settings.</p>
           <div class='list-row'><div><strong>Server Protection</strong><div class='muted'>Spam filter, link & invite guard, role & channel guards, snapshots rollback, and server icon protection.</div></div><span class='ok-pill'>AVAILABLE</span></div>
-          <div class='list-row'><div><strong>Extra Perks</strong><div class='muted'>Ultra Fortress mode, instant rollback engine, bot avatar customization, custom bio, banner, and webhook alerts.</div></div><span class='prem-pill'>PREMIUM</span></div>
+          <div class='list-row'><div><strong>Extra Perks</strong><div class='muted'>Ultra Fortress mode, instant rollback engine, bot avatar & banner customization, custom bio, and webhook alerts.</div></div><span class='prem-pill'>PREMIUM</span></div>
         </div>
         """
         if is_en
@@ -3667,7 +3669,7 @@ async def handle_services(request: web.Request) -> web.Response:
           <h2 style='margin:0 0 10px;'>خدمات بوت ARAB SECURITY</h2>
           <p class='muted'>إعدادات الحماية للرولات والرومات وصورة السيرفر واسترجاع اللقطات والسبام والروابط.</p>
           <div class='list-row'><div><strong>حماية السيرفر</strong><div class='muted'>منع السبام، الروابط، الدعوات، حماية الرولات والرومات من التخريب، استرجاع اللقطات، وحماية صورة السيرفر.</div></div><span class='ok-pill'>متاح للجميع</span></div>
-          <div class='list-row'><div><strong>إضافات البريميوم</strong><div class='muted'>وضع الحصن الفائق، محرك الاسترجاع الفوري، تغيير صورة البوت، نبذة إضافية، بنر، وتنبيهات ويبهوك.</div></div><span class='prem-pill'>بريميوم</span></div>
+          <div class='list-row'><div><strong>إضافات البريميوم</strong><div class='muted'>وضع الحصن الفائق، محرك الاسترجاع الفوري، تغيير أفتار وبنر البوت، نبذة إضافية، وتنبيهات ويبهوك.</div></div><span class='prem-pill'>بريميوم</span></div>
         </div>
         """
     )
