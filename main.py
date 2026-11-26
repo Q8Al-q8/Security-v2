@@ -26,11 +26,11 @@ except Exception:
 
 
 SITE_NAME = (os.getenv("SITE_NAME", "ARAB SECURITY") or "ARAB SECURITY").strip()[:60]
-OWNER_NAME = (os.getenv("OWNER_NAME", "SAUD/.h1u") or "سعود السويط").strip()[:60]
+OWNER_NAME = (os.getenv("OWNER_NAME", "SAUD") or "سعود السويط").strip()[:60]
 ADMIN_USER_ID = (os.getenv("ADMIN_USER_ID", "1395418036919468073") or "1395418036919468073").strip()
 
 DEFAULT_DOMAIN_URL = "https://arabsecurity.de5.net"
-SUPPORT_SERVER_URL = (os.getenv("SUPPORT_SERVER_URL", "https://discord.gg/khQXQCtjMS") or "").strip()
+SUPPORT_SERVER_URL = (os.getenv("SUPPORT_SERVER_URL", "https://discord.gg/vV84RqJNks") or "").strip()
 
 HOST = (os.getenv("HOST", "0.0.0.0") or "0.0.0.0").strip()
 PORT = int((os.getenv("PORT", "8080") or "8080").strip())
