@@ -48,10 +48,10 @@ BOT_INVITE_URL = (
 ).strip()
 
 MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").strip()
-DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority"
+DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:guU1qtDOoIpUHSkt@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "6OomLIMV6sTKesukHnxdfwHjKv4U4PqX"
+DEFAULT_SYNC_SECRET = "Otku_w1QnhIGNSr5DKfh-jpupvguS3nJ"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -77,7 +77,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = (os.getenv("COOKIE_SECURE", "") or "").strip().lower()
 
 DISCORD_CLIENT_ID = (os.getenv("DISCORD_CLIENT_ID", "1573635674551357550") or "").strip()
-DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "6OomLIMV6sTKesukHnxdfwHjKv4U4PqX") or "").strip()
+DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "Otku_w1QnhIGNSr5DKfh-jpupvguS3nJ") or "").strip()
 
 MAX_IMAGE_BYTES = 10_000_000
 MAX_IMAGE_DATA_URL_LEN = 14_000_000
@@ -504,6 +504,87 @@ stats_col = None
 backups_col = None
 sessions_col = None
 
+
+def hydrate_from_db() -> None:
+    if db is None:
+        return
+    now = time.time()
+    try:
+        if bot_guilds_col is not None:
+            for g in bot_guilds_col.find({}, {"_id": 0}).limit(1000):
+                gid = str(g.get("id", "")).strip()
+                if gid.isdigit():
+                    MEM_GUILDS[gid] = {
+                        "id": gid,
+                        "name": str(g.get("name", f"Server {gid}"))[:100],
+                        "icon": str(g.get("icon", "") or "").strip()[:80],
+                        "member_count": int(g.get("member_count", 0) or 0),
+                        "owner_id": str(g.get("owner_id", "") or "").strip(),
+                        "updated_at": str(g.get("updated_at", "") or "").strip(),
+                    }
+
+        if guild_settings_col is not None:
+            for doc in guild_settings_col.find({}, {"_id": 0}).limit(1000):
+                gid = str(doc.get("guild_id", "")).strip()
+                if gid.isdigit():
+                    base = _fresh_default_guild_cfg()
+                    for k in base:
+                        if k == "antinuke" and isinstance(doc.get("antinuke"), dict):
+                            for ak, av in doc["antinuke"].items():
+                                if ak in base["antinuke"] and isinstance(av, dict):
+                                    base["antinuke"][ak].update(av)
+                        elif k in ("guild_profile", "premium_perks") and isinstance(doc.get(k), dict):
+                            base[k].update(doc[k])
+                        elif k in doc:
+                            base[k] = doc[k]
+                    MEM_GUILD_CFG[gid] = base
+
+        if premium_col is not None:
+            for doc in premium_col.find({}, {"_id": 0}).limit(500):
+                uid = str(doc.get("user_id", "")).strip()
+                if not uid.isdigit():
+                    continue
+                is_perm = bool(doc.get("permanent")) or doc.get("source") == "boost" or uid == ADMIN_USER_ID
+                if not is_perm and float(doc.get("expires_at", 0.0) or 0.0) <= now:
+                    continue
+                MEM_PREMIUM[uid] = dict(doc)
+
+        if admins_col is not None:
+            for doc in admins_col.find({}, {"_id": 0}).limit(200):
+                uid = str(doc.get("user_id", "")).strip()
+                if uid.isdigit():
+                    MEM_ADMINS[uid] = {
+                        "user_id": uid,
+                        "granted_by": str(doc.get("granted_by", "owner")),
+                        "updated_at": str(doc.get("updated_at", "-")),
+                        "permissions": _full_admin_perms()
+                        if uid == ADMIN_USER_ID
+                        else _default_sub_admin_perms(doc.get("permissions")),
+                    }
+
+        if backups_col is not None:
+            for b in list(backups_col.find({}, {"_id": 0}).sort("_id", -1).limit(25)):
+                MEM_BACKUPS.append(dict(b))
+
+        if logs_col is not None:
+            for l in reversed(list(logs_col.find({}, {"_id": 0}).sort("_id", -1).limit(100))):
+                MEM_LOGS.appendleft(dict(l))
+
+        if incidents_col is not None:
+            for inc in reversed(list(incidents_col.find({}, {"_id": 0}).sort("_id", -1).limit(100))):
+                MEM_INCIDENTS.appendleft(dict(inc))
+
+        if stats_col is not None:
+            vdoc = stats_col.find_one({"_id": "visitors"}, {"total_visits": 1})
+            if vdoc:
+                MEM_VISITORS["total_visits"] = max(
+                    int(MEM_VISITORS.get("total_visits", 0)),
+                    int(vdoc.get("total_visits", 0) or 0),
+                )
+    except PyMongoError:
+        pass
+
+
 if MONGO_URI and MongoClient is not None:
     try:
         client = MongoClient(
@@ -554,7 +635,8 @@ if MONGO_URI and MongoClient is not None:
             },
             upsert=True,
         )
-        print(f"[WEB DB] Connected to MongoDB ({MONGO_DB_NAME})")
+        hydrate_from_db()
+        print(f"[WEB DB] Connected & hydrated persistently from MongoDB ({MONGO_DB_NAME})")
     except (PyMongoError, Exception) as exc:
         print(f"[WEB DB] Fallback memory mode ({type(exc).__name__})")
 
@@ -726,7 +808,7 @@ def should_use_secure_cookie(request: web.Request) -> bool:
 def flush_visits_if_needed(force: bool = False) -> None:
     global _PENDING_VISITS, _PENDING_UNIQUE, _LAST_VISIT_FLUSH
     now = time.time()
-    if not force and (now - _LAST_VISIT_FLUSH) < 6.0 and _PENDING_VISITS < 30:
+    if not force and (now - _LAST_VISIT_FLUSH) < 2.0 and _PENDING_VISITS < 10:
         return
     if stats_col is None or (_PENDING_VISITS == 0 and not _PENDING_UNIQUE):
         _LAST_VISIT_FLUSH = now
@@ -1184,9 +1266,7 @@ def log_event(msg: str, guild_id: str = "", level: str = "WEB") -> None:
 def get_recent_logs(limit: int = 50) -> list[dict]:
     if logs_col is not None:
         try:
-            docs = list(logs_col.find({}, {"_id": 0}).sort("_id", -1).limit(limit))
-            if docs:
-                return docs
+            return list(logs_col.find({}, {"_id": 0}).sort("_id", -1).limit(limit))
         except PyMongoError:
             pass
     return list(MEM_LOGS)[:limit]
@@ -1576,9 +1656,7 @@ def create_db_backup() -> dict:
 def get_db_backups() -> list[dict]:
     if backups_col is not None:
         try:
-            docs = list(backups_col.find({}, {"_id": 0}).sort("_id", -1).limit(10))
-            if docs:
-                return docs
+            return list(backups_col.find({}, {"_id": 0}).sort("_id", -1).limit(10))
         except PyMongoError:
             pass
     return list(MEM_BACKUPS)[:10]
@@ -3679,6 +3757,7 @@ async def security_and_visit_middleware(request: web.Request, handler):
 
 
 def create_app() -> web.Application:
+    hydrate_from_db()
     app = web.Application(middlewares=[security_and_visit_middleware])
     app.router.add_get("/", home_handler)
     app.router.add_get("/invite", handle_invite_redirect)
