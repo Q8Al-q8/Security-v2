@@ -48,10 +48,10 @@ BOT_INVITE_URL = (
 ).strip()
 
 MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").strip()
-DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:guU1qtDOoIpUHSkt@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority"
+DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:QiADlkDohqCpFP6z@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "Otku_w1QnhIGNSr5DKfh-jpupvguS3nJ"
+DEFAULT_SYNC_SECRET = "8UJ3rUf3IrJCPfYfSrzog2KiLPxr87S3"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -77,7 +77,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = (os.getenv("COOKIE_SECURE", "") or "").strip().lower()
 
 DISCORD_CLIENT_ID = (os.getenv("DISCORD_CLIENT_ID", "1573635674551357550") or "").strip()
-DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "Otku_w1QnhIGNSr5DKfh-jpupvguS3nJ") or "").strip()
+DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "8UJ3rUf3IrJCPfYfSrzog2KiLPxr87S3") or "").strip()
 
 MAX_IMAGE_BYTES = 10_000_000
 MAX_IMAGE_DATA_URL_LEN = 14_000_000
