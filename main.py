@@ -1725,12 +1725,24 @@ def test_backup_restore(backup_id: str = "", is_en: bool = True) -> tuple[bool, 
     return ok, msg
 
 
-def enqueue_remote_action(guild_id: str, action: str, target: str, extra: dict | None = None) -> None:
+def enqueue_remote_action(
+    guild_id: str,
+    action: str,
+    target: str,
+    extra: dict | None = None,
+    actor_user_id: str | None = None,
+) -> None:
     safe_extra: dict = {}
     if isinstance(extra, dict):
         for k, v in extra.items():
             safe_extra[k] = v
-    payload = {
+
+    uid = str(actor_user_id or safe_extra.get("user_id") or safe_extra.get("actor_id") or "").strip()
+    if uid.isdigit():
+        safe_extra.setdefault("user_id", uid)
+        safe_extra.setdefault("actor_id", uid)
+
+    payload: dict = {
         "guild_id": str(guild_id),
         "action": str(action),
         "target": str(target),
@@ -1738,6 +1750,10 @@ def enqueue_remote_action(guild_id: str, action: str, target: str, extra: dict |
         "status": "pending",
         "created_at": datetime.now(timezone.utc),
     }
+    if uid.isdigit():
+        payload["user_id"] = uid
+        payload["actor_id"] = uid
+
     if queue_col is not None:
         try:
             queue_col.insert_one(dict(payload))
@@ -1940,29 +1956,37 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
                 )
                 if not d:
                     break
-                items.append(
-                    {
-                        "id": str(d.get("_id")),
-                        "guild_id": str(d.get("guild_id", "")),
-                        "action": str(d.get("action", "")),
-                        "target": str(d.get("target", "")),
-                        "extra": d.get("extra") or {},
-                    }
-                )
+                extra_d = d.get("extra") if isinstance(d.get("extra"), dict) else {}
+                uid_val = str(d.get("user_id") or extra_d.get("user_id") or "").strip()
+                cmd_item = {
+                    "id": str(d.get("_id")),
+                    "guild_id": str(d.get("guild_id", "")),
+                    "action": str(d.get("action", "")),
+                    "target": str(d.get("target", "")),
+                    "extra": extra_d,
+                }
+                if uid_val.isdigit():
+                    cmd_item["user_id"] = uid_val
+                    cmd_item["actor_id"] = uid_val
+                items.append(cmd_item)
         except PyMongoError:
             pass
 
     while MEM_QUEUE and len(items) < 25:
         d = MEM_QUEUE.popleft()
-        items.append(
-            {
-                "id": "mem",
-                "guild_id": str(d.get("guild_id", "")),
-                "action": str(d.get("action", "")),
-                "target": str(d.get("target", "")),
-                "extra": d.get("extra") or {},
-            }
-        )
+        extra_d = d.get("extra") if isinstance(d.get("extra"), dict) else {}
+        uid_val = str(d.get("user_id") or extra_d.get("user_id") or "").strip()
+        cmd_item = {
+            "id": "mem",
+            "guild_id": str(d.get("guild_id", "")),
+            "action": str(d.get("action", "")),
+            "target": str(d.get("target", "")),
+            "extra": extra_d,
+        }
+        if uid_val.isdigit():
+            cmd_item["user_id"] = uid_val
+            cmd_item["actor_id"] = uid_val
+        items.append(cmd_item)
 
     return web.json_response({"ok": True, "commands": items})
 
@@ -2851,6 +2875,7 @@ async def handle_guild(request: web.Request) -> web.Response:
             content_type="text/html",
         )
     session_id, user = sess_pair
+    actor_uid = str(user.get("id", "")).strip()
     is_prem = is_premium_user(user)
     guilds, _ = get_user_visible_guilds(user)
     active_guilds = [g for g in guilds if not g.get("bot_missing")]
@@ -2908,7 +2933,7 @@ async def handle_guild(request: web.Request) -> web.Response:
                 action_type = str(form.get("form_action", "save")).strip()
                 if action_type == "reset_defaults":
                     save_guild_cfg(gid, {"reset_defaults": True}, is_premium=is_prem)
-                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
+                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "user_id": actor_uid}, actor_user_id=actor_uid)
                     log_event(f"Reset guild settings for {gid}", guild_id=gid, level="SEC")
                     flash = "Reset to defaults." if is_en else "تمت إعادة الضبط للوضع الافتراضي."
                 elif action_type == "save_snapshot":
@@ -2919,7 +2944,7 @@ async def handle_guild(request: web.Request) -> web.Response:
                     snap_id = str(form.get("target_snapshot_id", "")).strip()
                     if snap_id:
                         save_guild_cfg(gid, {"restore_snapshot_id": snap_id}, is_premium=is_prem)
-                        enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "restored_snapshot": snap_id})
+                        enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "user_id": actor_uid, "restored_snapshot": snap_id}, actor_user_id=actor_uid)
                         log_event(f"Restored snapshot #{snap_id} for {gid}", guild_id=gid, level="SEC")
                         flash = f"Snapshot #{snap_id} restored." if is_en else f"تم استعادة اللقطة #{snap_id} ومزامنتها."
                 elif action_type == "delete_snapshot":
@@ -2931,7 +2956,7 @@ async def handle_guild(request: web.Request) -> web.Response:
                     uid = str(form.get("trusted_uid", "")).strip()
                     if uid.isdigit():
                         save_guild_cfg(gid, {"trusted_add": uid}, is_premium=is_prem)
-                        enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
+                        enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "user_id": actor_uid}, actor_user_id=actor_uid)
                         log_event(f"Added trusted admin ({uid}) to {gid}", guild_id=gid, level="SEC")
                         flash = "Trusted admin added." if is_en else "تمت إضافة مشرف موثوق."
                     else:
@@ -2940,7 +2965,7 @@ async def handle_guild(request: web.Request) -> web.Response:
                     uid = str(form.get("target_uid", "")).strip()
                     if uid.isdigit() and uid != ADMIN_USER_ID:
                         save_guild_cfg(gid, {"trusted_remove": uid}, is_premium=is_prem)
-                        enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
+                        enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "user_id": actor_uid}, actor_user_id=actor_uid)
                         log_event(f"Removed trusted admin ({uid}) from {gid}", guild_id=gid, level="SEC")
                         flash = "Trusted admin removed." if is_en else "تمت إزالة المشرف الموثوق."
                 else:
@@ -2985,10 +3010,12 @@ async def handle_guild(request: web.Request) -> web.Response:
                         updates["premium_perks"] = perks_data
 
                     save_guild_cfg(gid, updates, is_premium=is_prem)
-                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
+                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "user_id": actor_uid}, actor_user_id=actor_uid)
                     if is_prem and profile_changed:
                         prof_extra = {
                             "guild_id": gid,
+                            "user_id": actor_uid,
+                            "actor_id": actor_uid,
                             "bio": updates["guild_profile"]["bio"],
                             "bio_changed": bio_changed,
                             "avatar_changed": avatar_changed,
@@ -3000,7 +3027,7 @@ async def handle_guild(request: web.Request) -> web.Response:
                             prof_extra["avatar_data_url"] = updates["guild_profile"]["avatar_data_url"]
                         if banner_changed:
                             prof_extra["banner_data_url"] = updates["guild_profile"]["banner_data_url"]
-                        enqueue_remote_action(gid, "update_bot_profile", gid, extra=prof_extra)
+                        enqueue_remote_action(gid, "update_bot_profile", gid, extra=prof_extra, actor_user_id=actor_uid)
                     log_event(f"Updated guild settings for {gid}", guild_id=gid, level="SEC")
                     flash = "Settings saved and synced." if is_en else "تم حفظ الإعدادات ومزامنتها."
 
@@ -3292,6 +3319,8 @@ async def handle_premium(request: web.Request) -> web.Response:
                 save_guild_cfg(gid, {"guild_profile": prof_data, "premium_perks": perks_data}, is_premium=True)
                 prof_extra = {
                     "guild_id": gid,
+                    "user_id": uid,
+                    "actor_id": uid,
                     "bio": prof_data["bio"],
                     "bio_changed": bio_changed,
                     "avatar_changed": avatar_changed,
@@ -3303,9 +3332,9 @@ async def handle_premium(request: web.Request) -> web.Response:
                     prof_extra["avatar_data_url"] = prof_data["avatar_data_url"]
                 if banner_changed:
                     prof_extra["banner_data_url"] = prof_data["banner_data_url"]
-                enqueue_remote_action(gid, "update_bot_profile", gid, extra=prof_extra)
+                enqueue_remote_action(gid, "update_bot_profile", gid, extra=prof_extra, actor_user_id=uid)
                 if profile_changed:
-                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid})
+                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "user_id": uid}, actor_user_id=uid)
                 log_event(f"Updated server bot profile for {gid}", guild_id=gid, level="ADMIN")
                 flash = "Premium settings, bio, avatar, and banner saved." if is_en else "تم حفظ إعدادات البريميوم والبايو والأفتار والبنر."
 
@@ -3363,6 +3392,7 @@ async def handle_admin(request: web.Request) -> web.Response:
         )
 
     is_owner = str(user.get("id", "")).strip() == ADMIN_USER_ID
+    actor_uid = str(user.get("id", "")).strip()
     flash = ""
     if request.method == "POST":
         form = await read_post_safe(request)
@@ -3403,7 +3433,7 @@ async def handle_admin(request: web.Request) -> web.Response:
                             True,
                             days=p_days,
                             hours=p_hours,
-                            granted_by=str(user.get("id", "")),
+                            granted_by=actor_uid,
                             username=p_name,
                             handle=p_handle,
                             source="manual",
@@ -3432,7 +3462,7 @@ async def handle_admin(request: web.Request) -> web.Response:
                     a_uid = str(form.get("admin_user_id", "")).strip()
                     if a_uid.isdigit():
                         selected_perms = {pk: (form.get(f"perm_{pk}") == "on") for pk in ADMIN_PERMISSION_KEYS}
-                        set_admin_user(a_uid, True, granted_by=str(user.get("id", "")), permissions=selected_perms)
+                        set_admin_user(a_uid, True, granted_by=actor_uid, permissions=selected_perms)
                         log_event(f"Updated Admin & permissions for {a_uid}", level="ADMIN")
                         flash = f"Saved Admin & permissions for {a_uid}" if is_en else f"تم حفظ الأدمن وصلاحياته للحساب {a_uid}"
                     else:
@@ -3451,14 +3481,14 @@ async def handle_admin(request: web.Request) -> web.Response:
                 if not has_admin_perm(user, "remote_actions"):
                     flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
                 else:
-                    enqueue_remote_action(gid, act, target_id)
+                    enqueue_remote_action(gid, act, target_id, extra={"user_id": actor_uid}, actor_user_id=actor_uid)
                     log_event(f"Remote action [{act}] on {target_id} in {gid}", guild_id=gid, level="ADMIN")
                     flash = f"Queued [{act}] for {target_id} in {gid}" if is_en else f"تم إرسال أمر [{act}] للعضو {target_id} في السيرفر {gid}"
             elif act == "broadcast" and target_id:
                 if not has_admin_perm(user, "remote_actions"):
                     flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
                 else:
-                    enqueue_remote_action(gid or "0", "broadcast", target_id[:400])
+                    enqueue_remote_action(gid or "0", "broadcast", target_id[:400], extra={"user_id": actor_uid}, actor_user_id=actor_uid)
                     log_event("Queued broadcast message", level="ADMIN")
                     flash = "Broadcast queued." if is_en else "تم إرسال البث للقائمة."
             elif act == "simulate" and gid.isdigit():
