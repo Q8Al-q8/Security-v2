@@ -406,7 +406,6 @@ MEM_BACKUPS: deque[dict] = deque(maxlen=25)
 MEM_BOT_HEARTBEAT: dict[str, str] = {
     "status": "ONLINE",
     "last_seen": "",
-    "latency_ms": "6ms",
 }
 
 _CFG_CACHE: dict[str, tuple[float, dict]] = {}
@@ -1904,12 +1903,6 @@ async def api_bot_sync_guilds(request: web.Request) -> web.Response:
     synced = upsert_bot_guilds(guilds_raw, replace_missing=replace_missing)
     MEM_BOT_HEARTBEAT["status"] = "ONLINE"
     MEM_BOT_HEARTBEAT["last_seen"] = _now_str()
-    if isinstance(body, dict) and body.get("latency_ms") is not None:
-        MEM_BOT_HEARTBEAT["latency_ms"] = (
-            f"{int(body['latency_ms'])}ms"
-            if str(body["latency_ms"]).isdigit()
-            else str(body["latency_ms"])[:12]
-        )
 
     event_type = str(body.get("event", "")).strip() if isinstance(body, dict) else ""
     if event_type == "guild_join":
@@ -2037,11 +2030,10 @@ def _render_intro_hero_html(
     prem_badge_html: str = "",
 ) -> str:
     hb_status = esc(MEM_BOT_HEARTBEAT.get("status", "ONLINE"))
-    hb_ping = esc(MEM_BOT_HEARTBEAT.get("latency_ms", "6ms"))
     return f"""
     <section class="hero-card anim-card">
       <div style="margin-bottom:10px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
-        <span class="ok-pill">BOT {hb_status} • {hb_ping}</span>
+        <span class="ok-pill">BOT {hb_status}</span>
         {prem_badge_html}
       </div>
       <h1 class="hero-title">{esc(SITE_NAME)}</h1>
@@ -3550,14 +3542,13 @@ async def handle_admin(request: web.Request) -> web.Response:
 
     role_label = "OWNER" if is_owner else ("SUB-ADMIN" if is_en else "إداري بصلاحيات")
     hb_last = esc(MEM_BOT_HEARTBEAT.get("last_seen") or "-")
-    hb_ping = esc(MEM_BOT_HEARTBEAT.get("latency_ms") or "6ms")
 
     body = f"""
     <div class="glass-card anim-card">
       <div class="admin-hero">
         <div>
           <h2 style="margin:0 0 4px;">{('Admin Control Center' if is_en else 'لوحة الإدارة المركزية')}</h2>
-          <div class="muted">{('Manage custom-duration subscriptions, boost sync, staff permissions, remote actions, and backups' if is_en else 'إدارة الاشتراكات بمدة مخصصة، مزامنة البوست، صلاحيات المشرفين، الأوامر عن بُعد، والنسخ الاحتياطي')} • Ping: <code>{hb_ping}</code> • Last Sync: <code>{hb_last}</code></div>
+          <div class="muted">{('Manage custom-duration subscriptions, boost sync, staff permissions, remote actions, and backups' if is_en else 'إدارة الاشتراكات بمدة مخصصة، مزامنة البوست، صلاحيات المشرفين، الأوامر عن بُعد، والنسخ الاحتياطي')} • Last Sync: <code>{hb_last}</code></div>
         </div>
         <span class="tag">{esc(role_label)}</span>
       </div>
