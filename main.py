@@ -26,7 +26,7 @@ except Exception:
 
 
 SITE_NAME = (os.getenv("SITE_NAME", "ARAB SECURITY") or "ARAB SECURITY").strip()[:60]
-OWNER_NAME = (os.getenv("OWNER_NAME", "SAUD") or "سعود السويط").strip()[:60]
+OWNER_NAME = (os.getenv("OWNER_NAME", "سعود السويط") or "سعود السويط").strip()[:60]
 ADMIN_USER_ID = (os.getenv("ADMIN_USER_ID", "1395418036919468073") or "1395418036919468073").strip()
 
 DEFAULT_DOMAIN_URL = "https://arabsecurity.de5.net"
@@ -51,7 +51,7 @@ MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").stri
 DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:XFpjfdaMuqTzcvIZ@cluster0.hzhfdxt.mongodb.net/?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "tRAkV01Rc-VNzIWWb4LGrlqGDDijRL9W"
+DEFAULT_SYNC_SECRET = "6OomLIMV6sTKesukHnxdfwHjKv4U4PqX"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -1242,7 +1242,7 @@ def get_all_guilds() -> list[dict]:
     result: dict[str, dict] = {k: dict(v) for k, v in MEM_GUILDS.items()}
     if bot_guilds_col is not None:
         try:
-            for g in bot_guilds_col.find({}, {"_id": 0}).limit(500):
+            for g in bot_guilds_col.find({}, {"_id": 0}).limit(1000):
                 gid = str(g.get("id", "")).strip()
                 if gid.isdigit():
                     result[gid] = {
@@ -1280,7 +1280,7 @@ def get_user_visible_guilds(user: dict | None) -> tuple[list[dict], bool]:
         return [], False
 
     bot_guilds = get_all_guilds()
-    bot_map = {g["id"]: g for g in bot_guilds}
+    bot_map = {str(g["id"]).strip(): g for g in bot_guilds if str(g.get("id", "")).strip().isdigit()}
 
     matched: list[dict] = []
     seen: set[str] = set()
@@ -2588,18 +2588,35 @@ async def handle_guild(request: web.Request) -> web.Response:
     active_guilds = [g for g in guilds if not g.get("bot_missing")]
 
     if not active_guilds:
-        msg = (
-            "Bot is not in any of your manageable servers yet. Invite the bot first."
-            if is_en
-            else "البوت غير داخل في أي سيرفر تديره. أضف البوت أولاً للدخول إلى لوحة الحماية."
+        _invalidate_guilds_cache()
+        guilds, _ = get_user_visible_guilds(user)
+        active_guilds = [g for g in guilds if not g.get("bot_missing")]
+
+    if not active_guilds:
+        cards_html = "".join(_render_guild_card(g, is_en, show_admin_meta=False) for g in guilds[:12])
+        extra_list = (
+            f"<div style='margin-top:14px;'>{cards_html}</div>"
+            if cards_html
+            else ""
         )
+        msg = (
+            "No connected server found yet. Make sure the bot has synced its servers or invite it to your server."
+            if is_en
+            else "لم يتم العثور على سيرفر متصل بالبوت حالياً. تأكد من مزامنة البوت لسيرفراته أو أضفه إلى سيرفرك."
+        )
+        empty_body = f"""
+        <div class='glass-card anim-card'>
+          <h2 style='margin:0 0 8px;'>{('Security Panel' if is_en else 'لوحة الحماية')}</h2>
+          <p class='muted' style='margin:0 0 14px;'>{esc(msg)}</p>
+          <div class='hero-actions'>
+            <a class='btn-primary-purple' href='/invite'>Invite Arab Security Bot</a>
+            <a class='btn-secondary-dark' href='/guild'>{('Refresh Servers' if is_en else 'تحديث السيرفرات')}</a>
+          </div>
+          {extra_list}
+        </div>
+        """
         return web.Response(
-            text=render_page(
-                "Security Panel" if is_en else "لوحة الحماية",
-                "guild",
-                f"<div class='glass-card anim-card'><p class='muted'>{esc(msg)}</p><a class='btn-primary-purple' href='/invite'>Invite Arab Security Bot</a></div>",
-                request,
-            ),
+            text=render_page("Security Panel" if is_en else "لوحة الحماية", "guild", empty_body, request),
             content_type="text/html",
         )
 
