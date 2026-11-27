@@ -26,7 +26,7 @@ except Exception:
 
 SITE_NAME = (os.getenv("SITE_NAME", "ARAB SECURITY") or "ARAB SECURITY").strip()[:60]
 BRAND_LABEL_AR = "Arab Security"
-OWNER_NAME = (os.getenv("OWNER_NAME", "سعود السويط") or "سعود السويط").strip()[:60]
+OWNER_NAME = (os.getenv("OWNER_NAME", "SAUD") or "سعود السويط").strip()[:60]
 ADMIN_USER_ID = (os.getenv("ADMIN_USER_ID", "1395418036919468073") or "1395418036919468073").strip()
 
 DEFAULT_DOMAIN_URL = "https://arabsecurity.de5.net"
