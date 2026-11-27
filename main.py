@@ -2691,7 +2691,7 @@ def render_single_unified_ui(request: web.Request, initial_page: str = "home") -
             </div>
             <h1 class="relative text-2xl sm:text-[26px] font-black text-white tracking-tight mb-3">تسجيل الدخول مطلوب</h1>
             <p class="relative text-sm sm:text-[15px] text-slate-300/90 leading-relaxed max-w-xs mx-auto mb-7">
-              لوحات الحماية وإدارة السيرفرات مقفلة. سجل دخولك بديسكورد أولاً للوصول إلى نظام <span class="text-violetglow font-extrabold">{escapeHtml("{SITE_NAME}")}</span>.
+              لوحات الحماية وإدارة السيرفرات مقفلة. سجل دخولك بديسكورد أولاً للوصول إلى نظام <span class="text-violetglow font-extrabold">{esc(SITE_NAME)}</span>.
             </p>
             <a
               href="/login?next=/"
@@ -2739,7 +2739,7 @@ def render_single_unified_ui(request: web.Request, initial_page: str = "home") -
             <a href="${{escapeHtml(INVITE_URL)}}" target="_blank" rel="noopener noreferrer" class="group relative rounded-2xl bg-gradient-to-br from-violetcore/15 via-panel to-card border border-violetcore/30 hover:border-violetglow/70 p-5 flex items-center justify-between gap-4 shadow-glass transition-all">
               <div class="min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-extrabold text-base text-white group-hover:text-violetglow transition-colors">Invite {escapeHtml("{SITE_NAME}")} Bot</span>
+                  <span class="font-extrabold text-base text-white group-hover:text-violetglow transition-colors">Invite {esc(SITE_NAME)} Bot</span>
                   <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violetcore/25 text-violetglow border border-violetcore/40">دعوة رسمية</span>
                 </div>
                 <p class="text-xs text-slate-400 mt-1 truncate">أضف بوت أراب سيكيوريتي بصلاحيات الحماية المتكاملة إلى سيرفرك</p>
@@ -2768,7 +2768,7 @@ def render_single_unified_ui(request: web.Request, initial_page: str = "home") -
             <div class="relative flex flex-col lg:flex-row lg:items-center justify-between gap-7">
               <div class="space-y-4 max-w-2xl">
                 <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violetcore/15 border border-violetcore/35 text-xs font-extrabold text-violetglow">
-                  <span>منظومة {escapeHtml("{SITE_NAME}")} المتكاملة</span>
+                  <span>منظومة {esc(SITE_NAME)} المتكاملة</span>
                 </div>
                 <h1 class="text-2xl sm:text-4xl font-black text-white leading-tight">
                   حماية فورية وذكية لسيرفراتك ضد
@@ -2920,7 +2920,7 @@ def render_single_unified_ui(request: web.Request, initial_page: str = "home") -
           <section class="relative rounded-[28px] bg-gradient-to-br from-[#231b3d] via-[#15182e] to-[#0d1020] border border-amberwarn/30 p-6 sm:p-8 shadow-glass">
             <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
               <div>
-                <span class="inline-block px-3 py-1 rounded-full bg-amberwarn/15 border border-amberwarn/35 text-amberwarn text-xs font-extrabold mb-2">{escapeHtml("{SITE_NAME}")} PREMIUM</span>
+                <span class="inline-block px-3 py-1 rounded-full bg-amberwarn/15 border border-amberwarn/35 text-amberwarn text-xs font-extrabold mb-2">{esc(SITE_NAME)} PREMIUM</span>
                 <h1 class="text-2xl sm:text-3xl font-black text-white">${{escapeHtml(pr.planName)}}</h1>
                 <p class="text-xs sm:text-sm text-slate-300 mt-1">تخصيص هوية البوت للسيرفر (${{escapeHtml(guild.name)}}) والنسخ الفوري.</p>
               </div>
