@@ -51,7 +51,7 @@ MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").stri
 DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:QiADlkDohqCpFP6z@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "OzLxgLklbMjEbhRg7__f8HvtQo1BK584"
+DEFAULT_SYNC_SECRET = "m-nWqkTrbblON-FAfReNFvm_pPnuTGWD"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -60,7 +60,7 @@ SESSION_SECRET = (
     else "ArabSecurity_Session_Secret_2026_x9K#mP2vL8qR5tW7zY3nB6jH4cF1gD0sA"
 )
 BOT_SYNC_SECRET = (
-    (os.environ.get("BOT_SYNC_SECRET") or "OzLxgLklbMjEbhRg7__f8HvtQo1BK584").strip()
+    (os.environ.get("BOT_SYNC_SECRET") or "m-nWqkTrbblON-FAfReNFvm_pPnuTGWD").strip()
     or (os.environ.get("SILENT_SECRET") or "").strip()
     or DEFAULT_SYNC_SECRET
 )
@@ -77,7 +77,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = (os.getenv("COOKIE_SECURE", "") or "").strip().lower()
 
 DISCORD_CLIENT_ID = (os.getenv("DISCORD_CLIENT_ID", "1573635674551357550") or "").strip()
-DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "OzLxgLklbMjEbhRg7__f8HvtQo1BK584") or "").strip()
+DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "m-nWqkTrbblON-FAfReNFvm_pPnuTGWD") or "").strip()
 
 MAX_IMAGE_BYTES = 10_000_000
 MAX_IMAGE_DATA_URL_LEN = 14_000_000
@@ -2162,16 +2162,35 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "commands": items})
 
 
-def _mark_svg(size: int = 18) -> str:
+def _mark_svg(size: int = 20) -> str:
     return (
-        f"<svg width='{size}' height='{size}' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>"
-        "<polygon points='12 2 20 7 20 17 12 22 4 17 4 7 12 2'/>"
-        "<circle cx='12' cy='12' r='3'/>"
+        f"<svg width='{size}' height='{size}' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>"
+        "<path d='M12 2L4 6v6c0 5.25 3.4 10.15 8 11.5 4.6-1.35 8-6.25 8-11.5V6l-8-4z'/>"
+        "<path d='M9 12l2 2 4-4'/>"
         "</svg>"
     )
 
 
-def _discord_svg_icon(size: int = 20) -> str:
+def _symbol_svg(kind: str, size: int = 16) -> str:
+    paths = {
+        "pulse": "<path d='M3 12h4l2-6 4 12 2-6h6'/>",
+        "server": "<rect x='3' y='4' width='18' height='6' rx='2'/><rect x='3' y='14' width='18' height='6' rx='2'/><circle cx='7' cy='7' r='1'/><circle cx='7' cy='17' r='1'/>",
+        "shield": "<path d='M12 3l7 3v6c0 4.5-3 8.2-7 9.5-4-1.3-7-5-7-9.5V6l7-3z'/>",
+        "raid": "<path d='M12 4v16M4 12h16'/><circle cx='12' cy='12' r='6'/>",
+        "snap": "<rect x='4' y='4' width='16' height='16' rx='3'/><path d='M9 12h6M12 9v6'/>",
+        "star": "<polygon points='12 3 14.8 8.8 21 9.6 16.5 14 17.6 20.2 12 17.2 6.4 20.2 7.5 14 3 9.6 9.2 8.8 12 3'/>",
+        "link": "<path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/><path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/>",
+        "hub": "<circle cx='12' cy='12' r='3'/><path d='M12 3v6M12 15v6M3 12h6M15 12h6'/>",
+        "lang": "<circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18'/>",
+    }
+    inner = paths.get(kind, paths["shield"])
+    return (
+        f"<svg width='{size}' height='{size}' viewBox='0 0 24 24' fill='none' stroke='currentColor' "
+        f"stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>{inner}</svg>"
+    )
+
+
+def _discord_svg_icon(size: int = 24) -> str:
     return (
         f"<svg width='{size}' height='{size}' viewBox='0 0 24 24' fill='currentColor' aria-hidden='true'>"
         "<path d='M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z'/>"
@@ -2240,20 +2259,19 @@ def _render_guild_card(g: dict, is_en: bool, show_admin_meta: bool = False) -> s
 
 def _render_discord_community_card(is_en: bool) -> str:
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
-    title_txt = "Official Support Server" if is_en else "سيرفر الدعم الفني"
+    title_txt = "Join Our Server" if is_en else "انضم لسيرفرنا"
     sub_txt = (
-        "Direct assistance, system updates, and live alerts."
+        "Updates, live support, and instant alerts for new releases."
         if is_en
-        else "دعم مباشر، إشعارات التحديثات، ومتابعة حالة الأنظمة."
+        else "تحديثات، دعم مباشر، وتنبيه أول ما ينزل تحديث أو مهمة جديدة."
     )
-    btn_txt = "Open Support Server" if is_en else "دخول سيرفر الدعم الفني"
+    btn_txt = ("Enter Server ->" if is_en else "← دخول السيرفر") if not is_en else "Enter Server →"
     return f"""
-    <section class="support-strip">
-      <div class="support-strip-copy">
-        <div class="support-strip-title">{esc(title_txt)}</div>
-        <div class="support-strip-sub">{esc(sub_txt)}</div>
-      </div>
-      <a class="btn-outline-gold" href="{safe_support}" target="_blank" rel="noopener noreferrer">{esc(btn_txt)}</a>
+    <section class="discord-hub-card">
+      <div class="discord-hub-icon">{_discord_svg_icon(26)}</div>
+      <h2 class="discord-hub-title">{esc(title_txt)}</h2>
+      <p class="discord-hub-sub">{esc(sub_txt)}</p>
+      <a class="discord-hub-btn" href="{safe_support}" target="_blank" rel="noopener noreferrer">{esc(btn_txt)}</a>
     </section>
     """
 
@@ -2266,14 +2284,14 @@ def _render_stats_grid_html(is_en: bool, bot_servers_count: int, total_visits: i
       <div class="stat-box">
         <div class="stat-top">
           <span class="stat-label">{esc(visits_label)}</span>
-          <span class="mark-badge">01</span>
+          <span class="mark-badge">{_symbol_svg("pulse", 15)}</span>
         </div>
         <div class="stat-value">{total_visits:,}</div>
       </div>
       <div class="stat-box">
         <div class="stat-top">
           <span class="stat-label">{esc(servers_label)}</span>
-          <span class="mark-badge">02</span>
+          <span class="mark-badge">{_symbol_svg("server", 15)}</span>
         </div>
         <div class="stat-value">{bot_servers_count:,}</div>
       </div>
@@ -2333,17 +2351,17 @@ def _render_intro_hero_html(
     )
 
     pillars = [
-        ("A1", "Sabotage Guard", "حماية التخريب"),
-        ("A2", "Raid & Surge Filter", "مراقبة الدخول والرايد"),
-        ("A3", "Permission Snapshots", "لقطات الصلاحيات"),
-        ("A4", "Instant Rollback", "استرجاع الإعدادات"),
+        ("shield", "Sabotage Guard", "حماية التخريب"),
+        ("raid", "Raid & Surge Filter", "مراقبة الدخول والرايد"),
+        ("snap", "Permission Snapshots", "لقطات الصلاحيات"),
+        ("star", "Instant Rollback", "استرجاع الإعدادات"),
     ]
     pillars_html = "".join(
         f"<div class='pillar-item'>"
-        f"<span class='mark-badge'>{esc(code)}</span>"
+        f"<span class='mark-badge'>{_symbol_svg(ico_key, 15)}</span>"
         f"<span class='pillar-text'>{esc(en_lbl if is_en else ar_lbl)}</span>"
         f"</div>"
-        for code, en_lbl, ar_lbl in pillars
+        for ico_key, en_lbl, ar_lbl in pillars
     )
 
     guilds = get_all_guilds()
@@ -2429,7 +2447,7 @@ def render_page(
         "links": "Links" if is_en else "الروابط",
         "invite": "Invite Bot" if is_en else "إضافة بوت الحماية",
         "logout": "Sign Out" if is_en else "تسجيل الخروج",
-        "supervised": "By" if is_en else "بإشراف",
+        "supervised": "System & Security" if is_en else "الحماية وإدارة السيرفرات",
         "menu": "Navigation" if is_en else "القائمة",
         "account_lbl": "Account" if is_en else "الحساب",
         "guest_name": "Guest" if is_en else "زائر",
@@ -2454,7 +2472,7 @@ def render_page(
             badge_txt = "MEMBER"
 
         prem_status_line = (
-            f"<div class='prem-status-strip'><span class='mark-badge'>PRO</span><span>{esc(format_remaining_time(prem_rec, is_en=is_en))}</span></div>"
+            f"<div class='prem-status-strip'><span class='mark-badge'>{_symbol_svg('star', 13)}</span><span>{esc(format_remaining_time(prem_rec, is_en=is_en))}</span></div>"
             if (is_prem and prem_rec)
             else ""
         )
@@ -2483,7 +2501,7 @@ def render_page(
         final_content = content_html
 
     flash_banner = (
-        f"<div class='flash-banner' role='status'><span class='mark-badge'>NOTE</span><span>{esc(safe_flash)}</span></div>"
+        f"<div class='flash-banner' role='status'><span class='mark-badge'>{_symbol_svg('shield', 14)}</span><span>{esc(safe_flash)}</span></div>"
         if safe_flash
         else ""
     )
@@ -2519,7 +2537,7 @@ def render_page(
     )
 
     next_lang = "ar" if is_en else "en"
-    lang_label = "العربية" if is_en else "EN"
+    lang_label = "العربية" if is_en else "English"
 
     return f"""<!DOCTYPE html>
 <html lang="{lang}" dir="{dir_attr}">
@@ -2629,6 +2647,23 @@ def render_page(
     justify-content: center;
   }}
   .drawer-close-btn:hover {{ color: var(--text-main); border-color: var(--border-strong); }}
+  .drawer-lang-btn {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    color: var(--accent-bright);
+    font-weight: 800;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }}
+  .drawer-lang-btn:hover {{ border-color: var(--border-strong); background: rgba(29, 76, 132, 0.75); }}
   .drawer-spacer {{ flex: 1; min-height: 12px; }}
   .drawer-logout-btn {{
     display: flex;
@@ -2655,8 +2690,8 @@ def render_page(
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 11px 16px;
-    border-radius: 999px;
+    padding: 12px 16px;
+    border-radius: 22px;
     background: var(--surface);
     backdrop-filter: blur(16px);
     border: 1px solid var(--border);
@@ -2665,45 +2700,45 @@ def render_page(
   }}
   .top-left {{ display: flex; align-items: center; gap: 8px; }}
   .icon-btn {{
-    height: 36px;
-    min-width: 36px;
-    padding: 0 13px;
-    border-radius: 999px;
+    height: 40px;
+    min-width: 40px;
+    padding: 0 12px;
+    border-radius: 14px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-main);
     font-weight: 700;
-    font-size: 13px;
+    font-size: 15px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+    transition: border-color 0.15s ease, background 0.15s ease;
   }}
   .icon-btn:hover {{
     border-color: var(--border-strong);
     background: rgba(29, 76, 132, 0.75);
   }}
-  .lang-btn {{ font-size: 12px; color: var(--accent-bright); }}
   .top-right {{
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 11px;
     text-align: {('left' if is_en else 'right')};
   }}
   .brand-title {{
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 800;
     color: var(--text-main);
-    letter-spacing: 0.4px;
+    letter-spacing: 0.3px;
+    line-height: 1.25;
   }}
-  .brand-sub {{ font-size: 11.5px; color: var(--text-muted); }}
+  .brand-sub {{ font-size: 12px; color: var(--text-muted); line-height: 1.25; }}
   .brand-mark {{
-    width: 38px;
-    height: 38px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, rgba(168, 224, 255, 0.26), rgba(56, 138, 198, 0.18));
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(168, 224, 255, 0.28), rgba(56, 138, 198, 0.20));
     border: 1px solid var(--border-strong);
     color: var(--accent-bright);
     display: flex;
@@ -2747,14 +2782,12 @@ def render_page(
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 3px 9px;
-    border-radius: 999px;
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
     background: var(--accent-soft);
     border: 1px solid rgba(142, 212, 250, 0.36);
     color: var(--accent-bright);
-    font-size: 10.5px;
-    font-weight: 800;
-    letter-spacing: 0.4px;
     flex-shrink: 0;
   }}
   .flash-banner {{
@@ -2878,7 +2911,7 @@ def render_page(
   .pillar-item {{
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 10px;
     padding: 13px 14px;
     border-radius: 18px;
     background: var(--surface-raised);
@@ -2932,22 +2965,6 @@ def render_page(
     transition: border-color 0.15s ease, background 0.15s ease;
   }}
   .btn-dark:hover {{ border-color: var(--border-strong); background: rgba(26, 70, 122, 0.82); }}
-  .btn-outline-gold {{
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 10px 18px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    border: 1px solid var(--border-strong);
-    color: var(--accent-bright);
-    text-decoration: none;
-    font-weight: 700;
-    font-size: 13px;
-    white-space: nowrap;
-    transition: background 0.15s ease;
-  }}
-  .btn-outline-gold:hover {{ background: rgba(142, 212, 250, 0.26); }}
   .btn-danger {{
     display: block;
     width: 100%;
@@ -3019,21 +3036,58 @@ def render_page(
   }}
   .stat-label {{ font-size: 13px; color: var(--text-muted); font-weight: 700; }}
   .stat-value {{ font-size: 27px; font-weight: 800; color: var(--text-main); margin-top: 8px; }}
-  .support-strip {{
+  .discord-hub-card {{
+    background: linear-gradient(160deg, rgba(24, 68, 118, 0.88) 0%, rgba(11, 34, 64, 0.92) 100%);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border-strong);
+    border-radius: 26px;
+    padding: 28px 22px;
+    text-align: center;
+    box-shadow: 0 16px 36px rgba(3, 12, 26, 0.38);
+  }}
+  .discord-hub-icon {{
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 12px;
+    border-radius: 16px;
+    background: var(--accent-soft);
+    border: 1px solid var(--border-strong);
+    color: var(--accent-bright);
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 14px;
-    background: var(--surface);
-    backdrop-filter: blur(14px);
-    border: 1px solid var(--border);
-    border-radius: 22px;
-    padding: 16px 20px;
-    box-shadow: 0 12px 28px rgba(3, 12, 26, 0.30);
+    justify-content: center;
   }}
-  .support-strip-title {{ font-size: 15px; font-weight: 800; }}
-  .support-strip-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }}
+  .discord-hub-title {{
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-main);
+  }}
+  .discord-hub-sub {{
+    margin: 0 auto 20px;
+    max-width: 520px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+  }}
+  .discord-hub-btn {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 13px 20px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #E8F6FF 0%, #98D7FB 100%);
+    border: 1px solid rgba(186, 230, 253, 0.85);
+    color: #05182E;
+    text-decoration: none;
+    font-weight: 800;
+    font-size: 15px;
+    box-shadow: 0 8px 22px rgba(72, 162, 224, 0.28);
+    transition: filter 0.15s ease, transform 0.15s ease;
+  }}
+  .discord-hub-btn:hover {{ filter: brightness(1.05); transform: translateY(-1px); }}
   .page-card {{
     background: var(--surface);
     backdrop-filter: blur(16px);
@@ -3097,38 +3151,51 @@ def render_page(
   }}
   .cat-pane {{ display: none; }}
   .cat-pane.active {{ display: block; }}
-  .link-hub-grid {{
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .link-hub-stack {{
+    display: flex;
+    flex-direction: column;
     gap: 12px;
   }}
-  @media (max-width: 600px) {{ .link-hub-grid {{ grid-template-columns: 1fr; }} }}
-  .link-card {{
+  .link-banner-card {{
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 16px 18px;
-    border-radius: 18px;
+    gap: 14px;
+    padding: 18px 20px;
+    border-radius: 20px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     text-decoration: none;
     color: var(--text-main);
-    transition: border-color 0.15s ease, transform 0.15s ease;
+    transition: border-color 0.15s ease, background 0.15s ease;
   }}
-  .link-card:hover {{ border-color: var(--border-strong); transform: translateY(-1px); }}
-  .link-card-title {{ font-weight: 800; font-size: 15px; }}
-  .link-card-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }}
+  .link-banner-card:hover {{ border-color: var(--border-strong); background: rgba(20, 56, 100, 0.85); }}
+  .link-card-title {{ font-weight: 800; font-size: 15.5px; }}
+  .link-card-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }}
   .link-arrow {{
-    padding: 4px 11px;
+    padding: 6px 13px;
     border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-weight: 800;
     color: var(--accent-bright);
-    font-size: 11.5px;
+    font-size: 12px;
     flex-shrink: 0;
   }}
+  .log-entry-row {{
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 15px;
+    border-radius: 16px;
+    background: var(--surface-input);
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+  }}
+  .log-entry-msg {{ font-size: 13.5px; font-weight: 700; color: var(--text-main); }}
+  .log-entry-time {{ font-size: 11.5px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }}
+  @media (max-width: 600px) {{ .log-entry-row {{ flex-direction: column; gap: 4px; }} }}
   .panel-section {{
     background: var(--surface-raised);
     border: 1px solid var(--border);
@@ -3376,7 +3443,7 @@ def render_page(
     transition: border-color 0.15s ease;
   }}
   .list-row:hover {{ border-color: var(--border-strong); }}
-  .row-main {{ display: flex; align-items: center; gap: 10px; min-width: 0; }}
+  .row-main {{ display: flex; align-items: center; gap: 12px; min-width: 0; }}
   .row-copy {{ min-width: 0; }}
   .row-title {{ font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
   .row-sub {{ font-size: 11.5px; margin-top: 2px; }}
@@ -3502,6 +3569,10 @@ def render_page(
     <button class="drawer-close-btn" type="button" onclick="toggleDrawer(false)" aria-label="Close">X</button>
   </div>
   {account_block}
+  <button class="drawer-lang-btn" type="button" onclick="switchLang('{next_lang}')">
+    <span>{esc(lang_label)}</span>
+    {_symbol_svg("lang", 16)}
+  </button>
   <div class="sep"></div>
   {nav_links_html}
   <div class="sep"></div>
@@ -3513,16 +3584,15 @@ def render_page(
 <div class="page-container">
   <header class="top-bar">
     <div class="top-left">
-      <button class="icon-btn lang-btn" type="button" onclick="switchLang('{next_lang}')">{esc(lang_label)}</button>
+      <button class="icon-btn" type="button" onclick="toggleDrawer(true)" aria-label="{esc(L['menu'])}">&#9776;</button>
     </div>
 
     <div class="top-right">
       <div>
         <div class="brand-title">{esc(SITE_NAME)}</div>
-        <div class="brand-sub">{esc(L['supervised'])} {esc(OWNER_NAME)}</div>
+        <div class="brand-sub">{esc(L['supervised'])}</div>
       </div>
-      <div class="brand-mark">{_mark_svg(18)}</div>
-      <button class="icon-btn" type="button" onclick="toggleDrawer(true)" aria-label="{esc(L['menu'])}">&#9776;</button>
+      <div class="brand-mark">{_mark_svg(20)}</div>
     </div>
   </header>
 
@@ -4815,7 +4885,7 @@ async def handle_services(request: web.Request) -> web.Response:
     )
     items = [
         (
-            "01",
+            "shield",
             "Anti-Sabotage Guard" if is_en else "حماية التخريب",
             "Monitors role edits, permission escalations, channel overwrites, and destructive actions."
             if is_en
@@ -4823,7 +4893,7 @@ async def handle_services(request: web.Request) -> web.Response:
             "ACTIVE",
         ),
         (
-            "02",
+            "raid",
             "Anti-Raid & Account Guard" if is_en else "حماية الرايد والحسابات الحديثة",
             "Controls sudden join waves, new accounts, and unauthorized bot additions."
             if is_en
@@ -4831,7 +4901,7 @@ async def handle_services(request: web.Request) -> web.Response:
             "ACTIVE",
         ),
         (
-            "03",
+            "snap",
             "Snapshots & Rollback" if is_en else "اللقطات والاسترجاع",
             "Stores security snapshots and restores saved rules and whitelist configurations."
             if is_en
@@ -4839,7 +4909,7 @@ async def handle_services(request: web.Request) -> web.Response:
             "READY",
         ),
         (
-            "04",
+            "star",
             "Bot Profile & Perks (Premium)" if is_en else "تخصيص البوت ومزايا البريميوم",
             "Customize bot bio up to 270 characters, avatar, banner, and alert settings."
             if is_en
@@ -4848,8 +4918,8 @@ async def handle_services(request: web.Request) -> web.Response:
         ),
     ]
     rows_html = "".join(
-        f"<div class='list-row'><div class='row-main'><span class='mark-badge'>{esc(code)}</span><div><div style='font-weight:800;font-size:14.5px;'>{esc(t)}</div><div class='muted' style='margin-top:2px;'>{esc(d)}</div></div></div><span class='ok-pill'>{esc(b)}</span></div>"
-        for code, t, d, b in items
+        f"<div class='list-row'><div class='row-main'><span class='mark-badge'>{_symbol_svg(ico_k, 15)}</span><div><div style='font-weight:800;font-size:14.5px;'>{esc(t)}</div><div class='muted' style='margin-top:2px;'>{esc(d)}</div></div></div><span class='ok-pill'>{esc(b)}</span></div>"
+        for ico_k, t, d, b in items
     )
     body = f"""
     <div class='page-card'>
@@ -4885,12 +4955,12 @@ async def handle_updates(request: web.Request) -> web.Response:
 
     if is_admin:
         logs_rows = "".join(
-            f"<div class='list-row'><div><span class='tag'>{esc(l.get('level'))}</span> <span>{esc(l.get('message'))}</span></div><span class='muted'>{esc(l.get('time'))}</span></div>"
+            f"<div class='log-entry-row'><div class='row-main'><span class='tag'>{esc(l.get('level'))}</span><span class='log-entry-msg'>{esc(l.get('message'))}</span></div><span class='log-entry-time'>{esc(l.get('time'))}</span></div>"
             for l in logs
         )
         inc_rows = (
             "".join(
-                f"<div class='list-row'><div><span class='warn-pill'>{esc(i.get('severity'))}</span> <span>{esc(i.get('summary'))}</span></div><span class='muted'>{esc(i.get('time'))}</span></div>"
+                f"<div class='log-entry-row'><div class='row-main'><span class='warn-pill'>{esc(i.get('severity'))}</span><span class='log-entry-msg'>{esc(i.get('summary'))}</span></div><span class='log-entry-time'>{esc(i.get('time'))}</span></div>"
                 for i in incidents
             )
             if incidents
@@ -4907,7 +4977,7 @@ async def handle_updates(request: web.Request) -> web.Response:
         """
     else:
         logs_rows = "".join(
-            f"<div class='list-row'><div><span class='tag'>{esc(l.get('level'))}</span> <span>{esc(l.get('message'))}</span></div><span class='muted'>{esc(l.get('time'))}</span></div>"
+            f"<div class='log-entry-row'><div class='row-main'><span class='tag'>{esc(l.get('level'))}</span><span class='log-entry-msg'>{esc(l.get('message'))}</span></div><span class='log-entry-time'>{esc(l.get('time'))}</span></div>"
             for l in logs[:12]
         )
         extra_inc_section = ""
@@ -4919,9 +4989,17 @@ async def handle_updates(request: web.Request) -> web.Response:
           <h2 class='section-head-title'>{('Updates & Logs' if is_en else 'التحديثات والسجلات')}</h2>
           <div class='muted'>{('Recent system activity and sync events' if is_en else 'سجل النشاط وأحداث المزامنة الحديثة')}</div>
         </div>
-        <span class='ok-pill'>ONLINE</span>
+        <span class='ok-pill'>{len(logs)} {'entries' if is_en else 'سجل'}</span>
       </div>
-      {logs_rows}
+
+      <div class='panel-section' style='margin-bottom:0;'>
+        <div class='panel-section-head'>
+          <h3 class='panel-section-title'>{('Activity Log' if is_en else 'سجل النشاط')}</h3>
+          <span class='tag'>LIVE</span>
+        </div>
+        {logs_rows}
+      </div>
+
       {extra_inc_section}
     </div>
     """
@@ -4930,83 +5008,92 @@ async def handle_updates(request: web.Request) -> web.Response:
 
 async def handle_links(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
+    user = get_discord_session(request)
+    is_prem = is_premium_user(user)
+    is_admin = is_site_admin(user)
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
-    invite_title = "Invite Bot" if is_en else "إضافة بوت الحماية"
-    invite_sub = (
-        "Add the protection bot to your Discord server."
-        if is_en
-        else "إضافة بوت الحماية إلى سيرفرك في ديسكورد."
+    entries = [
+        ("hub", "Home" if is_en else "الرئيسية", "/", "Overview, status, and quick actions" if is_en else "نظرة عامة والحالة والوصول السريع", False),
+        ("shield", "Security Panel" if is_en else "لوحة الحماية", "/guild", "Configure guards, limits, whitelist, and snapshots" if is_en else "ضبط الحمايات والحدود والموثوقين واللقطات", False),
+    ]
+    if is_prem:
+        entries.append(("star", "Premium" if is_en else "البريميوم", "/premium", "Bot bio, avatar, banner, and alert channels" if is_en else "نبذة البوت والأفتار والبنر وقنوات التنبيه", False))
+    if is_admin:
+        entries.append(("server", "Admin Panel" if is_en else "لوحة الإدارة", "/admin", "Subscriptions, staff permissions, remote actions, and backups" if is_en else "الاشتراكات والصلاحيات والأوامر عن بُعد والنسخ", False))
+    entries.extend(
+        [
+            ("pulse", "Services" if is_en else "الخدمات", "/services", "Protection modules and features" if is_en else "وحدات الحماية والمزايا المتاحة", False),
+            ("snap", "Updates & Logs" if is_en else "التحديثات والسجلات", "/updates", "Activity log and system events" if is_en else "سجل النشاط وأحداث النظام", False),
+            ("link", "Invite Bot" if is_en else "إضافة بوت الحماية", "/invite", "Add protection bot to your Discord server" if is_en else "إضافة بوت الحماية إلى سيرفر ديسكورد", True),
+            ("link", "Support Server" if is_en else "سيرفر الدعم الفني", safe_support, "Official Discord community and support" if is_en else "سيرفر الدعم الفني والتحديثات", True),
+        ]
     )
-    support_title = "Support Server" if is_en else "سيرفر الدعم الفني"
-    support_sub = (
-        "Join the official Discord support server."
-        if is_en
-        else "الدخول إلى سيرفر الدعم الفني الرسمي."
+    open_txt = "Open" if is_en else "فتح"
+    cards_html = "".join(
+        f"<a class='link-banner-card' href='{esc(u)}' {'target=\"_blank\" rel=\"noopener noreferrer\"' if ext else ''}>"
+        f"<div class='row-main'><span class='mark-badge'>{_symbol_svg(ico_k, 16)}</span><div><div class='link-card-title'>{esc(t)}</div><div class='link-card-sub'>{esc(sub)}</div></div></div>"
+        f"<span class='link-arrow'>{esc(open_txt)}</span></a>"
+        for ico_k, t, u, sub, ext in entries
     )
     body = f"""
     <div class='page-card'>
       <div class='section-head-bar'>
         <div>
           <h2 class='section-head-title'>{('Links' if is_en else 'الروابط')}</h2>
-          <div class='muted'>{('Bot invitation and support server' if is_en else 'إضافة بوت الحماية وسيرفر الدعم الفني')}</div>
+          <div class='muted'>{('Direct access to panels and official links' if is_en else 'وصول مباشر للوحات التحكم والروابط الرسمية')}</div>
         </div>
-        <span class='mark-badge'>02</span>
+        <span class='tag'>{len(entries)}</span>
       </div>
-      <div class='link-hub-grid'>
-        <a class='link-card' href='/invite'>
-          <div class='row-main'>
-            <span class='mark-badge'>BOT</span>
-            <div>
-              <div class='link-card-title'>{esc(invite_title)}</div>
-              <div class='link-card-sub'>{esc(invite_sub)}</div>
-            </div>
-          </div>
-          <span class='link-arrow'>GO</span>
-        </a>
-        <a class='link-card' href='{safe_support}' target='_blank' rel='noopener noreferrer'>
-          <div class='row-main'>
-            <span class='mark-badge'>HUB</span>
-            <div>
-              <div class='link-card-title'>{esc(support_title)}</div>
-              <div class='link-card-sub'>{esc(support_sub)}</div>
-            </div>
-          </div>
-          <span class='link-arrow'>GO</span>
-        </a>
-      </div>
+      <div class='link-hub-stack'>{cards_html}</div>
     </div>
     """
     return web.Response(text=render_page("Links" if is_en else "الروابط", "links", body, request), content_type="text/html")
 
 
-async def handle_login(request: web.Request) -> web.Response:
-    next_url = sanitize_next_url(request.query.get("next"))
+async def login_handler(request: web.Request) -> web.Response:
+    is_en = get_lang(request) == "en"
+    next_url = sanitize_next_url(request.query.get("next", "/"))
     if not DISCORD_CLIENT_ID:
-        return web.Response(text="DISCORD_CLIENT_ID is not configured.", status=500)
-    state = issue_oauth_state(next_url=next_url)
-    params = {
-        "client_id": DISCORD_CLIENT_ID,
-        "redirect_uri": detect_redirect_uri(request),
-        "response_type": "code",
-        "scope": "identify guilds",
-        "state": state,
-    }
-    raise web.HTTPFound(f"https://discord.com/api/oauth2/authorize?{urlencode(params)}")
+        return web.Response(
+            text=("DISCORD_CLIENT_ID is not configured." if is_en else "لم يتم ضبط DISCORD_CLIENT_ID بعد."),
+            status=503,
+        )
+    redirect_uri = detect_redirect_uri(request)
+    state_val = issue_oauth_state(next_url=next_url)
+    params = urlencode(
+        {
+            "client_id": DISCORD_CLIENT_ID,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "identify guilds",
+            "state": state_val,
+        }
+    )
+    raise web.HTTPFound(f"https://discord.com/api/oauth2/authorize?{params}")
 
 
-async def handle_callback(request: web.Request) -> web.Response:
+async def oauth_callback_handler(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
     code = str(request.query.get("code", "")).strip()
-    state = str(request.query.get("state", "")).strip()
-    valid_state, next_url = consume_oauth_state(state)
-    if not valid_state:
+    state_val = str(request.query.get("state", "")).strip()
+
+    state_ok, next_url = consume_oauth_state(state_val)
+    if not state_ok:
         return web.Response(
-            text="Invalid or expired OAuth state. Please try logging in again." if is_en else "انتهت صلاحية جلسة التحقق، أعد تسجيل الدخول.",
+            text=(
+                "Invalid or expired login state. Please start login again."
+                if is_en
+                else "جلسة تسجيل الدخول غير صالحة أو منتهية، أعد المحاولة من زر الدخول."
+            ),
             status=400,
         )
-    if not code or not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
-        return web.Response(text="Missing OAuth parameters.", status=400)
 
+    if not code or not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
+        return web.Response(
+            text=("OAuth configuration missing." if is_en else "إعدادات تسجيل الدخول غير مكتملة."),
+            status=400,
+        )
+    redirect_uri = detect_redirect_uri(request)
     timeout = ClientTimeout(total=12)
     try:
         async with ClientSession(timeout=timeout) as session:
@@ -5017,128 +5104,166 @@ async def handle_callback(request: web.Request) -> web.Response:
                     "client_secret": DISCORD_CLIENT_SECRET,
                     "grant_type": "authorization_code",
                     "code": code,
-                    "redirect_uri": detect_redirect_uri(request),
+                    "redirect_uri": redirect_uri,
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             ) as resp:
                 if resp.status != 200:
-                    return web.Response(text="Discord OAuth token exchange failed.", status=400)
-                token_data = await resp.json()
+                    return web.Response(
+                        text=(
+                            f"Discord token exchange failed ({resp.status})."
+                            if is_en
+                            else f"فشل التحقق من رمز ديسكورد ({resp.status})."
+                        ),
+                        status=400,
+                    )
+                tok_data = await resp.json()
 
-            access_token = str(token_data.get("access_token", "")).strip()
+            access_token = str(tok_data.get("access_token", "")).strip()
             if not access_token:
-                return web.Response(text="Missing access token.", status=400)
+                return web.Response(
+                    text=("Missing access token." if is_en else "لم يتم استلام رمز الوصول."),
+                    status=400,
+                )
 
-            auth_headers = {"Authorization": f"Bearer {access_token}"}
-            async with session.get("https://discord.com/api/users/@me", headers=auth_headers) as u_resp:
+            auth_hdr = {"Authorization": f"Bearer {access_token}"}
+            async with session.get("https://discord.com/api/users/@me", headers=auth_hdr) as u_resp:
                 if u_resp.status != 200:
-                    return web.Response(text="Failed to fetch Discord user profile.", status=400)
-                user_data = await u_resp.json()
+                    return web.Response(
+                        text=("Failed to load Discord profile." if is_en else "تعذر جلب بيانات حساب ديسكورد."),
+                        status=400,
+                    )
+                u_data = await u_resp.json()
 
-            guilds_list: list[dict] = []
-            async with session.get("https://discord.com/api/users/@me/guilds", headers=auth_headers) as g_resp:
+            guilds_data = []
+            async with session.get("https://discord.com/api/users/@me/guilds", headers=auth_hdr) as g_resp:
                 if g_resp.status == 200:
-                    raw_guilds = await g_resp.json()
-                    if isinstance(raw_guilds, list):
-                        for rg in raw_guilds:
-                            if not isinstance(rg, dict):
-                                continue
-                            gid_str = str(rg.get("id", "")).strip()
-                            if gid_str.isdigit():
-                                guilds_list.append(
-                                    {
-                                        "id": gid_str,
-                                        "name": str(rg.get("name", f"Server {gid_str}"))[:100],
-                                        "icon": str(rg.get("icon", "") or "").strip()[:80],
-                                        "permissions": int(rg.get("permissions", 0) or 0),
-                                        "owner": bool(rg.get("owner", False)),
-                                    }
-                                )
+                    raw_g = await g_resp.json()
+                    if isinstance(raw_g, list):
+                        guilds_data = [
+                            {
+                                "id": str(g.get("id", "")),
+                                "name": str(g.get("name", ""))[:100],
+                                "icon": str(g.get("icon", "") or "")[:80],
+                                "owner": bool(g.get("owner", False)),
+                                "permissions": int(g.get("permissions", 0) or 0),
+                            }
+                            for g in raw_g
+                            if isinstance(g, dict) and str(g.get("id", "")).isdigit()
+                        ]
     except (ClientError, asyncio.TimeoutError, Exception):
-        return web.Response(text="Network error while communicating with Discord.", status=502)
+        return web.Response(
+            text=(
+                "Network error while contacting Discord."
+                if is_en
+                else "حدث خطأ في الاتصال بخوادم ديسكورد، أعد المحاولة."
+            ),
+            status=502,
+        )
 
-    uid = str(user_data.get("id", "")).strip()
+    uid = str(u_data.get("id", "")).strip()
     if not uid.isdigit():
-        return web.Response(text="Invalid Discord user ID.", status=400)
+        return web.Response(
+            text=("Invalid Discord user ID." if is_en else "معرف مستخدم ديسكورد غير صالح."),
+            status=400,
+        )
 
-    uname = str(user_data.get("global_name") or user_data.get("username") or "Member").strip()[:40]
-    uhandle_raw = str(user_data.get("username") or uname).strip()[:44]
-    uhandle = uhandle_raw if uhandle_raw.startswith("@") else f"@{uhandle_raw.lstrip('@')}"
-    uavatar = str(user_data.get("avatar", "") or "").strip()[:80]
+    uname = str(u_data.get("global_name") or u_data.get("username") or "User")[:40]
+    uhandle = str(u_data.get("username") or uname)[:40]
+    uava = str(u_data.get("avatar", "") or "")[:80]
 
-    if uid in MEM_PREMIUM or uid == ADMIN_USER_ID:
-        existing_p = _normalize_premium_doc(MEM_PREMIUM.get(uid) or {"user_id": uid})
-        existing_p["username"] = uname
-        existing_p["handle"] = uhandle
-        if uavatar:
-            existing_p["avatar"] = uavatar
-        MEM_PREMIUM[uid] = existing_p
+    if uid == ADMIN_USER_ID:
+        existing_owner = _normalize_premium_doc(MEM_PREMIUM.get(ADMIN_USER_ID) or {})
+        MEM_PREMIUM[ADMIN_USER_ID] = {
+            "user_id": ADMIN_USER_ID,
+            "username": uname,
+            "handle": f"@{uhandle}",
+            "avatar": uava,
+            "granted_by": "owner",
+            "source": "owner",
+            "granted_at": existing_owner.get("granted_at") or _now_str(),
+            "expires_at": 0.0,
+            "permanent": True,
+        }
+        _invalidate_perm_cache(ADMIN_USER_ID)
         if premium_col is not None:
             try:
-                upd_fields = {"username": uname, "handle": uhandle}
-                if uavatar:
-                    upd_fields["avatar"] = uavatar
-                premium_col.update_one({"user_id": uid}, {"$set": upd_fields})
+                premium_col.update_one(
+                    {"user_id": ADMIN_USER_ID},
+                    {"$set": MEM_PREMIUM[ADMIN_USER_ID]},
+                    upsert=True,
+                )
+            except PyMongoError:
+                pass
+    elif uid in MEM_PREMIUM:
+        existing_rec = _normalize_premium_doc(MEM_PREMIUM[uid])
+        existing_rec["username"] = uname
+        existing_rec["handle"] = f"@{uhandle}"
+        if uava:
+            existing_rec["avatar"] = uava
+        MEM_PREMIUM[uid] = existing_rec
+        if premium_col is not None:
+            try:
+                premium_col.update_one(
+                    {"user_id": uid},
+                    {"$set": {"username": uname, "handle": f"@{uhandle}", **({"avatar": uava} if uava else {})}},
+                )
             except PyMongoError:
                 pass
 
-    token = sign_session(
+    cookie_val = sign_session(
         {
             "id": uid,
             "username": uname,
-            "avatar": uavatar,
-            "guilds": guilds_list,
+            "avatar": uava,
+            "guilds": guilds_data,
             "exp": time.time() + 86400 * 7,
         }
     )
+    log_event(f"User logged in ({uname} / {uid})", level="AUTH")
     resp = web.HTTPFound(next_url)
     resp.set_cookie(
         "arab_sec_session",
-        token,
+        cookie_val,
         max_age=86400 * 7,
         httponly=True,
         samesite="Lax",
-        path="/",
         secure=should_use_secure_cookie(request),
+        path="/",
     )
     return resp
 
 
-async def handle_logout(request: web.Request) -> web.Response:
-    pair = get_discord_session_with_id(request)
-    if pair:
-        _delete_session_record(pair[0])
+async def logout_handler(request: web.Request) -> web.Response:
+    sess_pair = get_discord_session_with_id(request)
+    if sess_pair:
+        _delete_session_record(sess_pair[0])
     resp = web.HTTPFound("/")
     resp.del_cookie("arab_sec_session", path="/")
     return resp
 
 
-async def handle_health(request: web.Request) -> web.Response:
-    return web.json_response({"ok": True, "bot": MEM_BOT_HEARTBEAT.get("status", "ONLINE")})
-
-
-async def handle_not_found(request: web.Request) -> web.Response:
-    is_en = get_lang(request) == "en"
-    return web.Response(text="404 Not Found" if is_en else "الصفحة غير موجودة", status=404)
+async def health_handler(request: web.Request) -> web.Response:
+    return web.json_response({"ok": True, "status": "healthy", "time": _now_str()})
 
 
 @web.middleware
-async def security_headers_middleware(request: web.Request, handler):
+async def security_and_metrics_middleware(request: web.Request, handler):
     ip = get_client_ip(request)
-    is_sens = request.path.startswith(("/login", "/callback", "/api/bot/"))
-    if is_rate_limited(ip, is_sensitive=is_sens):
-        return web.Response(text="Too Many Requests", status=429)
+    is_sensitive = request.path in ("/login", "/callback", "/logout") or request.method == "POST"
+    if is_rate_limited(ip, is_sensitive=is_sensitive):
+        return web.json_response({"ok": False, "error": "Too many requests"}, status=429)
 
-    if not request.path.startswith(("/health", "/api/")):
-        record_site_visit(request)
-
+    record_site_visit(request)
     try:
         response = await handler(request)
     except web.HTTPException as ex:
         response = ex
+    except Exception:
+        response = web.json_response({"ok": False, "error": "Internal server error"}, status=500)
 
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
@@ -5146,43 +5271,47 @@ async def security_headers_middleware(request: web.Request, handler):
         "style-src 'self' 'unsafe-inline'; "
         "script-src 'self' 'unsafe-inline'; "
         "connect-src 'self'; "
-        "frame-ancestors 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self' https://discord.com"
+        "frame-ancestors 'self'"
     )
     return response
 
 
 def create_app() -> web.Application:
-    app = web.Application(middlewares=[security_headers_middleware], client_max_size=16_000_000)
+    app = web.Application(middlewares=[security_and_metrics_middleware], client_max_size=16_000_000)
     app.router.add_get("/", home_handler)
-    app.router.add_get("/health", handle_health)
+    app.router.add_get("/health", health_handler)
     app.router.add_get("/invite", handle_invite_redirect)
-    app.router.add_get("/login", handle_login)
-    app.router.add_get("/callback", handle_callback)
-    app.router.add_get("/logout", handle_logout)
-    app.router.add_get("/guild", handle_guild)
-    app.router.add_post("/guild", handle_guild)
-    app.router.add_get("/premium", handle_premium)
-    app.router.add_post("/premium", handle_premium)
-    app.router.add_get("/admin", handle_admin)
-    app.router.add_post("/admin", handle_admin)
+    app.router.add_route("*", "/guild", handle_guild)
+    app.router.add_route("*", "/premium", handle_premium)
+    app.router.add_route("*", "/admin", handle_admin)
     app.router.add_get("/services", handle_services)
     app.router.add_get("/updates", handle_updates)
     app.router.add_get("/links", handle_links)
+    app.router.add_get("/login", login_handler)
+    app.router.add_get("/callback", oauth_callback_handler)
+    app.router.add_get("/logout", logout_handler)
 
     app.router.add_post("/api/bot/sync-guilds", api_bot_sync_guilds)
-    app.router.add_post("/api/bot/boost-sync", api_bot_boost_sync)
-    app.router.add_get("/api/bot/pending-commands", api_bot_pending_commands)
-    app.router.add_route("*", "/{tail:.*}", handle_not_found)
-
-    async def _on_shutdown(application: web.Application) -> None:
-        flush_visits_if_needed(force=True)
-
-    app.on_shutdown.append(_on_shutdown)
+    app.router.add_post("/api/bot/sync-boosts", api_bot_boost_sync)
+    app.router.add_get("/api/bot/commands", api_bot_pending_commands)
+    app.router.add_post("/api/bot/commands", api_bot_pending_commands)
     return app
 
 
+async def _run_server() -> None:
+    app = create_app()
+    runner = web.AppRunner(app, access_log=None)
+    await runner.setup()
+    site = web.TCPSite(runner, HOST, PORT)
+    await site.start()
+    print(f"[WEB] {SITE_NAME} running on http://{HOST}:{PORT}")
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    finally:
+        flush_visits_if_needed(force=True)
+        await runner.cleanup()
+
+
 if __name__ == "__main__":
-    print(f"[WEB] Starting {SITE_NAME} on http://{HOST}:{PORT} (MAIN={EXPLICIT_MAIN_URL})")
-    web.run_app(create_app(), host=HOST, port=PORT, print=None)
+    asyncio.run(_run_server())
