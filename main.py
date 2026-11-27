@@ -51,7 +51,7 @@ MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").stri
 DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:QiADlkDohqCpFP6z@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "8UJ3rUf3IrJCPfYfSrzog2KiLPxr87S3"
+DEFAULT_SYNC_SECRET = "OzLxgLklbMjEbhRg7__f8HvtQo1BK584"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -2516,25 +2516,27 @@ def render_page(
 <title>{esc(title)} — {esc(SITE_NAME)}</title>
 <style>
   :root {{
-    --bg-base: #090B10;
+    --bg-base: #061426;
     --bg-canvas:
-      radial-gradient(circle at 12% 0%, rgba(217, 167, 96, 0.11), transparent 42%),
-      radial-gradient(circle at 88% 18%, rgba(56, 189, 248, 0.08), transparent 40%),
-      linear-gradient(180deg, #0D1017 0%, #090B10 100%);
-    --surface: #121620;
-    --surface-raised: #171C29;
-    --surface-input: #0C0F16;
-    --border: rgba(148, 163, 184, 0.16);
-    --border-strong: rgba(217, 167, 96, 0.45);
-    --text-main: #F1F5F9;
-    --text-muted: #94A3B8;
-    --gold: #E5B567;
-    --gold-soft: rgba(229, 181, 103, 0.14);
-    --cyan: #38BDF8;
-    --emerald: #34D399;
-    --emerald-bg: rgba(52, 211, 153, 0.12);
+      radial-gradient(circle at 18% 6%, rgba(164, 217, 245, 0.34), transparent 44%),
+      radial-gradient(circle at 82% 14%, rgba(62, 138, 196, 0.28), transparent 46%),
+      radial-gradient(circle at 50% 85%, rgba(15, 62, 114, 0.42), transparent 58%),
+      linear-gradient(180deg, #1E578A 0%, #0F355E 42%, #081E38 78%, #051222 100%);
+    --surface: rgba(10, 29, 54, 0.78);
+    --surface-raised: rgba(15, 42, 76, 0.76);
+    --surface-input: rgba(6, 19, 38, 0.84);
+    --border: rgba(168, 216, 244, 0.20);
+    --border-strong: rgba(158, 216, 248, 0.56);
+    --text-main: #F4FAFF;
+    --text-muted: #B6D3EA;
+    --accent: #8ED4FA;
+    --accent-bright: #BAE6FD;
+    --accent-soft: rgba(142, 212, 250, 0.16);
+    --sky: #56B4E9;
+    --emerald: #4ADE80;
+    --emerald-bg: rgba(74, 222, 128, 0.14);
     --rose: #FB7185;
-    --rose-bg: rgba(251, 113, 133, 0.14);
+    --rose-bg: rgba(251, 113, 133, 0.16);
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -2545,10 +2547,10 @@ def render_page(
     background-attachment: fixed;
     color: var(--text-main);
     min-height: 100vh;
-    line-height: 1.5;
+    line-height: 1.55;
   }}
   @keyframes fadeIn {{
-    from {{ opacity: 0; transform: translateY(6px); }}
+    from {{ opacity: 0; transform: translateY(8px); }}
     to {{ opacity: 1; transform: translateY(0); }}
   }}
   @media (prefers-reduced-motion: reduce) {{
@@ -2559,7 +2561,8 @@ def render_page(
     pointer-events: none;
     position: fixed;
     inset: 0;
-    background: rgba(4, 6, 10, 0.72);
+    background: rgba(4, 14, 28, 0.72);
+    backdrop-filter: blur(4px);
     z-index: 60;
     transition: opacity 0.18s ease;
   }}
@@ -2571,10 +2574,11 @@ def render_page(
     position: fixed;
     top: 0;
     {('left' if is_en else 'right')}: 0;
-    width: 296px;
+    width: 300px;
     max-width: 86vw;
     height: 100vh;
-    background: var(--surface);
+    background: linear-gradient(180deg, rgba(16, 46, 82, 0.96) 0%, rgba(7, 22, 42, 0.98) 100%);
+    backdrop-filter: blur(16px);
     border-{('right' if is_en else 'left')}: 1px solid var(--border);
     padding: 18px 14px;
     display: flex;
@@ -2583,14 +2587,14 @@ def render_page(
     z-index: 70;
     overflow-y: auto;
     transform: translateX({('-100%' if is_en else '100%')});
-    transition: transform 0.2s ease;
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
   }}
   .sidebar.open {{ transform: translateX(0); }}
   .drawer-head {{
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-bottom: 6px;
+    padding-bottom: 8px;
   }}
   .drawer-title {{
     font-size: 15px;
@@ -2600,7 +2604,7 @@ def render_page(
   .drawer-close-btn {{
     width: 32px;
     height: 32px;
-    border-radius: 8px;
+    border-radius: 9px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-muted);
@@ -2618,30 +2622,32 @@ def render_page(
     align-items: center;
     justify-content: center;
     padding: 11px 14px;
-    border-radius: 10px;
+    border-radius: 11px;
     background: var(--rose-bg);
-    border: 1px solid rgba(251, 113, 133, 0.4);
-    color: #FDA4AF;
+    border: 1px solid rgba(251, 113, 133, 0.42);
+    color: #FECDD3;
     text-decoration: none;
     font-weight: 700;
     font-size: 13px;
   }}
   .page-container {{
     width: 100%;
-    max-width: 840px;
+    max-width: 860px;
     margin: 0 auto;
-    padding: 18px 16px 52px;
-    animation: fadeIn 0.22s ease both;
+    padding: 20px 16px 56px;
+    animation: fadeIn 0.24s ease both;
   }}
   .top-bar {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 14px;
-    border-radius: 14px;
+    padding: 12px 15px;
+    border-radius: 16px;
     background: var(--surface);
+    backdrop-filter: blur(14px);
     border: 1px solid var(--border);
+    box-shadow: 0 10px 28px rgba(3, 12, 26, 0.35);
     margin-bottom: 18px;
   }}
   .top-left {{ display: flex; align-items: center; gap: 8px; }}
@@ -2649,7 +2655,7 @@ def render_page(
     height: 36px;
     min-width: 36px;
     padding: 0 12px;
-    border-radius: 9px;
+    border-radius: 10px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-main);
@@ -2660,13 +2666,13 @@ def render_page(
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
   }}
   .icon-btn:hover {{
     border-color: var(--border-strong);
-    background: #1E2434;
+    background: rgba(29, 76, 132, 0.75);
   }}
-  .lang-btn {{ font-size: 12px; color: var(--gold); }}
+  .lang-btn {{ font-size: 12px; color: var(--accent-bright); }}
   .top-right {{
     display: flex;
     align-items: center;
@@ -2674,19 +2680,19 @@ def render_page(
     text-align: {('left' if is_en else 'right')};
   }}
   .brand-title {{
-    font-size: 14.5px;
+    font-size: 15px;
     font-weight: 800;
     color: var(--text-main);
     letter-spacing: 0.4px;
   }}
   .brand-sub {{ font-size: 11.5px; color: var(--text-muted); }}
   .brand-mark {{
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    background: var(--gold-soft);
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    background: linear-gradient(135deg, rgba(168, 224, 255, 0.26), rgba(56, 138, 198, 0.18));
     border: 1px solid var(--border-strong);
-    color: var(--gold);
+    color: var(--accent-bright);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2696,11 +2702,11 @@ def render_page(
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 2px 7px;
-    border-radius: 6px;
-    background: var(--gold-soft);
-    border: 1px solid rgba(229, 181, 103, 0.35);
-    color: var(--gold);
+    padding: 3px 8px;
+    border-radius: 7px;
+    background: var(--accent-soft);
+    border: 1px solid rgba(142, 212, 250, 0.36);
+    color: var(--accent-bright);
     font-size: 10.5px;
     font-weight: 800;
     letter-spacing: 0.4px;
@@ -2710,11 +2716,12 @@ def render_page(
     display: flex;
     align-items: center;
     gap: 10px;
-    background: var(--surface-raised);
+    background: var(--surface);
+    backdrop-filter: blur(12px);
     border: 1px solid var(--border-strong);
     color: var(--text-main);
-    border-radius: 12px;
-    padding: 12px 14px;
+    border-radius: 13px;
+    padding: 12px 15px;
     margin-bottom: 18px;
     font-size: 13.5px;
     font-weight: 700;
@@ -2726,25 +2733,29 @@ def render_page(
   }}
   .surface-card {{
     background: var(--surface);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 24px 20px;
+    border-radius: 18px;
+    padding: 24px 22px;
+    box-shadow: 0 14px 36px rgba(3, 12, 26, 0.36);
   }}
   .gate-card {{
     background: var(--surface);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 32px 20px;
+    border-radius: 18px;
+    padding: 34px 22px;
     text-align: center;
+    box-shadow: 0 14px 36px rgba(3, 12, 26, 0.36);
   }}
   .gate-icon {{
-    width: 52px;
-    height: 52px;
+    width: 54px;
+    height: 54px;
     margin: 0 auto 14px;
-    border-radius: 12px;
-    background: var(--gold-soft);
+    border-radius: 14px;
+    background: var(--accent-soft);
     border: 1px solid var(--border-strong);
-    color: var(--gold);
+    color: var(--accent-bright);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2755,7 +2766,7 @@ def render_page(
     font-weight: 800;
   }}
   .gate-desc {{
-    margin: 0 auto 20px;
+    margin: 0 auto 22px;
     max-width: 440px;
     font-size: 13.5px;
     color: var(--text-muted);
@@ -2779,10 +2790,10 @@ def render_page(
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    padding: 4px 10px;
+    padding: 4px 11px;
     border-radius: 999px;
     background: var(--emerald-bg);
-    border: 1px solid rgba(52, 211, 153, 0.35);
+    border: 1px solid rgba(74, 222, 128, 0.38);
     color: var(--emerald);
     font-size: 11.5px;
     font-weight: 700;
@@ -2795,7 +2806,7 @@ def render_page(
   }}
   .main-heading {{
     margin: 0 0 8px;
-    font-size: 24px;
+    font-size: 25px;
     font-weight: 800;
     color: var(--text-main);
   }}
@@ -2815,13 +2826,15 @@ def render_page(
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 11px 13px;
-    border-radius: 11px;
+    padding: 12px 14px;
+    border-radius: 12px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     font-size: 13px;
     font-weight: 700;
+    transition: border-color 0.15s ease, transform 0.15s ease;
   }}
+  .pillar-item:hover {{ border-color: var(--border-strong); transform: translateY(-1px); }}
   .pillar-text {{ color: var(--text-main); }}
   .action-pair {{
     display: grid;
@@ -2836,17 +2849,18 @@ def render_page(
     gap: 8px;
     width: 100%;
     padding: 12px 16px;
-    border-radius: 11px;
-    background: var(--gold);
-    border: 1px solid var(--gold);
-    color: #0B0E14;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
+    border: 1px solid rgba(186, 230, 253, 0.75);
+    color: #05182E;
     text-decoration: none;
     font-weight: 800;
     font-size: 14px;
     cursor: pointer;
-    transition: filter 0.15s ease;
+    box-shadow: 0 6px 18px rgba(72, 162, 224, 0.25);
+    transition: filter 0.15s ease, transform 0.15s ease;
   }}
-  .btn-gold:hover {{ filter: brightness(1.06); }}
+  .btn-gold:hover {{ filter: brightness(1.06); transform: translateY(-1px); }}
   .btn-dark {{
     display: inline-flex;
     align-items: center;
@@ -2854,7 +2868,7 @@ def render_page(
     gap: 8px;
     width: 100%;
     padding: 12px 16px;
-    border-radius: 11px;
+    border-radius: 12px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-main);
@@ -2862,32 +2876,33 @@ def render_page(
     font-weight: 700;
     font-size: 13.5px;
     cursor: pointer;
-    transition: border-color 0.15s ease;
+    transition: border-color 0.15s ease, background 0.15s ease;
   }}
-  .btn-dark:hover {{ border-color: var(--border-strong); }}
+  .btn-dark:hover {{ border-color: var(--border-strong); background: rgba(26, 70, 122, 0.82); }}
   .btn-outline-gold {{
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 10px 16px;
-    border-radius: 10px;
-    background: var(--gold-soft);
+    border-radius: 11px;
+    background: var(--accent-soft);
     border: 1px solid var(--border-strong);
-    color: var(--gold);
+    color: var(--accent-bright);
     text-decoration: none;
     font-weight: 700;
     font-size: 13px;
     white-space: nowrap;
+    transition: background 0.15s ease;
   }}
-  .btn-outline-gold:hover {{ background: rgba(229, 181, 103, 0.22); }}
+  .btn-outline-gold:hover {{ background: rgba(142, 212, 250, 0.26); }}
   .btn-danger {{
     display: block;
     width: 100%;
     padding: 11px 14px;
-    border-radius: 11px;
+    border-radius: 12px;
     background: var(--rose-bg);
     border: 1px solid rgba(251, 113, 133, 0.45);
-    color: #FDA4AF;
+    color: #FECDD3;
     text-decoration: none;
     font-weight: 700;
     font-size: 13px;
@@ -2896,8 +2911,8 @@ def render_page(
   }}
   .monitor-box {{
     margin-top: 18px;
-    padding: 14px 16px;
-    border-radius: 12px;
+    padding: 15px 16px;
+    border-radius: 14px;
     background: var(--surface-input);
     border: 1px solid var(--border);
   }}
@@ -2920,13 +2935,13 @@ def render_page(
     width: 100%;
     height: 6px;
     border-radius: 999px;
-    background: #1E2536;
+    background: rgba(34, 86, 142, 0.42);
     overflow: hidden;
   }}
   .meter-bar {{
     width: 100%;
     height: 100%;
-    background: linear-gradient(90deg, var(--gold), var(--cyan));
+    background: linear-gradient(90deg, #C7ECFF 0%, #65BEF2 55%, #2B7CC2 100%);
   }}
   .stats-row {{
     display: grid;
@@ -2936,12 +2951,14 @@ def render_page(
   @media (max-width: 540px) {{ .stats-row {{ grid-template-columns: 1fr; }} }}
   .stat-box {{
     background: var(--surface);
+    backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 16px;
+    border-radius: 16px;
+    padding: 16px 18px;
+    box-shadow: 0 10px 26px rgba(3, 12, 26, 0.28);
   }}
   .stat-label {{ font-size: 12.5px; color: var(--text-muted); margin-top: 8px; font-weight: 600; }}
-  .stat-value {{ font-size: 24px; font-weight: 800; color: var(--text-main); margin-top: 2px; }}
+  .stat-value {{ font-size: 25px; font-weight: 800; color: var(--text-main); margin-top: 2px; }}
   .support-strip {{
     display: flex;
     align-items: center;
@@ -2949,18 +2966,22 @@ def render_page(
     flex-wrap: wrap;
     gap: 14px;
     background: var(--surface);
+    backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: 16px;
     padding: 16px 18px;
+    box-shadow: 0 10px 26px rgba(3, 12, 26, 0.28);
   }}
   .support-strip-title {{ font-size: 15px; font-weight: 800; }}
   .support-strip-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }}
   .page-card {{
     background: var(--surface);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 20px 18px;
+    border-radius: 18px;
+    padding: 22px 19px;
     margin-bottom: 18px;
+    box-shadow: 0 14px 36px rgba(3, 12, 26, 0.34);
   }}
   .section-head-bar {{
     display: flex;
@@ -2981,8 +3002,8 @@ def render_page(
   }}
   @media (max-width: 540px) {{ .admin-kpis {{ grid-template-columns: 1fr; }} }}
   .kpi-box {{
-    padding: 13px;
-    border-radius: 12px;
+    padding: 14px;
+    border-radius: 13px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     text-align: center;
@@ -2999,17 +3020,20 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    border-radius: 10px;
+    border-radius: 11px;
     padding: 9px 8px;
     font-size: 12.5px;
     font-weight: 700;
     cursor: pointer;
     text-align: center;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }}
+  .cat-tab-btn:hover {{ border-color: var(--border-strong); color: var(--text-main); }}
   .cat-tab-btn.active {{
-    background: var(--gold);
-    border-color: var(--gold);
-    color: #0B0E14;
+    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.75);
+    color: #05182E;
+    font-weight: 800;
   }}
   .cat-pane {{ display: none; }}
   .cat-pane.active {{ display: block; }}
@@ -3024,31 +3048,31 @@ def render_page(
     justify-content: space-between;
     gap: 12px;
     padding: 15px 16px;
-    border-radius: 12px;
+    border-radius: 13px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     text-decoration: none;
     color: var(--text-main);
-    transition: border-color 0.15s ease;
+    transition: border-color 0.15s ease, transform 0.15s ease;
   }}
-  .link-card:hover {{ border-color: var(--border-strong); }}
+  .link-card:hover {{ border-color: var(--border-strong); transform: translateY(-1px); }}
   .link-card-title {{ font-weight: 800; font-size: 15px; }}
   .link-card-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }}
   .link-arrow {{
     padding: 4px 10px;
     border-radius: 8px;
-    background: var(--gold-soft);
+    background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-weight: 800;
-    color: var(--gold);
+    color: var(--accent-bright);
     font-size: 12px;
     flex-shrink: 0;
   }}
   .panel-section {{
     background: var(--surface-raised);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px;
+    border-radius: 14px;
+    padding: 15px;
     margin-bottom: 14px;
   }}
   .panel-section-head {{
@@ -3057,7 +3081,7 @@ def render_page(
     justify-content: space-between;
     gap: 10px;
     margin-bottom: 12px;
-    padding-bottom: 8px;
+    padding-bottom: 9px;
     border-bottom: 1px solid var(--border);
   }}
   .panel-section-title {{ margin: 0; font-size: 14.5px; font-weight: 800; }}
@@ -3069,17 +3093,18 @@ def render_page(
     justify-content: space-between;
     gap: 8px;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: 11px;
     color: var(--text-main);
     text-decoration: none;
     font-size: 13.5px;
     font-weight: 700;
+    transition: background 0.15s ease;
   }}
-  .nav-item:hover {{ background: var(--surface-raised); }}
+  .nav-item:hover {{ background: rgba(25, 68, 120, 0.55); }}
   .nav-item.active {{
-    background: var(--gold-soft);
+    background: var(--accent-soft);
     border: 1px solid var(--border-strong);
-    color: var(--gold);
+    color: var(--accent-bright);
   }}
   .new-badge {{
     padding: 2px 7px;
@@ -3095,7 +3120,7 @@ def render_page(
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 10px 12px;
+    padding: 11px 12px;
     border-radius: 12px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
@@ -3119,11 +3144,11 @@ def render_page(
     gap: 8px;
     padding: 8px 10px;
     border-radius: 10px;
-    background: var(--gold-soft);
+    background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-size: 11.5px;
     font-weight: 700;
-    color: var(--gold);
+    color: var(--accent-bright);
   }}
   .sess-ava-wrap, .prem-ava-wrap {{
     position: relative;
@@ -3139,8 +3164,8 @@ def render_page(
   .sess-ava-fb, .prem-ava-fb {{
     width: 100%;
     height: 100%;
-    background: #1E2638;
-    color: var(--gold);
+    background: #143963;
+    color: var(--accent-bright);
     font-weight: 800;
     font-size: 14px;
     display: flex;
@@ -3153,9 +3178,9 @@ def render_page(
     font-size: 10px;
     padding: 2px 7px;
     border-radius: 6px;
-    background: var(--gold-soft);
-    border: 1px solid rgba(229, 181, 103, 0.35);
-    color: var(--gold);
+    background: var(--accent-soft);
+    border: 1px solid rgba(142, 212, 250, 0.38);
+    color: var(--accent-bright);
     font-weight: 800;
     white-space: nowrap;
   }}
@@ -3164,7 +3189,7 @@ def render_page(
     padding: 4px 10px;
     border-radius: 999px;
     background: var(--emerald-bg);
-    border: 1px solid rgba(52, 211, 153, 0.35);
+    border: 1px solid rgba(74, 222, 128, 0.36);
     color: var(--emerald);
     font-weight: 700;
     white-space: nowrap;
@@ -3174,8 +3199,8 @@ def render_page(
     padding: 4px 10px;
     border-radius: 999px;
     background: var(--rose-bg);
-    border: 1px solid rgba(251, 113, 133, 0.4);
-    color: #FDA4AF;
+    border: 1px solid rgba(251, 113, 133, 0.42);
+    color: #FECDD3;
     font-weight: 700;
     white-space: nowrap;
   }}
@@ -3183,18 +3208,18 @@ def render_page(
     font-size: 11px;
     padding: 4px 10px;
     border-radius: 999px;
-    background: var(--gold-soft);
+    background: var(--accent-soft);
     border: 1px solid var(--border-strong);
-    color: var(--gold);
+    color: var(--accent-bright);
     font-weight: 700;
   }}
   .admin-pill {{
     font-size: 10.5px;
     padding: 3px 8px;
     border-radius: 7px;
-    background: rgba(56, 189, 248, 0.14);
-    border: 1px solid rgba(56, 189, 248, 0.35);
-    color: var(--cyan);
+    background: rgba(125, 211, 252, 0.16);
+    border: 1px solid rgba(125, 211, 252, 0.4);
+    color: #E0F2FE;
     font-weight: 700;
   }}
   .inp, .sel, .bio-textarea {{
@@ -3202,7 +3227,7 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-main);
-    border-radius: 10px;
+    border-radius: 11px;
     padding: 10px 12px;
     font-size: 13.5px;
     margin-bottom: 10px;
@@ -3234,7 +3259,7 @@ def render_page(
     justify-content: space-between;
     gap: 12px;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: 11px;
     background: var(--surface-input);
     border: 1px solid var(--border);
     margin-bottom: 8px;
@@ -3251,7 +3276,7 @@ def render_page(
     min-width: 44px;
     height: 24px;
     border-radius: 999px;
-    background: #1C2230;
+    background: rgba(18, 49, 88, 0.9);
     border: 1px solid var(--border);
     cursor: pointer;
     transition: background 0.16s ease, border-color 0.16s ease;
@@ -3268,12 +3293,12 @@ def render_page(
     transition: transform 0.16s ease, background 0.16s ease;
   }}
   .switch-input:checked {{
-    background: var(--gold);
-    border-color: var(--gold);
+    background: #8ED4FA;
+    border-color: #BAE6FD;
   }}
   .switch-input:checked::after {{
     transform: translateX(20px);
-    background: #0B0E14;
+    background: #061930;
   }}
   .list-row {{
     display: flex;
@@ -3281,13 +3306,15 @@ def render_page(
     align-items: center;
     gap: 12px;
     padding: 12px 14px;
-    border-radius: 11px;
+    border-radius: 12px;
     background: var(--surface-input);
     border: 1px solid var(--border);
     margin-bottom: 8px;
     text-decoration: none;
     color: var(--text-main);
+    transition: border-color 0.15s ease;
   }}
+  .list-row:hover {{ border-color: var(--border-strong); }}
   .row-main {{ display: flex; align-items: center; gap: 10px; min-width: 0; }}
   .row-copy {{ min-width: 0; }}
   .row-title {{ font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
@@ -3297,7 +3324,7 @@ def render_page(
     flex-direction: column;
     gap: 10px;
     padding: 12px 14px;
-    border-radius: 12px;
+    border-radius: 13px;
     background: var(--surface-input);
     border: 1px solid var(--border);
     margin-bottom: 8px;
@@ -3321,7 +3348,7 @@ def render_page(
   .guild-icon-wrap {{
     width: 38px;
     height: 38px;
-    border-radius: 10px;
+    border-radius: 11px;
     overflow: hidden;
     display: inline-flex;
     align-items: center;
@@ -3334,7 +3361,7 @@ def render_page(
     width: 100%;
     height: 100%;
     background: var(--surface-raised);
-    color: var(--gold);
+    color: var(--accent-bright);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3343,7 +3370,7 @@ def render_page(
   }}
   .mini-btn {{
     padding: 8px 12px;
-    border-radius: 9px;
+    border-radius: 10px;
     border: 1px solid var(--border);
     background: var(--surface-raised);
     color: var(--text-main);
@@ -3354,19 +3381,19 @@ def render_page(
   }}
   .mini-btn:hover {{ border-color: var(--border-strong); }}
   .mini-btn.gold {{
-    background: var(--gold);
-    border-color: var(--gold);
-    color: #0B0E14;
+    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.75);
+    color: #05182E;
     font-weight: 800;
   }}
   .mini-btn.red {{
     border-color: rgba(251, 113, 133, 0.45);
     background: var(--rose-bg);
-    color: #FDA4AF;
+    color: #FECDD3;
   }}
   .album-box {{
     padding: 12px;
-    border-radius: 11px;
+    border-radius: 12px;
     background: var(--surface-input);
     border: 1px dashed var(--border);
     margin-bottom: 10px;
@@ -3380,7 +3407,7 @@ def render_page(
   .preview-thumb {{
     width: 68px;
     height: 68px;
-    border-radius: 10px;
+    border-radius: 11px;
     object-fit: cover;
     border: 1px solid var(--border);
     margin-top: 8px;
@@ -3389,7 +3416,7 @@ def render_page(
     width: 100%;
     max-width: 240px;
     height: 68px;
-    border-radius: 10px;
+    border-radius: 11px;
     object-fit: cover;
     border: 1px solid var(--border);
     margin-top: 8px;
@@ -3400,7 +3427,7 @@ def render_page(
     padding: 2px 6px;
     border-radius: 6px;
     font-size: 12px;
-    color: var(--gold);
+    color: var(--accent-bright);
     border: 1px solid var(--border);
   }}
 </style>
@@ -5048,7 +5075,7 @@ async def security_and_visit_middleware(request: web.Request, handler):
     if is_rate_limited(ip, is_sensitive=is_sensitive):
         return web.Response(text="Too many requests. Please slow down.", status=429)
 
-    if request.method == "GET" and not request.path.startswith(("/api/", "/health", "/login", "/callback", "/logout", "/invite")):
+    if request.method == "GET" and not request.path.startswith(("/api/", "/health", "/login", "/callback", "/logout")):
         record_site_visit(request)
 
     try:
@@ -5056,32 +5083,17 @@ async def security_and_visit_middleware(request: web.Request, handler):
     except web.HTTPException as ex:
         response = ex
 
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self' https: data: blob:; "
-        "img-src 'self' https: data: blob:; "
-        "style-src 'self' 'unsafe-inline'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "connect-src 'self' https:; "
-        "frame-ancestors 'none';"
-    )
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     return response
 
 
 def create_app() -> web.Application:
-    app = web.Application(
-        middlewares=[security_and_visit_middleware],
-        client_max_size=16_000_000,
-    )
-    app.router.add_get("/", home_handler)
+    app = web.Application(client_max_size=16 * 1024 * 1024, middlewares=[security_and_visit_middleware])
     app.router.add_get("/health", health_check)
-    app.router.add_get("/login", handle_login)
-    app.router.add_get("/callback", handle_callback)
-    app.router.add_get("/logout", handle_logout)
-    app.router.add_get("/invite", handle_invite_redirect)
+    app.router.add_get("/", home_handler)
     app.router.add_get("/guild", handle_guild)
     app.router.add_post("/guild", handle_guild)
     app.router.add_get("/premium", handle_premium)
@@ -5091,39 +5103,16 @@ def create_app() -> web.Application:
     app.router.add_get("/services", handle_services)
     app.router.add_get("/updates", handle_updates)
     app.router.add_get("/links", handle_links)
+    app.router.add_get("/invite", handle_invite_redirect)
+    app.router.add_get("/login", handle_login)
+    app.router.add_get("/callback", handle_callback)
+    app.router.add_get("/logout", handle_logout)
 
     app.router.add_post("/api/bot/sync-guilds", api_bot_sync_guilds)
     app.router.add_post("/api/bot/boost-sync", api_bot_boost_sync)
     app.router.add_get("/api/bot/pending-commands", api_bot_pending_commands)
-
-    async def _on_cleanup(application: web.Application) -> None:
-        flush_visits_if_needed(force=True)
-
-    app.on_cleanup.append(_on_cleanup)
     return app
 
 
-async def start_web_server() -> web.AppRunner:
-    app = create_app()
-    runner = web.AppRunner(app, access_log=None)
-    await runner.setup()
-    site = web.TCPSite(runner, HOST, PORT)
-    await site.start()
-    print(f"[WEB SERVER] Running on http://{HOST}:{PORT} (Domain: {detect_base_url_fallback()})")
-    return runner
-
-
-def detect_base_url_fallback() -> str:
-    return EXPLICIT_WEB_URL or EXPLICIT_MAIN_URL or DEFAULT_DOMAIN_URL
-
-
 if __name__ == "__main__":
-    async def _main() -> None:
-        runner = await start_web_server()
-        try:
-            while True:
-                await asyncio.sleep(3600)
-        finally:
-            await runner.cleanup()
-
-    asyncio.run(_main())
+    web.run_app(create_app(), host=HOST, port=PORT)
