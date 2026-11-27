@@ -81,6 +81,7 @@ DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "8UJ3rUf3IrJCPfYfSrz
 
 MAX_IMAGE_BYTES = 10_000_000
 MAX_IMAGE_DATA_URL_LEN = 14_000_000
+MAX_BIO_CHARS = 270
 
 MANAGE_GUILD_PERM = 0x20
 ADMIN_PERM = 0x8
@@ -476,7 +477,7 @@ def sanitize_image_data_url(raw_val: str | None, max_len: int = MAX_IMAGE_DATA_U
 def sanitize_bio_text(raw_bio: str | None) -> str:
     txt = str(raw_bio or "").replace("\r\n", "\n").replace("\r", "\n")
     cleaned = "".join(ch for ch in txt if ch.isprintable() or ch == "\n").strip()
-    return cleaned[:190]
+    return cleaned[:MAX_BIO_CHARS]
 
 
 def sanitize_flash_msg(raw_msg: str | None) -> str:
@@ -488,13 +489,65 @@ def _now_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-def _safe_exp(val) -> float:
+def _parse_expires_ts(val) -> float:
     if isinstance(val, dict):
-        val = val.get("exp", 0)
-    try:
-        return float(val)
-    except Exception:
+        for k in ("exp", "expires_at", "timestamp", "ts"):
+            if k in val:
+                val = val.get(k)
+                break
+        else:
+            return 0.0
+    if val is None or isinstance(val, bool):
         return 0.0
+    if isinstance(val, datetime):
+        dt = val if val.tzinfo is not None else val.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return 0.0
+        try:
+            return float(s)
+        except Exception:
+            pass
+        try:
+            iso_s = s[:-1] + "+00:00" if s.endswith("Z") else s
+            dt = datetime.fromisoformat(iso_s)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except Exception:
+            return 0.0
+    return 0.0
+
+
+def _safe_exp(val) -> float:
+    return _parse_expires_ts(val)
+
+
+def _normalize_premium_doc(doc: dict) -> dict:
+    clean = dict(doc)
+    uid = str(clean.get("user_id") or clean.get("id") or "").strip()
+    clean["user_id"] = uid
+    clean["username"] = str(clean.get("username") or clean.get("name") or f"User {uid}").strip()[:40]
+    raw_handle = str(clean.get("handle") or f"@{clean['username']}").strip()[:44]
+    clean["handle"] = raw_handle if raw_handle.startswith("@") else f"@{raw_handle.lstrip('@')}"
+    clean["source"] = str(clean.get("source") or clean.get("granted_by") or "manual").strip()
+    clean["granted_by"] = str(clean.get("granted_by") or clean["source"] or "bot").strip()
+    clean["permanent"] = bool(clean.get("permanent")) or uid == ADMIN_USER_ID
+    clean["expires_at"] = 0.0 if clean["permanent"] else _parse_expires_ts(clean.get("expires_at", 0.0))
+    return clean
+
+
+def _is_premium_record_active(rec: dict, now: float) -> bool:
+    uid = str(rec.get("user_id") or "").strip()
+    if not uid.isdigit():
+        return False
+    if uid == ADMIN_USER_ID or bool(rec.get("permanent")) or rec.get("source") == "boost":
+        return True
+    return _parse_expires_ts(rec.get("expires_at", 0.0)) > now
 
 
 db = None
@@ -546,13 +599,13 @@ def hydrate_from_db() -> None:
 
         if premium_col is not None:
             for doc in premium_col.find({}, {"_id": 0}).limit(500):
-                uid = str(doc.get("user_id", "")).strip()
+                norm = _normalize_premium_doc(doc)
+                uid = norm["user_id"]
                 if not uid.isdigit():
                     continue
-                is_perm = bool(doc.get("permanent")) or doc.get("source") == "boost" or uid == ADMIN_USER_ID
-                if not is_perm and float(doc.get("expires_at", 0.0) or 0.0) <= now:
+                if not _is_premium_record_active(norm, now):
                     continue
-                MEM_PREMIUM[uid] = dict(doc)
+                MEM_PREMIUM[uid] = norm
 
         if admins_col is not None:
             for doc in admins_col.find({}, {"_id": 0}).limit(200):
@@ -1039,7 +1092,7 @@ def _get_premium_record(uid: str) -> dict | None:
         try:
             doc = premium_col.find_one({"user_id": uid}, {"_id": 0})
             if doc:
-                rec = dict(doc)
+                rec = _normalize_premium_doc(doc)
                 MEM_PREMIUM[uid] = rec
             elif rec and rec.get("source") == "boost":
                 MEM_PREMIUM.pop(uid, None)
@@ -1048,13 +1101,12 @@ def _get_premium_record(uid: str) -> dict | None:
             pass
     if not rec:
         return None
-    if rec.get("permanent") or rec.get("source") == "boost":
-        return rec
-    exp_val = float(rec.get("expires_at", 0.0) or 0.0)
-    if exp_val <= now:
+    norm = _normalize_premium_doc(rec)
+    if not _is_premium_record_active(norm, now):
         set_premium_user(uid, False)
         return None
-    return rec
+    MEM_PREMIUM[uid] = norm
+    return norm
 
 
 def is_premium_user(user: dict | None) -> bool:
@@ -1075,11 +1127,12 @@ def is_premium_user(user: dict | None) -> bool:
 
 
 def format_remaining_time(rec: dict, is_en: bool = True) -> str:
-    if rec.get("permanent"):
+    norm = _normalize_premium_doc(rec or {})
+    if norm.get("permanent"):
         return "Lifetime" if is_en else "دائم"
-    if rec.get("source") == "boost":
+    if norm.get("source") == "boost":
         return "Active via Server Boost" if is_en else "مفعل عبر دعم البوست"
-    rem = max(0.0, float(rec.get("expires_at", 0.0) or 0.0) - time.time())
+    rem = max(0.0, _parse_expires_ts(norm.get("expires_at", 0.0)) - time.time())
     days = int(rem // 86400)
     hours = int((rem % 86400) // 3600)
     mins = int((rem % 3600) // 60)
@@ -1096,29 +1149,29 @@ def get_premium_list() -> list[dict]:
     if premium_col is not None:
         try:
             for doc in premium_col.find({}, {"_id": 0}).limit(250):
-                uid = str(doc.get("user_id", "")).strip()
+                norm = _normalize_premium_doc(doc)
+                uid = norm["user_id"]
                 if not uid.isdigit():
                     continue
-                is_perm = bool(doc.get("permanent")) or doc.get("source") == "boost"
-                if not is_perm and float(doc.get("expires_at", 0.0) or 0.0) <= now:
+                if not _is_premium_record_active(norm, now):
                     try:
                         premium_col.delete_one({"user_id": uid})
                     except PyMongoError:
                         pass
                     MEM_PREMIUM.pop(uid, None)
                     continue
-                items[uid] = dict(doc)
-                MEM_PREMIUM[uid] = dict(doc)
+                items[uid] = dict(norm)
+                MEM_PREMIUM[uid] = dict(norm)
         except PyMongoError:
             pass
     for uid, rec in list(MEM_PREMIUM.items()):
         if uid in items:
             continue
-        is_perm = bool(rec.get("permanent")) or rec.get("source") == "boost"
-        if not is_perm and float(rec.get("expires_at", 0.0) or 0.0) <= now:
+        norm = _normalize_premium_doc(rec)
+        if not _is_premium_record_active(norm, now):
             MEM_PREMIUM.pop(uid, None)
             continue
-        items[uid] = dict(rec)
+        items[uid] = dict(norm)
     return list(items.values())
 
 
@@ -2185,13 +2238,13 @@ def render_page(
   :root {{
     --bg-deep: #07040f;
     --bg-grad:
-      radial-gradient(circle at 50% -8%, rgba(147, 51, 234, 0.36), rgba(109, 40, 217, 0.12) 48%, #07040f 82%),
-      radial-gradient(circle at 12% 24%, rgba(168, 85, 247, 0.16), transparent 44%),
+      radial-gradient(circle at 50% -8%, rgba(147, 51, 234, 0.38), rgba(109, 40, 217, 0.14) 48%, #07040f 82%),
+      radial-gradient(circle at 12% 24%, rgba(168, 85, 247, 0.18), transparent 44%),
       linear-gradient(180deg, #0c061a 0%, #07040f 100%);
-    --card-bg: rgba(18, 10, 34, 0.92);
-    --card-border: rgba(168, 85, 247, 0.28);
-    --card-border-bright: rgba(192, 132, 252, 0.58);
-    --prem-border: rgba(232, 121, 249, 0.54);
+    --card-bg: rgba(18, 10, 34, 0.94);
+    --card-border: rgba(168, 85, 247, 0.30);
+    --card-border-bright: rgba(192, 132, 252, 0.64);
+    --prem-border: rgba(232, 121, 249, 0.58);
     --text-main: #ffffff;
     --text-sub: #ddd6fe;
   }}
@@ -2202,7 +2255,7 @@ def render_page(
   }}
   @keyframes pulseGlow {{
     0%, 100% {{ box-shadow: 0 0 0 rgba(168, 85, 247, 0); }}
-    50% {{ box-shadow: 0 0 26px rgba(168, 85, 247, 0.24); }}
+    50% {{ box-shadow: 0 0 28px rgba(168, 85, 247, 0.26); }}
   }}
   .anim-card {{
     animation: fadeSlideUp 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -2233,7 +2286,7 @@ def render_page(
     position: fixed;
     top: 0;
     {('left' if is_en else 'right')}: 0;
-    width: 282px;
+    width: 284px;
     max-width: 86vw;
     height: 100vh;
     background: rgba(12, 7, 24, 0.98);
@@ -2250,7 +2303,7 @@ def render_page(
   .sidebar.open {{ transform: translateX(0); }}
   .page-container {{
     width: 100%;
-    max-width: 800px;
+    max-width: 820px;
     margin: 0 auto;
     padding: 18px 16px 56px;
   }}
@@ -2261,19 +2314,19 @@ def render_page(
     gap: 10px;
     padding: 11px 15px;
     border-radius: 18px;
-    background: rgba(18, 10, 34, 0.95);
+    background: rgba(18, 10, 34, 0.96);
     border: 1px solid var(--card-border-bright);
     margin-bottom: 18px;
-    box-shadow: 0 8px 24px rgba(88, 28, 135, 0.24);
+    box-shadow: 0 8px 24px rgba(88, 28, 135, 0.26);
     animation: fadeSlideUp 0.2s ease both;
   }}
   .top-left {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
   .icon-btn {{
-    height: 36px;
-    padding: 0 12px;
-    border-radius: 11px;
-    background: rgba(34, 17, 64, 0.92);
-    border: 1px solid var(--card-border);
+    height: 38px;
+    padding: 0 13px;
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(46, 22, 88, 0.95), rgba(24, 12, 48, 0.95));
+    border: 1px solid var(--card-border-bright);
     color: #fff;
     font-weight: 800;
     font-size: 16px;
@@ -2285,10 +2338,10 @@ def render_page(
     transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   }}
   .icon-btn:hover {{
-    background: rgba(147, 51, 234, 0.42);
-    border-color: var(--card-border-bright);
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.55), rgba(192, 38, 211, 0.42));
+    border-color: #f0abfc;
     transform: translateY(-1px);
-    box-shadow: 0 6px 14px rgba(147, 51, 234, 0.28);
+    box-shadow: 0 6px 16px rgba(147, 51, 234, 0.34);
   }}
   .icon-btn:active {{ transform: scale(0.95); }}
   .lang-btn {{ font-size: 12.5px; }}
@@ -2303,15 +2356,16 @@ def render_page(
   .brand-badge {{
     width: 38px; height: 38px; border-radius: 12px;
     background: linear-gradient(135deg, #9333ea 0%, #d946ef 100%);
-    box-shadow: 0 0 16px rgba(168, 85, 247, 0.45);
+    box-shadow: 0 0 18px rgba(168, 85, 247, 0.48);
     color: #fff; font-weight: 900; font-size: 14px;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }}
   .flash-banner {{
-    background: rgba(88, 28, 135, 0.45);
+    background: linear-gradient(135deg, rgba(107, 33, 168, 0.52), rgba(134, 25, 143, 0.42));
     border: 1.5px solid var(--card-border-bright);
     color: #faf5ff; border-radius: 16px; padding: 13px 16px;
     margin-bottom: 18px; font-size: 13.5px; font-weight: 800; line-height: 1.55; text-align: center;
+    box-shadow: 0 8px 20px rgba(107, 33, 168, 0.24);
   }}
   .hero-card {{
     background: var(--card-bg); border: 1px solid var(--card-border-bright);
@@ -2319,8 +2373,8 @@ def render_page(
     animation: fadeSlideUp 0.28s ease both, pulseGlow 4s infinite ease-in-out;
   }}
   .prem-active-box {{
-    padding: 8px 11px; border-radius: 11px;
-    background: rgba(217, 70, 239, 0.16); border: 1px solid var(--prem-border);
+    padding: 9px 12px; border-radius: 12px;
+    background: rgba(217, 70, 239, 0.18); border: 1px solid var(--prem-border);
     color: #fdf4ff; font-size: 12px; font-weight: 800; text-align: center;
   }}
   .hero-title {{ margin: 0 0 12px; font-size: 28px; font-weight: 900; letter-spacing: 0.6px; color: #ffffff; }}
@@ -2331,40 +2385,42 @@ def render_page(
     background: linear-gradient(135deg, #9333ea 0%, #c026d3 100%);
     border: 1px solid var(--card-border-bright); color: #fff; text-decoration: none;
     font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
-    box-shadow: 0 6px 18px rgba(147, 51, 234, 0.3);
+    box-shadow: 0 8px 20px rgba(147, 51, 234, 0.34);
     transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
   }}
   .btn-primary-purple:hover {{
     transform: translateY(-2px);
-    filter: brightness(1.1);
-    box-shadow: 0 10px 26px rgba(168, 85, 247, 0.48);
+    filter: brightness(1.12);
+    box-shadow: 0 12px 26px rgba(168, 85, 247, 0.52);
   }}
   .btn-primary-purple:active {{ transform: scale(0.985); }}
   .btn-crimson {{
     display: block; width: 100%; padding: 13px 18px; border-radius: 14px;
     background: linear-gradient(135deg, #be185d 0%, #831843 100%);
-    border: 1px solid rgba(244, 114, 182, 0.48); color: #fff; text-decoration: none;
+    border: 1px solid rgba(244, 114, 182, 0.52); color: #fff; text-decoration: none;
     font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
-    box-shadow: 0 6px 16px rgba(190, 24, 93, 0.25);
+    box-shadow: 0 8px 18px rgba(190, 24, 93, 0.28);
     transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
   }}
   .btn-crimson:hover {{
     transform: translateY(-2px);
-    filter: brightness(1.1);
-    box-shadow: 0 10px 22px rgba(244, 114, 182, 0.35);
+    filter: brightness(1.12);
+    box-shadow: 0 10px 24px rgba(244, 114, 182, 0.38);
   }}
   .btn-crimson:active {{ transform: scale(0.985); }}
   .btn-secondary-dark {{
     display: block; width: 100%; padding: 13px 18px; border-radius: 14px;
-    background: rgba(26, 15, 48, 0.96); border: 1px solid var(--card-border);
+    background: linear-gradient(145deg, rgba(35, 19, 64, 0.96), rgba(20, 11, 38, 0.98));
+    border: 1px solid var(--card-border-bright);
     color: #f5f3ff; text-decoration: none; font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
     transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   }}
   .btn-secondary-dark:hover {{
     transform: translateY(-2px);
-    background: rgba(46, 24, 86, 0.98);
-    border-color: var(--card-border-bright);
-    box-shadow: 0 8px 20px rgba(88, 28, 135, 0.32);
+    background: linear-gradient(145deg, rgba(62, 32, 114, 0.98), rgba(36, 18, 68, 0.98));
+    border-color: #e879f9;
+    box-shadow: 0 8px 20px rgba(126, 34, 206, 0.36);
   }}
   .btn-secondary-dark:active {{ transform: scale(0.985); }}
   .stat-card {{
@@ -2378,8 +2434,8 @@ def render_page(
   .stat-label {{ font-size: 14px; font-weight: 700; color: #ddd6fe; }}
   .glass-card {{
     background: var(--card-bg); border: 1px solid var(--card-border);
-    border-radius: 20px; padding: 18px; margin-bottom: 16px;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    border-radius: 22px; padding: 20px; margin-bottom: 16px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38);
   }}
   .admin-hero {{
     display: flex;
@@ -2387,9 +2443,9 @@ def render_page(
     align-items: center;
     flex-wrap: wrap;
     gap: 12px;
-    padding: 16px;
+    padding: 18px;
     border-radius: 18px;
-    background: linear-gradient(145deg, rgba(147, 51, 234, 0.24), rgba(18, 10, 34, 0.96));
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.30), rgba(192, 38, 211, 0.14), rgba(18, 10, 34, 0.96));
     border: 1px solid var(--card-border-bright);
     margin-bottom: 16px;
   }}
@@ -2401,26 +2457,28 @@ def render_page(
   }}
   @media (max-width: 540px) {{ .admin-kpis {{ grid-template-columns: 1fr; }} }}
   .kpi-box {{
-    padding: 13px;
-    border-radius: 14px;
-    background: rgba(12, 7, 24, 0.9);
+    padding: 14px;
+    border-radius: 16px;
+    background: linear-gradient(160deg, rgba(28, 15, 54, 0.92), rgba(12, 7, 24, 0.94));
     border: 1px solid var(--card-border);
     text-align: center;
+    transition: transform 0.16s ease, border-color 0.16s ease;
   }}
-  .kpi-num {{ font-size: 20px; font-weight: 900; color: #fff; }}
-  .kpi-lbl {{ font-size: 11.5px; color: #c4b5fd; margin-top: 3px; font-weight: 700; }}
+  .kpi-box:hover {{ transform: translateY(-2px); border-color: var(--card-border-bright); }}
+  .kpi-num {{ font-size: 22px; font-weight: 900; color: #fff; }}
+  .kpi-lbl {{ font-size: 11.5px; color: #c4b5fd; margin-top: 4px; font-weight: 700; }}
   .cat-tabs {{
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
     gap: 8px;
     margin-bottom: 16px;
   }}
   .cat-tab-btn {{
-    background: rgba(24, 13, 45, 0.94);
+    background: linear-gradient(145deg, rgba(30, 16, 56, 0.95), rgba(18, 10, 36, 0.96));
     border: 1px solid var(--card-border);
     color: #e9d5ff;
-    border-radius: 12px;
-    padding: 10px 8px;
+    border-radius: 13px;
+    padding: 11px 9px;
     font-size: 12.5px;
     font-weight: 800;
     cursor: pointer;
@@ -2429,15 +2487,15 @@ def render_page(
   }}
   .cat-tab-btn:hover {{
     border-color: var(--card-border-bright);
-    background: rgba(52, 26, 98, 0.95);
+    background: linear-gradient(145deg, rgba(68, 34, 124, 0.96), rgba(40, 20, 76, 0.96));
     transform: translateY(-1px);
   }}
   .cat-tab-btn:active {{ transform: scale(0.97); }}
   .cat-tab-btn.active {{
-    background: linear-gradient(135deg, rgba(147, 51, 234, 0.48), rgba(217, 70, 239, 0.28));
-    border-color: var(--card-border-bright);
+    background: linear-gradient(135deg, #9333ea 0%, #c026d3 100%);
+    border-color: #f5d0fe;
     color: #ffffff;
-    box-shadow: 0 0 18px rgba(168, 85, 247, 0.34);
+    box-shadow: 0 6px 20px rgba(168, 85, 247, 0.42);
   }}
   .cat-pane {{ display: none; }}
   .cat-pane.active {{ display: block; animation: fadeSlideUp 0.2s ease both; }}
@@ -2448,7 +2506,7 @@ def render_page(
     gap: 12px;
     padding: 14px 16px;
     border-radius: 15px;
-    background: rgba(14, 8, 28, 0.9);
+    background: rgba(14, 8, 28, 0.92);
     border: 1px solid var(--card-border);
     text-decoration: none;
     color: #fff;
@@ -2457,21 +2515,21 @@ def render_page(
   }}
   .link-card:hover {{
     transform: translateY(-1px);
-    background: rgba(38, 19, 72, 0.95);
+    background: rgba(38, 19, 72, 0.96);
     border-color: var(--card-border-bright);
   }}
   .link-card-title {{ font-weight: 800; font-size: 14px; }}
   .link-card-sub {{ font-size: 12px; color: #c4b5fd; margin-top: 2px; }}
   .link-arrow {{ font-weight: 900; color: #d8b4fe; font-size: 15px; }}
   .panel-section {{
-    background: rgba(12, 7, 24, 0.88);
+    background: rgba(12, 7, 24, 0.90);
     border: 1px solid var(--card-border);
-    border-radius: 16px;
-    padding: 15px;
+    border-radius: 18px;
+    padding: 16px;
     margin-bottom: 14px;
   }}
   .panel-section.prem-sec {{
-    background: linear-gradient(160deg, rgba(126, 34, 206, 0.2), rgba(18, 10, 34, 0.95));
+    background: linear-gradient(160deg, rgba(126, 34, 206, 0.22), rgba(18, 10, 34, 0.96));
     border-color: var(--prem-border);
   }}
   .panel-section-head {{
@@ -2480,7 +2538,7 @@ def render_page(
     justify-content: space-between;
     gap: 10px;
     margin-bottom: 12px;
-    padding-bottom: 8px;
+    padding-bottom: 10px;
     border-bottom: 1px solid var(--card-border);
   }}
   .panel-section-title {{
@@ -2490,7 +2548,7 @@ def render_page(
     color: #ffffff;
   }}
   .sub-panel {{
-    background: rgba(12, 7, 24, 0.9); border: 1px solid var(--card-border);
+    background: rgba(12, 7, 24, 0.92); border: 1px solid var(--card-border);
     border-radius: 18px; padding: 16px; margin-bottom: 16px;
     transition: border-color 0.16s ease;
   }}
@@ -2508,29 +2566,29 @@ def render_page(
     transition: background 0.15s ease, transform 0.15s ease;
   }}
   .nav-item:hover {{ background: rgba(147, 51, 234, 0.24); transform: translateX({('2px' if is_en else '-2px')}); }}
-  .nav-item.active {{ background: rgba(147, 51, 234, 0.38); border: 1px solid var(--card-border-bright); color: #ffffff; }}
+  .nav-item.active {{ background: rgba(147, 51, 234, 0.40); border: 1px solid var(--card-border-bright); color: #ffffff; }}
   .nav-item.danger {{ color: #f9a8d4; }}
   .sep {{ height: 1px; background: var(--card-border); margin: 6px 0; }}
   .user-box {{
     display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 14px;
-    background: rgba(34, 17, 64, 0.88); border: 1px solid var(--card-border);
+    background: rgba(34, 17, 64, 0.90); border: 1px solid var(--card-border);
   }}
   .avatar, .avatar-img {{ width: 38px; height: 38px; border-radius: 999px; object-fit: cover; }}
   .avatar {{ background: #9333ea; display: flex; align-items: center; justify-content: center; font-weight: 800; }}
   .uname {{ font-weight: 800; font-size: 13px; }}
   .uhandle {{ font-size: 11px; color: #c4b5fd; }}
-  .tag {{ font-size: 10.5px; padding: 4px 9px; border-radius: 8px; background: rgba(147, 51, 234, 0.3); color: #f3e8ff; font-weight: 800; white-space: nowrap; }}
-  .ok-pill {{ font-size: 10.5px; padding: 4px 9px; border-radius: 8px; background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(52, 211, 153, 0.45); color: #a7f3d0; font-weight: 800; white-space: nowrap; }}
-  .warn-pill {{ font-size: 10.5px; padding: 4px 9px; border-radius: 8px; background: rgba(217, 70, 239, 0.2); border: 1px solid rgba(232, 121, 249, 0.45); color: #f5d0fe; font-weight: 800; white-space: nowrap; }}
-  .prem-pill {{ font-size: 10px; padding: 3px 9px; border-radius: 999px; background: rgba(192, 132, 252, 0.24); border: 1px solid rgba(232, 121, 249, 0.6); color: #fdf4ff; font-weight: 800; }}
-  .admin-pill {{ font-size: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(147, 51, 234, 0.32); border: 1px solid var(--card-border-bright); color: #f3e8ff; font-weight: 800; }}
+  .tag {{ font-size: 10.5px; padding: 4px 10px; border-radius: 9px; background: rgba(147, 51, 234, 0.34); border: 1px solid rgba(192, 132, 252, 0.45); color: #f3e8ff; font-weight: 800; white-space: nowrap; }}
+  .ok-pill {{ font-size: 10.5px; padding: 4px 10px; border-radius: 9px; background: rgba(16, 185, 129, 0.18); border: 1px solid rgba(52, 211, 153, 0.48); color: #a7f3d0; font-weight: 800; white-space: nowrap; }}
+  .warn-pill {{ font-size: 10.5px; padding: 4px 10px; border-radius: 9px; background: rgba(217, 70, 239, 0.22); border: 1px solid rgba(232, 121, 249, 0.48); color: #f5d0fe; font-weight: 800; white-space: nowrap; }}
+  .prem-pill {{ font-size: 10.5px; padding: 4px 10px; border-radius: 999px; background: linear-gradient(135deg, rgba(168, 85, 247, 0.34), rgba(217, 70, 239, 0.32)); border: 1px solid rgba(232, 121, 249, 0.65); color: #fdf4ff; font-weight: 800; }}
+  .admin-pill {{ font-size: 10.5px; padding: 4px 9px; border-radius: 8px; background: rgba(147, 51, 234, 0.34); border: 1px solid var(--card-border-bright); color: #f3e8ff; font-weight: 800; }}
   .login-btn {{
     display: block; text-align: center; padding: 11px 14px; border-radius: 13px;
     background: linear-gradient(135deg, #9333ea, #c026d3); color: #fff; text-decoration: none; font-weight: 800; font-size: 13.5px;
-    box-shadow: 0 6px 16px rgba(147, 51, 234, 0.32);
+    box-shadow: 0 6px 16px rgba(147, 51, 234, 0.34);
     transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   }}
-  .login-btn:hover {{ filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 8px 20px rgba(168, 85, 247, 0.45); }}
+  .login-btn:hover {{ filter: brightness(1.12); transform: translateY(-1px); box-shadow: 0 8px 20px rgba(168, 85, 247, 0.46); }}
   .inp, .sel, .bio-textarea {{
     width: 100%; background: rgba(10, 5, 20, 0.96); border: 1px solid var(--card-border);
     color: #fff; border-radius: 12px; padding: 11px 13px; font-size: 14px; margin-bottom: 10px;
@@ -2538,16 +2596,16 @@ def render_page(
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }}
   .bio-textarea {{
-    min-height: 132px;
-    margin-top: 10px;
+    min-height: 142px;
+    margin-top: 8px;
     margin-bottom: 6px;
-    line-height: 1.65;
+    line-height: 1.7;
     resize: vertical;
   }}
   .inp:focus, .sel:focus, .bio-textarea:focus {{
     outline: none;
-    border-color: var(--card-border-bright);
-    box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.18);
+    border-color: #e879f9;
+    box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.22);
   }}
   .lbl {{ display: block; font-size: 12.5px; color: #e9d5ff; margin: 8px 0 5px; font-weight: 700; }}
   .bio-meta {{
@@ -2555,56 +2613,100 @@ def render_page(
     font-size: 11.5px; color: #c4b5fd; margin-bottom: 12px;
   }}
   .switch-row {{
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 12px; border-radius: 12px; background: rgba(168, 85, 247, 0.05);
-    border: 1px solid rgba(168, 85, 247, 0.22); margin-bottom: 8px; font-size: 13px;
-    transition: background 0.15s ease, border-color 0.15s ease;
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 12px 14px; border-radius: 14px;
+    background: linear-gradient(145deg, rgba(31, 16, 62, 0.78), rgba(18, 10, 38, 0.88));
+    border: 1px solid rgba(168, 85, 247, 0.26); margin-bottom: 10px; font-size: 13.5px; font-weight: 700;
+    cursor: pointer; user-select: none;
+    transition: background 0.16s ease, border-color 0.16s ease, transform 0.15s ease, box-shadow 0.16s ease;
   }}
-  .switch-row:hover {{ background: rgba(147, 51, 234, 0.14); border-color: var(--card-border-bright); }}
-  .switch-row input[type="checkbox"] {{ width: 17px; height: 17px; accent-color: #a855f7; cursor: pointer; }}
+  .switch-row:hover {{
+    background: linear-gradient(145deg, rgba(54, 27, 104, 0.88), rgba(29, 15, 58, 0.94));
+    border-color: var(--card-border-bright);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(126, 34, 206, 0.22);
+  }}
+  .switch-input {{
+    position: relative;
+    appearance: none;
+    -webkit-appearance: none;
+    width: 48px;
+    min-width: 48px;
+    height: 26px;
+    border-radius: 999px;
+    background: rgba(12, 7, 24, 0.95);
+    border: 1.5px solid rgba(168, 85, 247, 0.45);
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }}
+  .switch-input::after {{
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: #e9d5ff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease;
+  }}
+  .switch-input:checked {{
+    background: linear-gradient(135deg, #9333ea 0%, #d946ef 100%);
+    border-color: #f5d0fe;
+    box-shadow: 0 0 14px rgba(192, 132, 252, 0.45);
+  }}
+  .switch-input:checked::after {{
+    transform: translateX(22px);
+    background: #ffffff;
+  }}
   .list-row {{
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    padding: 10px 12px; border-radius: 12px; background: rgba(168, 85, 247, 0.05);
-    border: 1px solid rgba(168, 85, 247, 0.22); margin-bottom: 8px;
+    padding: 11px 13px; border-radius: 13px; background: rgba(168, 85, 247, 0.06);
+    border: 1px solid rgba(168, 85, 247, 0.24); margin-bottom: 8px;
     transition: background 0.15s ease, border-color 0.15s ease;
   }}
-  .list-row:hover {{ background: rgba(147, 51, 234, 0.14); border-color: var(--card-border-bright); }}
+  .list-row:hover {{ background: rgba(147, 51, 234, 0.15); border-color: var(--card-border-bright); }}
   .guild-icon, .guild-icon-ph {{ width: 42px; height: 42px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }}
   .guild-icon-ph {{
-    background: linear-gradient(135deg, rgba(147, 51, 234, 0.45), rgba(217, 70, 239, 0.35));
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.48), rgba(217, 70, 239, 0.38));
     border: 1px solid var(--card-border-bright);
     display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; color: #fff;
   }}
   .mini-btn {{
-    padding: 9px 13px; border-radius: 11px; border: 1px solid var(--card-border-bright);
-    background: linear-gradient(135deg, rgba(147, 51, 234, 0.48), rgba(168, 85, 247, 0.34));
+    padding: 10px 14px; border-radius: 12px; border: 1px solid var(--card-border-bright);
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.56), rgba(192, 38, 211, 0.42));
     color: #fff; font-size: 12.5px; font-weight: 800; cursor: pointer; text-align: center;
+    box-shadow: 0 4px 12px rgba(126, 34, 206, 0.25);
     transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   }}
   .mini-btn:hover {{
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.72), rgba(217, 70, 239, 0.52));
+    background: linear-gradient(135deg, #9333ea 0%, #d946ef 100%);
+    border-color: #f5d0fe;
     transform: translateY(-1px);
-    box-shadow: 0 6px 14px rgba(147, 51, 234, 0.3);
+    box-shadow: 0 7px 16px rgba(168, 85, 247, 0.38);
   }}
   .mini-btn:active {{ transform: scale(0.96); }}
   .mini-btn.red {{
-    border-color: rgba(244, 114, 182, 0.55);
-    background: linear-gradient(135deg, rgba(190, 24, 93, 0.48), rgba(131, 24, 67, 0.48));
+    border-color: rgba(244, 114, 182, 0.62);
+    background: linear-gradient(135deg, rgba(190, 24, 93, 0.56), rgba(131, 24, 67, 0.56));
+    box-shadow: 0 4px 12px rgba(190, 24, 93, 0.24);
   }}
   .mini-btn.red:hover {{
-    background: linear-gradient(135deg, rgba(219, 39, 119, 0.72), rgba(157, 23, 77, 0.68));
-    box-shadow: 0 6px 14px rgba(219, 39, 119, 0.32);
+    background: linear-gradient(135deg, #db2777 0%, #9d174d 100%);
+    border-color: #fbcfe8;
+    box-shadow: 0 7px 16px rgba(219, 39, 119, 0.38);
   }}
   .album-box {{
-    padding: 13px; border-radius: 14px; background: rgba(10, 5, 20, 0.86);
+    padding: 14px; border-radius: 15px; background: rgba(10, 5, 20, 0.88);
     border: 1px dashed var(--card-border-bright); margin-bottom: 12px;
   }}
   .preview-thumb {{
-    width: 72px; height: 72px; border-radius: 12px; object-fit: cover;
+    width: 74px; height: 74px; border-radius: 13px; object-fit: cover;
     border: 1px solid var(--card-border-bright); margin-top: 8px;
   }}
   .preview-banner {{
-    width: 100%; max-width: 240px; height: 72px; border-radius: 12px; object-fit: cover;
+    width: 100%; max-width: 250px; height: 74px; border-radius: 13px; object-fit: cover;
     border: 1px solid var(--card-border-bright); margin-top: 8px;
   }}
   .muted {{ color: #c4b5fd; font-size: 13px; }}
@@ -2659,7 +2761,7 @@ function updateBioCounter(taId, cntId) {{
   var ta = document.getElementById(taId);
   var cnt = document.getElementById(cntId);
   if (ta && cnt) {{
-    cnt.textContent = (ta.value || "").length + " / 190";
+    cnt.textContent = (ta.value || "").length + " / {MAX_BIO_CHARS}";
   }}
 }}
 function filterGuildsList(queryVal) {{
@@ -2792,7 +2894,7 @@ def _build_toggle_items(keys: tuple[str, ...], cfg: dict, is_en: bool) -> str:
         html_out += (
             f"<label class='switch-row'>"
             f"<span>{esc(lbl_txt)}</span>"
-            f"<input type='checkbox' name='sh_{k}' {'checked' if cfg.get(k) else ''}></label>"
+            f"<input class='switch-input' type='checkbox' name='sh_{k}' {'checked' if cfg.get(k) else ''}></label>"
         )
     return html_out
 
@@ -2833,7 +2935,7 @@ def _process_premium_profile_and_perks(form: dict, cur_prof: dict, cur_perks: di
 def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_prefix: bool = False) -> str:
     ava_src = str(prof.get("avatar_data_url", "") or "")
     ban_src = str(prof.get("banner_data_url", "") or "")
-    bio_val = str(prof.get("bio", "") or "")
+    bio_val = sanitize_bio_text(prof.get("bio", "") or "")
     ava_img_tag = (
         f"<img id='ava_preview' class='preview-thumb' src='{esc(ava_src)}' alt=''>"
         if ava_src
@@ -2850,6 +2952,10 @@ def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_pr
     bio_id = "bio_area_guild" if use_pr_prefix else "bio_area_prem"
     cnt_id = "bio_cnt_guild" if use_pr_prefix else "bio_cnt_prem"
 
+    lbl_fortress = "High Shield Mode" if is_en else "حماية فائقة"
+    lbl_rollback = "Instant Rollback" if is_en else "الاسترجاع الفوري"
+    lbl_priority = "Priority Shield Response" if is_en else "استجابة الحماية الفورية"
+
     return f"""
     <input type="hidden" id="avatar_data_url" name="avatar_data_url" value="{esc(ava_src)}">
     <input type="hidden" id="avatar_name" name="avatar_name" value="{esc(prof.get('avatar_name', ''))}">
@@ -2857,23 +2963,23 @@ def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_pr
     <input type="hidden" id="banner_name" name="banner_name" value="{esc(prof.get('banner_name', ''))}">
 
     <label class="switch-row">
-      <span>{('Ultra Fortress Mode' if is_en else 'وضع الحصن الفائق')}</span>
-      <input type="checkbox" name="{uf_name}" {'checked' if perks.get('ultra_fortress_mode') else ''}>
+      <span>{esc(lbl_fortress)}</span>
+      <input class="switch-input" type="checkbox" name="{uf_name}" {'checked' if perks.get('ultra_fortress_mode') else ''}>
     </label>
     <label class="switch-row">
-      <span>{('Instant Rollback Engine' if is_en else 'محرك الاسترجاع الفوري')}</span>
-      <input type="checkbox" name="{ir_name}" {'checked' if perks.get('instant_rollback_enabled', True) else ''}>
+      <span>{esc(lbl_rollback)}</span>
+      <input class="switch-input" type="checkbox" name="{ir_name}" {'checked' if perks.get('instant_rollback_enabled', True) else ''}>
     </label>
     <label class="switch-row">
-      <span>{('Priority Shield Response' if is_en else 'أولوية استجابة الحماية')}</span>
-      <input type="checkbox" name="{ps_name}" {'checked' if perks.get('priority_shield_response', True) else ''}>
+      <span>{esc(lbl_priority)}</span>
+      <input class="switch-input" type="checkbox" name="{ps_name}" {'checked' if perks.get('priority_shield_response', True) else ''}>
     </label>
 
-    <label class="lbl" for="{bio_id}">{('Custom Bot Bio (Full View)' if is_en else 'نبذة إضافية للبوت (البايو — مساحة واسعة لعرض النص كاملاً)')}</label>
-    <textarea id="{bio_id}" class="bio-textarea" rows="5" maxlength="190" name="bio" oninput="updateBioCounter('{bio_id}', '{cnt_id}')" placeholder="{('Enter full bot bio here...' if is_en else 'اكتب نبذة البوت هنا بكل وضوح وسيظهر النص كاملاً...')}">{esc(bio_val)}</textarea>
+    <label class="lbl" for="{bio_id}">{('Custom Bot Bio (Up to 270 chars)' if is_en else 'نبذة البوت (البايو — حتى 270 حرفاً)')}</label>
+    <textarea id="{bio_id}" class="bio-textarea" rows="5" maxlength="{MAX_BIO_CHARS}" name="bio" oninput="updateBioCounter('{bio_id}', '{cnt_id}')" placeholder="{('Enter full bot bio here...' if is_en else 'اكتب نبذة البوت هنا بكل وضوح حتى 270 حرفاً...')}">{esc(bio_val)}</textarea>
     <div class="bio-meta">
-      <span>{('Supports multi-line full preview' if is_en else 'مساحة موسعة لقراءة وتعديل البايو بالكامل')}</span>
-      <span id="{cnt_id}">{len(bio_val)} / 190</span>
+      <span>{('Full bio preview up to 270 characters' if is_en else 'الحد الأقصى للبايو 270 حرفاً')}</span>
+      <span id="{cnt_id}">{len(bio_val)} / {MAX_BIO_CHARS}</span>
     </div>
 
     <div class="album-box">
@@ -3097,8 +3203,8 @@ async def handle_guild(request: web.Request) -> web.Response:
         lbl_txt = rk if is_en else ANTINUKE_LABELS_AR.get(rk, rk)
         rules_html += f"""
         <div class="list-row" style="flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:8px;font-weight:700;">
-            <input type="checkbox" name="an_{rk}_enabled" {'checked' if r_cfg.get('enabled') else ''}>
+          <label style="display:flex;align-items:center;gap:10px;font-weight:700;cursor:pointer;">
+            <input class="switch-input" type="checkbox" name="an_{rk}_enabled" {'checked' if r_cfg.get('enabled') else ''}>
             <span>{esc(lbl_txt)}</span>
           </label>
           <div style="display:flex;gap:8px;align-items:center;">
@@ -3145,7 +3251,7 @@ async def handle_guild(request: web.Request) -> web.Response:
         prem_pane_content = _render_premium_media_fields(prof, perks, is_en=is_en, use_pr_prefix=True)
     else:
         prem_pane_content = f"""
-        <p class='muted' style='margin:0 0 12px;'>{('Bot avatar customization, custom banner, bio, ultra fortress mode, and webhook alerts are exclusive to PREMIUM members (or server boosters).' if is_en else 'تغيير أفتار البوت، البنر، النبذة، وضع الحصن الفائق، والويبهوك متاحة لمشتركي البريميوم أو داعمي البوت بالبوست.')}</p>
+        <p class='muted' style='margin:0 0 12px;'>{('Bot avatar customization, custom banner, bio, high shield mode, and webhook alerts are exclusive to PREMIUM members (or server boosters).' if is_en else 'تغيير أفتار البوت، البنر، النبذة، الحماية الفائقة، والويبهوك متاحة لمشتركي البريميوم أو داعمي البوت بالبوست.')}</p>
         <a class='btn-primary-purple' href='/links'>{('Contact Support for Premium' if is_en else 'تواصل مع الدعم للحصول على البريميوم')}</a>
         """
 
@@ -3572,7 +3678,7 @@ async def handle_admin(request: web.Request) -> web.Response:
         perm_checkboxes_html += (
             f"<label class='switch-row'>"
             f"<span>{esc(lbl_en if is_en else lbl_ar)}</span>"
-            f"<input type='checkbox' name='perm_{pk}' {'checked' if default_p.get(pk) else ''}></label>"
+            f"<input class='switch-input' type='checkbox' name='perm_{pk}' {'checked' if default_p.get(pk) else ''}></label>"
         )
 
     g_rows = "".join(_render_guild_card(g, is_en, show_admin_meta=True) for g in guilds) or "<p class='muted'>0</p>"
@@ -3732,7 +3838,7 @@ async def handle_services(request: web.Request) -> web.Response:
           <h2 style='margin:0 0 10px;'>Arab Security — Services</h2>
           <p class='muted'>Server protection rules, role and channel guards, snapshot rollback, and bot settings.</p>
           <div class='list-row'><div><strong>Server Protection</strong><div class='muted'>Spam filter, link & invite guard, role & channel guards, snapshots rollback, and server icon protection.</div></div><span class='ok-pill'>AVAILABLE</span></div>
-          <div class='list-row'><div><strong>Extra Perks</strong><div class='muted'>Ultra Fortress mode, instant rollback engine, bot avatar & banner customization, custom bio, and webhook alerts.</div></div><span class='prem-pill'>PREMIUM</span></div>
+          <div class='list-row'><div><strong>Extra Perks</strong><div class='muted'>High shield mode, instant rollback engine, bot avatar & banner customization, custom bio up to 270 chars, and webhook alerts.</div></div><span class='prem-pill'>PREMIUM</span></div>
         </div>
         """
         if is_en
@@ -3741,7 +3847,7 @@ async def handle_services(request: web.Request) -> web.Response:
           <h2 style='margin:0 0 10px;'>خدمات بوت ARAB SECURITY</h2>
           <p class='muted'>إعدادات الحماية للرولات والرومات وصورة السيرفر واسترجاع اللقطات والسبام والروابط.</p>
           <div class='list-row'><div><strong>حماية السيرفر</strong><div class='muted'>منع السبام، الروابط، الدعوات، حماية الرولات والرومات من التخريب، استرجاع اللقطات، وحماية صورة السيرفر.</div></div><span class='ok-pill'>متاح للجميع</span></div>
-          <div class='list-row'><div><strong>إضافات البريميوم</strong><div class='muted'>وضع الحصن الفائق، محرك الاسترجاع الفوري، تغيير أفتار وبنر البوت، نبذة إضافية، وتنبيهات ويبهوك.</div></div><span class='prem-pill'>بريميوم</span></div>
+          <div class='list-row'><div><strong>إضافات البريميوم</strong><div class='muted'>الحماية الفائقة، الاسترجاع الفوري، تغيير أفتار وبنر البوت، بايو حتى 270 حرفاً، وتنبيهات ويبهوك.</div></div><span class='prem-pill'>بريميوم</span></div>
         </div>
         """
     )
