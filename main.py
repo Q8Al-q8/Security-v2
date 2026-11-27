@@ -25,7 +25,7 @@ except Exception:
 
 
 SITE_NAME = (os.getenv("SITE_NAME", "ARAB SECURITY") or "ARAB SECURITY").strip()[:60]
-BRAND_LABEL_AR = "Arab Security "
+BRAND_LABEL_AR = "Arab Security"
 OWNER_NAME = (os.getenv("OWNER_NAME", "سعود السويط") or "سعود السويط").strip()[:60]
 ADMIN_USER_ID = (os.getenv("ADMIN_USER_ID", "1395418036919468073") or "1395418036919468073").strip()
 
@@ -51,7 +51,7 @@ MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").stri
 DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:QiADlkDohqCpFP6z@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "8UJ3rUf3IrJCPfYfSrzog2KiLPxr87S3"
+DEFAULT_SYNC_SECRET = "OzLxgLklbMjEbhRg7__f8HvtQo1BK584"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -60,7 +60,7 @@ SESSION_SECRET = (
     else "ArabSecurity_Session_Secret_2026_x9K#mP2vL8qR5tW7zY3nB6jH4cF1gD0sA"
 )
 BOT_SYNC_SECRET = (
-    (os.environ.get("BOT_SYNC_SECRET") or "OzLxgLklbMjEbhRg7__f8HvtQo1BK584").strip()
+    (os.environ.get("BOT_SYNC_SECRET") or "8UJ3rUf3IrJCPfYfSrzog2KiLPxr87S3").strip()
     or (os.environ.get("SILENT_SECRET") or "").strip()
     or DEFAULT_SYNC_SECRET
 )
@@ -2177,7 +2177,7 @@ async def api_ui_state(request: web.Request) -> web.Response:
             "backups": backups_now,
             "premium": {
                 "active": is_prem,
-                "planName": "بريميوم عرب سكيورتي الماسي",
+                "planName": f"بريميوم {BRAND_LABEL_AR} الماسي",
                 "customBio": sanitize_bio_text((cfg.get("guild_profile") or {}).get("bio", ""))
                 or "درع الحماية المتكامل لصد هجمات النيوك والسبام وحفظ السيرفر تلقائياً.",
                 "customAvatar": sanitize_image_data_url((cfg.get("guild_profile") or {}).get("avatar_data_url", ""))
@@ -2456,13 +2456,19 @@ def _build_new_ui_html(request: web.Request) -> str:
     invite_href_json = json.dumps("/invite")
     support_href_json = json.dumps(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.gg/vV84RqJNks")
     perm_labels_json = json.dumps(ADMIN_PERMISSION_LABELS_AR)
+    brand_ar_escaped = esc(BRAND_LABEL_AR)
+    owner_escaped = esc(OWNER_NAME)
+    site_escaped = esc(SITE_NAME)
+    admin_uid_escaped = esc(ADMIN_USER_ID)
+    logo_escaped = esc(BRAND_LOGO_SVG_DATA_URL)
+    support_link_escaped = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
 
     return f"""<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{esc(BRAND_LABEL_AR)} ({esc(SITE_NAME)}) — منظومة الحماية والإدارة</title>
+  <title>{brand_ar_escaped} ({site_escaped}) — منظومة الحماية والإدارة</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -2533,16 +2539,16 @@ def _build_new_ui_html(request: web.Request) -> str:
           </button>
 
           <button type="button" onclick="navigateTo('home')" class="flex items-center gap-2.5 text-right min-w-0">
-            <img src="{esc(BRAND_LOGO_SVG_DATA_URL)}" alt="{esc(BRAND_LABEL_AR)}" class="w-10 h-10 rounded-2xl object-cover ring-1 ring-violetglow/60 shrink-0" />
+            <img src="{logo_escaped}" alt="{brand_ar_escaped}" class="w-10 h-10 rounded-2xl object-cover ring-1 ring-violetglow/60 shrink-0" />
             <div class="truncate">
               <div class="flex items-center gap-2">
-                <span class="font-extrabold text-base sm:text-lg text-white">{esc(BRAND_LABEL_AR)}</span>
+                <span class="font-extrabold text-base sm:text-lg text-white">{brand_ar_escaped}</span>
                 <span class="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emeraldsafe/15 text-emeraldsafe border border-emeraldsafe/30">
                   <span class="w-1.5 h-1.5 rounded-full bg-emeraldsafe"></span>
-                  {esc(SITE_NAME)}
+                  {site_escaped}
                 </span>
               </div>
-              <p class="text-[11px] text-slate-400 truncate">بإشراف {esc(OWNER_NAME)}</p>
+              <p class="text-[11px] text-slate-400 truncate">بإشراف {owner_escaped}</p>
             </div>
           </button>
         </div>
@@ -2568,7 +2574,7 @@ def _build_new_ui_html(request: web.Request) -> str:
             <button type="button" onclick="closeDrawer()" class="p-2 rounded-xl bg-white/[0.04] text-slate-300">✕</button>
           </div>
           <div id="drawer-profile-box" class="mt-4 p-4 rounded-2xl bg-gradient-to-br from-violetcore/15 via-panel to-midnight border border-violetcore/25 flex items-center gap-3.5">
-            <img id="drawer-avatar" src="{esc(BRAND_LOGO_SVG_DATA_URL)}" alt="صورة الحساب" class="w-14 h-14 rounded-2xl object-cover ring-2 ring-violetglow/60 shrink-0" />
+            <img id="drawer-avatar" src="{logo_escaped}" alt="صورة الحساب" class="w-14 h-14 rounded-2xl object-cover ring-2 ring-violetglow/60 shrink-0" />
             <div class="min-w-0">
               <p class="text-[11px] font-semibold text-violetglow mb-0.5">الحساب</p>
               <h3 id="drawer-username" class="text-base font-extrabold text-white truncate">زائر غير مسجل</h3>
@@ -2590,11 +2596,11 @@ def _build_new_ui_html(request: web.Request) -> str:
     <footer class="border-t border-white/[0.06] bg-[#080a14]/75 backdrop-blur-md mt-auto">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
         <div class="flex items-center gap-2">
-          <span class="font-extrabold text-slate-200">{esc(BRAND_LABEL_AR)} • {esc(SITE_NAME)}</span>
+          <span class="font-extrabold text-slate-200">{brand_ar_escaped} • {site_escaped}</span>
           <span>•</span>
-          <span>بإشراف {esc(OWNER_NAME)} © 2026</span>
+          <span>بإشراف {owner_escaped} © 2026</span>
         </div>
-        <a href="${{esc(sanitize_http_url(SUPPORT_SERVER_URL) or 'https://discord.com')}}" target="_blank" rel="noopener noreferrer" class="text-violetglow font-bold hover:underline">انضم لسيرفر الدعم الفني</a>
+        <a href="{support_link_escaped}" target="_blank" rel="noopener noreferrer" class="text-violetglow font-bold hover:underline">انضم لسيرفر الدعم الفني</a>
       </div>
     </footer>
   </div>
@@ -2604,6 +2610,8 @@ def _build_new_ui_html(request: web.Request) -> str:
     const SUPPORT_URL = {support_href_json};
     const LOGO_URL = {logo_json};
     const PERM_LABELS = {perm_labels_json};
+    const BRAND_AR = {json.dumps(BRAND_LABEL_AR)};
+    const ADMIN_UID = {json.dumps(ADMIN_USER_ID)};
 
     let state = {{
       isAuthenticated: {is_auth_json},
@@ -2630,7 +2638,7 @@ def _build_new_ui_html(request: web.Request) -> str:
       backups: [],
       premium: {{
         active: {is_prem_json},
-        planName: "بريميوم عرب سكيورتي الماسي",
+        planName: "بريميوم " + BRAND_AR + " الماسي",
         customBio: "درع الحماية المتكامل لصد هجمات النيوك والسبام وحفظ السيرفر تلقائياً.",
         customAvatar: {logo_json},
         customBanner: "https://placehold.co/900x260/16132e/9a82ff?text=ARAB+SECURITY+SHIELD",
@@ -2817,7 +2825,7 @@ def _build_new_ui_html(request: web.Request) -> str:
           <div class="relative w-full max-w-md rounded-[28px] bg-gradient-to-b from-[#161932]/95 via-[#111426]/95 to-[#0c0e1c]/95 border border-white/[0.09] shadow-glass p-7 sm:p-9 text-center">
             <h1 class="text-2xl sm:text-[26px] font-black text-white mb-3">دخول ديسكورد مطلوب</h1>
             <p class="text-sm text-slate-300 leading-relaxed max-w-xs mx-auto mb-7">
-              الداشبورد ولوحة الحماية مقفلة حتى تسجيل الدخول. اضغط دخول ديسكورد للوصول إلى <span class="text-violetglow font-extrabold">{escapeHtml("{BRAND_LABEL_AR}")}</span>.
+              الداشبورد ولوحة الحماية مقفلة حتى تسجيل الدخول. اضغط دخول ديسكورد للوصول إلى <span class="text-violetglow font-extrabold">${{escapeHtml(BRAND_AR)}}</span>.
             </p>
             <a href="/login?next=/ui" class="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#d8d4ff] via-[#e9e6ff] to-[#c9c2ff] text-[#17142e] font-extrabold text-sm sm:text-base flex items-center justify-center gap-2.5">
               <span>دخول ديسكورد</span>
@@ -2833,7 +2841,7 @@ def _build_new_ui_html(request: web.Request) -> str:
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <a href="${{escapeHtml(INVITE_URL)}}" class="group rounded-2xl bg-gradient-to-br from-violetcore/15 via-panel to-card border border-violetcore/30 hover:border-violetglow/70 p-5 flex items-center justify-between gap-4 shadow-glass">
               <div class="min-w-0">
-                <div class="font-extrabold text-base text-white">دعوة بوت {escapeHtml("{BRAND_LABEL_AR}")}</div>
+                <div class="font-extrabold text-base text-white">دعوة بوت ${{escapeHtml(BRAND_AR)}}</div>
                 <p class="text-xs text-slate-400 mt-1">أضف البوت إلى سيرفرك لتفعيل لوحة الحماية والتعديل</p>
               </div>
               <span class="text-violetglow font-black text-lg">←</span>
@@ -2861,7 +2869,7 @@ def _build_new_ui_html(request: web.Request) -> str:
           <section class="relative rounded-[28px] bg-gradient-to-br from-[#161a34] via-[#111529] to-[#0c0f1e] border border-white/[0.09] p-6 sm:p-9 shadow-glass">
             <div class="space-y-4 max-w-2xl">
               <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violetcore/15 border border-violetcore/35 text-xs font-extrabold text-violetglow">
-                <span>منظومة {escapeHtml("{BRAND_LABEL_AR}")} • {escapeHtml("{SITE_NAME}")}</span>
+                <span>منظومة ${{escapeHtml(BRAND_AR)}} • {site_escaped}</span>
               </div>
               <h1 class="text-2xl sm:text-4xl font-black text-white leading-tight">
                 حماية فورية وذكية لسيرفراتك ضد
@@ -2871,7 +2879,7 @@ def _build_new_ui_html(request: web.Request) -> str:
                 تحكم كامل في أنظمة الحماية، الحدود والعقوبات، اللقطات والاسترجاع التلقائي، مزايا البريميوم، ولوحة الإدارة المرتبطة مباشرة بقاعدة البيانات.
               </p>
               <div class="pt-2 flex flex-wrap items-center gap-3">
-                <a href="${{escapeHtml(INVITE_URL)}}" class="px-5 py-3 rounded-2xl bg-gradient-to-r from-violetcore to-indigo-500 text-white font-extrabold text-sm shadow-violet">دعوة بوت {escapeHtml("{BRAND_LABEL_AR}")}</a>
+                <a href="${{escapeHtml(INVITE_URL)}}" class="px-5 py-3 rounded-2xl bg-gradient-to-r from-violetcore to-indigo-500 text-white font-extrabold text-sm shadow-violet">دعوة بوت ${{escapeHtml(BRAND_AR)}}</a>
                 ${{state.isAuthenticated && state.guilds.length > 0 ? `<button type="button" onclick="navigateTo('protection')" class="px-5 py-3 rounded-2xl bg-white/[0.06] text-white border border-white/[0.12] font-extrabold text-sm">لوحة الحماية</button>` : ""}}
                 ${{state.isAuthenticated && state.isPremium ? `<button type="button" onclick="navigateTo('premium')" class="px-5 py-3 rounded-2xl bg-white/[0.05] text-amberwarn border border-amberwarn/30 font-extrabold text-sm">البريميوم</button>` : ""}}
                 ${{state.isAuthenticated && state.isAdmin ? `<button type="button" onclick="navigateTo('admin')" class="px-5 py-3 rounded-2xl bg-white/[0.05] text-violetglow border border-violetcore/35 font-extrabold text-sm">لوحة الإدارة</button>` : ""}}
@@ -2906,7 +2914,7 @@ def _build_new_ui_html(request: web.Request) -> str:
           <div class="rounded-3xl bg-card/90 border border-white/[0.08] p-7 text-center space-y-4">
             <h2 class="text-xl font-black text-white">يجب إدخال البوت إلى السيرفر أولاً</h2>
             <p class="text-xs text-slate-400">لا يمكن فتح لوحة الحماية أو تعديل إعدادات سيرفر غير مضاف فيه البوت.</p>
-            <a href="${{escapeHtml(INVITE_URL)}}" class="inline-block px-5 py-2.5 rounded-xl text-xs font-extrabold bg-violetcore text-white">دعوة بوت {escapeHtml("{BRAND_LABEL_AR}")}</a>
+            <a href="${{escapeHtml(INVITE_URL)}}" class="inline-block px-5 py-2.5 rounded-xl text-xs font-extrabold bg-violetcore text-white">دعوة بوت ${{escapeHtml(BRAND_AR)}}</a>
           </div>
         `;
       }}
@@ -2946,7 +2954,7 @@ def _build_new_ui_html(request: web.Request) -> str:
       const trustedHtml = (guild.trustedAdmins || []).map((tid) => `
         <div class="flex items-center justify-between gap-2 p-3 rounded-xl bg-[#0b0e1c] border border-white/[0.07]">
           <span class="text-xs font-mono text-slate-200">${{escapeHtml(tid)}}</span>
-          ${{tid !== "{escapeHtml(ADMIN_USER_ID)}" ? `<button type="button" onclick="removeTrustedAdmin('${{escapeHtml(tid)}}')" class="px-3 py-1 rounded-lg text-xs font-bold bg-coralalert/20 text-coralalert">إزالة</button>` : `<span class="text-[11px] text-amberwarn font-bold">Owner</span>`}}
+          ${{tid !== ADMIN_UID ? `<button type="button" onclick="removeTrustedAdmin('${{escapeHtml(tid)}}')" class="px-3 py-1 rounded-lg text-xs font-bold bg-coralalert/20 text-coralalert">إزالة</button>` : `<span class="text-[11px] text-amberwarn font-bold">Owner</span>`}}
         </div>
       `).join("");
 
@@ -3182,7 +3190,7 @@ def _build_new_ui_html(request: web.Request) -> str:
         return `
           <div class="rounded-3xl bg-card/90 border border-white/[0.08] p-7 text-center space-y-4">
             <h2 class="text-xl font-black text-white">يجب إدخال البوت إلى السيرفر أولاً</h2>
-            <a href="${{escapeHtml(INVITE_URL)}}" class="inline-block px-5 py-2.5 rounded-xl text-xs font-extrabold bg-violetcore text-white">دعوة بوت {escapeHtml("{BRAND_LABEL_AR}")}</a>
+            <a href="${{escapeHtml(INVITE_URL)}}" class="inline-block px-5 py-2.5 rounded-xl text-xs font-extrabold bg-violetcore text-white">دعوة بوت ${{escapeHtml(BRAND_AR)}}</a>
           </div>
         `;
       }}
@@ -3190,7 +3198,7 @@ def _build_new_ui_html(request: web.Request) -> str:
       return `
         <div class="animate-panel-enter space-y-6">
           <section class="rounded-[28px] bg-gradient-to-br from-[#231b3d] via-[#15182e] to-[#0d1020] border border-amberwarn/30 p-6 sm:p-8 shadow-glass">
-            <span class="inline-block px-3 py-1 rounded-full bg-amberwarn/15 border border-amberwarn/35 text-amberwarn text-xs font-extrabold mb-2">{escapeHtml("{BRAND_LABEL_AR}")} PREMIUM</span>
+            <span class="inline-block px-3 py-1 rounded-full bg-amberwarn/15 border border-amberwarn/35 text-amberwarn text-xs font-extrabold mb-2">${{escapeHtml(BRAND_AR)}} PREMIUM</span>
             <h1 class="text-2xl sm:text-3xl font-black text-white">${{escapeHtml(pr.planName)}}</h1>
             <p class="text-xs sm:text-sm text-slate-300 mt-1">تخصيص هوية البوت للسيرفر (${{escapeHtml(guild.name)}}).</p>
           </section>
@@ -3242,7 +3250,7 @@ def _build_new_ui_html(request: web.Request) -> str:
               <div class="text-[11px] text-slate-400 font-mono">${{escapeHtml(u.user_id)}}</div>
             </div>
           </div>
-          ${{u.user_id !== "{escapeHtml(ADMIN_USER_ID)}" ? `<button type="button" onclick="revokeSpecificPrem('${{escapeHtml(u.user_id)}}')" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-coralalert/20 text-coralalert">سحب</button>` : `<span class="text-[11px] text-amberwarn font-bold">Owner</span>`}}
+          ${{u.user_id !== ADMIN_UID ? `<button type="button" onclick="revokeSpecificPrem('${{escapeHtml(u.user_id)}}')" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-coralalert/20 text-coralalert">سحب</button>` : `<span class="text-[11px] text-amberwarn font-bold">Owner</span>`}}
         </div>
       `).join("");
 
@@ -3269,7 +3277,7 @@ def _build_new_ui_html(request: web.Request) -> str:
             <span class="text-xs font-mono text-white">${{escapeHtml(st.user_id)}}</span>
             <span class="mr-2 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-violetcore/20 text-violetglow">${{escapeHtml(st.role_tag)}}</span>
           </div>
-          ${{st.user_id !== "{escapeHtml(ADMIN_USER_ID)}" ? `<button type="button" onclick="removeStaffMember('${{escapeHtml(st.user_id)}}')" class="px-3 py-1 rounded-lg text-xs font-bold bg-coralalert/20 text-coralalert">إزالة</button>` : ""}}
+          ${{st.user_id !== ADMIN_UID ? `<button type="button" onclick="removeStaffMember('${{escapeHtml(st.user_id)}}')" class="px-3 py-1 rounded-lg text-xs font-bold bg-coralalert/20 text-coralalert">إزالة</button>` : ""}}
         </div>
       `).join("");
 
