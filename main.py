@@ -2282,14 +2282,15 @@ def render_page(
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   }}
   .icon-btn:hover {{
-    background: rgba(147, 51, 234, 0.38);
+    background: rgba(147, 51, 234, 0.42);
     border-color: var(--card-border-bright);
     transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(147, 51, 234, 0.28);
   }}
-  .icon-btn:active {{ transform: scale(0.96); }}
+  .icon-btn:active {{ transform: scale(0.95); }}
   .lang-btn {{ font-size: 12.5px; }}
   .top-right {{
     display: flex;
@@ -2326,36 +2327,44 @@ def render_page(
   .hero-desc {{ margin: 0 auto 22px; max-width: 540px; font-size: 14px; line-height: 1.75; color: var(--text-sub); font-weight: 600; }}
   .hero-actions {{ display: flex; flex-direction: column; gap: 10px; }}
   .btn-primary-purple {{
-    display: block; width: 100%; padding: 13px 18px; border-radius: 13px;
-    background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
+    display: block; width: 100%; padding: 13px 18px; border-radius: 14px;
+    background: linear-gradient(135deg, #9333ea 0%, #c026d3 100%);
     border: 1px solid var(--card-border-bright); color: #fff; text-decoration: none;
     font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(147, 51, 234, 0.3);
     transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
   }}
   .btn-primary-purple:hover {{
-    transform: translateY(-1px);
-    filter: brightness(1.09);
-    box-shadow: 0 8px 22px rgba(147, 51, 234, 0.42);
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+    box-shadow: 0 10px 26px rgba(168, 85, 247, 0.48);
   }}
   .btn-primary-purple:active {{ transform: scale(0.985); }}
   .btn-crimson {{
-    display: block; width: 100%; padding: 13px 18px; border-radius: 13px;
+    display: block; width: 100%; padding: 13px 18px; border-radius: 14px;
     background: linear-gradient(135deg, #be185d 0%, #831843 100%);
-    border: 1px solid rgba(244, 114, 182, 0.42); color: #fff; text-decoration: none;
+    border: 1px solid rgba(244, 114, 182, 0.48); color: #fff; text-decoration: none;
     font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
-    transition: transform 0.16s ease, filter 0.16s ease;
+    box-shadow: 0 6px 16px rgba(190, 24, 93, 0.25);
+    transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
   }}
-  .btn-crimson:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
+  .btn-crimson:hover {{
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+    box-shadow: 0 10px 22px rgba(244, 114, 182, 0.35);
+  }}
+  .btn-crimson:active {{ transform: scale(0.985); }}
   .btn-secondary-dark {{
-    display: block; width: 100%; padding: 13px 18px; border-radius: 13px;
-    background: rgba(24, 13, 45, 0.94); border: 1px solid var(--card-border);
+    display: block; width: 100%; padding: 13px 18px; border-radius: 14px;
+    background: rgba(26, 15, 48, 0.96); border: 1px solid var(--card-border);
     color: #f5f3ff; text-decoration: none; font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
-    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   }}
   .btn-secondary-dark:hover {{
-    transform: translateY(-1px);
-    background: rgba(42, 22, 78, 0.96);
+    transform: translateY(-2px);
+    background: rgba(46, 24, 86, 0.98);
     border-color: var(--card-border-bright);
+    box-shadow: 0 8px 20px rgba(88, 28, 135, 0.32);
   }}
   .btn-secondary-dark:active {{ transform: scale(0.985); }}
   .stat-card {{
@@ -2407,7 +2416,7 @@ def render_page(
     margin-bottom: 16px;
   }}
   .cat-tab-btn {{
-    background: rgba(24, 13, 45, 0.92);
+    background: rgba(24, 13, 45, 0.94);
     border: 1px solid var(--card-border);
     color: #e9d5ff;
     border-radius: 12px;
@@ -2420,13 +2429,15 @@ def render_page(
   }}
   .cat-tab-btn:hover {{
     border-color: var(--card-border-bright);
+    background: rgba(52, 26, 98, 0.95);
     transform: translateY(-1px);
   }}
+  .cat-tab-btn:active {{ transform: scale(0.97); }}
   .cat-tab-btn.active {{
-    background: linear-gradient(135deg, rgba(147, 51, 234, 0.42), rgba(168, 85, 247, 0.24));
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.48), rgba(217, 70, 239, 0.28));
     border-color: var(--card-border-bright);
     color: #ffffff;
-    box-shadow: 0 0 18px rgba(168, 85, 247, 0.3);
+    box-shadow: 0 0 18px rgba(168, 85, 247, 0.34);
   }}
   .cat-pane {{ display: none; }}
   .cat-pane.active {{ display: block; animation: fadeSlideUp 0.2s ease both; }}
@@ -2514,18 +2525,35 @@ def render_page(
   .prem-pill {{ font-size: 10px; padding: 3px 9px; border-radius: 999px; background: rgba(192, 132, 252, 0.24); border: 1px solid rgba(232, 121, 249, 0.6); color: #fdf4ff; font-weight: 800; }}
   .admin-pill {{ font-size: 10px; padding: 3px 8px; border-radius: 6px; background: rgba(147, 51, 234, 0.32); border: 1px solid var(--card-border-bright); color: #f3e8ff; font-weight: 800; }}
   .login-btn {{
-    display: block; text-align: center; padding: 10px 12px; border-radius: 12px;
-    background: linear-gradient(135deg, #9333ea, #7e22ce); color: #fff; text-decoration: none; font-weight: 800; font-size: 13px;
-    transition: filter 0.15s ease, transform 0.15s ease;
+    display: block; text-align: center; padding: 11px 14px; border-radius: 13px;
+    background: linear-gradient(135deg, #9333ea, #c026d3); color: #fff; text-decoration: none; font-weight: 800; font-size: 13.5px;
+    box-shadow: 0 6px 16px rgba(147, 51, 234, 0.32);
+    transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   }}
-  .login-btn:hover {{ filter: brightness(1.08); transform: translateY(-1px); }}
-  .inp, .sel {{
-    width: 100%; background: rgba(10, 5, 20, 0.95); border: 1px solid var(--card-border);
-    color: #fff; border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px;
-    transition: border-color 0.15s ease;
+  .login-btn:hover {{ filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 8px 20px rgba(168, 85, 247, 0.45); }}
+  .inp, .sel, .bio-textarea {{
+    width: 100%; background: rgba(10, 5, 20, 0.96); border: 1px solid var(--card-border);
+    color: #fff; border-radius: 12px; padding: 11px 13px; font-size: 14px; margin-bottom: 10px;
+    font-family: inherit;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }}
-  .inp:focus, .sel:focus {{ outline: none; border-color: var(--card-border-bright); }}
+  .bio-textarea {{
+    min-height: 132px;
+    margin-top: 10px;
+    margin-bottom: 6px;
+    line-height: 1.65;
+    resize: vertical;
+  }}
+  .inp:focus, .sel:focus, .bio-textarea:focus {{
+    outline: none;
+    border-color: var(--card-border-bright);
+    box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.18);
+  }}
   .lbl {{ display: block; font-size: 12.5px; color: #e9d5ff; margin: 8px 0 5px; font-weight: 700; }}
+  .bio-meta {{
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    font-size: 11.5px; color: #c4b5fd; margin-bottom: 12px;
+  }}
   .switch-row {{
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
     padding: 10px 12px; border-radius: 12px; background: rgba(168, 85, 247, 0.05);
@@ -2548,18 +2576,27 @@ def render_page(
     display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; color: #fff;
   }}
   .mini-btn {{
-    padding: 9px 12px; border-radius: 11px; border: 1px solid var(--card-border-bright);
-    background: rgba(147, 51, 234, 0.34); color: #fff; font-size: 12.5px; font-weight: 800; cursor: pointer; text-align: center;
-    transition: background 0.15s ease, transform 0.15s ease;
+    padding: 9px 13px; border-radius: 11px; border: 1px solid var(--card-border-bright);
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.48), rgba(168, 85, 247, 0.34));
+    color: #fff; font-size: 12.5px; font-weight: 800; cursor: pointer; text-align: center;
+    transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   }}
-  .mini-btn:hover {{ background: rgba(168, 85, 247, 0.52); transform: translateY(-1px); }}
+  .mini-btn:hover {{
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.72), rgba(217, 70, 239, 0.52));
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(147, 51, 234, 0.3);
+  }}
+  .mini-btn:active {{ transform: scale(0.96); }}
   .mini-btn.red {{
-    border-color: rgba(244, 114, 182, 0.48);
-    background: rgba(190, 24, 93, 0.32);
+    border-color: rgba(244, 114, 182, 0.55);
+    background: linear-gradient(135deg, rgba(190, 24, 93, 0.48), rgba(131, 24, 67, 0.48));
   }}
-  .mini-btn.red:hover {{ background: rgba(190, 24, 93, 0.5); }}
+  .mini-btn.red:hover {{
+    background: linear-gradient(135deg, rgba(219, 39, 119, 0.72), rgba(157, 23, 77, 0.68));
+    box-shadow: 0 6px 14px rgba(219, 39, 119, 0.32);
+  }}
   .album-box {{
-    padding: 12px; border-radius: 14px; background: rgba(10, 5, 20, 0.84);
+    padding: 13px; border-radius: 14px; background: rgba(10, 5, 20, 0.86);
     border: 1px dashed var(--card-border-bright); margin-bottom: 12px;
   }}
   .preview-thumb {{
@@ -2617,6 +2654,13 @@ function switchCat(catKey, btn) {{
   if (btn) btn.classList.add("active");
   var pane = document.getElementById("cat-" + catKey);
   if (pane) pane.classList.add("active");
+}}
+function updateBioCounter(taId, cntId) {{
+  var ta = document.getElementById(taId);
+  var cnt = document.getElementById(cntId);
+  if (ta && cnt) {{
+    cnt.textContent = (ta.value || "").length + " / 190";
+  }}
 }}
 function filterGuildsList(queryVal) {{
   var q = (queryVal || "").trim().toLowerCase();
@@ -2789,6 +2833,7 @@ def _process_premium_profile_and_perks(form: dict, cur_prof: dict, cur_perks: di
 def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_prefix: bool = False) -> str:
     ava_src = str(prof.get("avatar_data_url", "") or "")
     ban_src = str(prof.get("banner_data_url", "") or "")
+    bio_val = str(prof.get("bio", "") or "")
     ava_img_tag = (
         f"<img id='ava_preview' class='preview-thumb' src='{esc(ava_src)}' alt=''>"
         if ava_src
@@ -2802,6 +2847,8 @@ def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_pr
     uf_name = "pr_ultra_fortress" if use_pr_prefix else "ultra_fortress_mode"
     ir_name = "pr_instant_rollback" if use_pr_prefix else "instant_rollback_enabled"
     ps_name = "pr_priority_shield" if use_pr_prefix else "priority_shield_response"
+    bio_id = "bio_area_guild" if use_pr_prefix else "bio_area_prem"
+    cnt_id = "bio_cnt_guild" if use_pr_prefix else "bio_cnt_prem"
 
     return f"""
     <input type="hidden" id="avatar_data_url" name="avatar_data_url" value="{esc(ava_src)}">
@@ -2822,8 +2869,12 @@ def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_pr
       <input type="checkbox" name="{ps_name}" {'checked' if perks.get('priority_shield_response', True) else ''}>
     </label>
 
-    <label class="lbl">{('Custom Bot Bio' if is_en else 'نبذة إضافية للبوت (البايو)')}</label>
-    <input class="inp" type="text" maxlength="190" name="bio" value="{esc(prof.get('bio', ''))}" placeholder="{('Enter bot bio...' if is_en else 'اكتب نبذة للبوت...')}">
+    <label class="lbl" for="{bio_id}">{('Custom Bot Bio (Full View)' if is_en else 'نبذة إضافية للبوت (البايو — مساحة واسعة لعرض النص كاملاً)')}</label>
+    <textarea id="{bio_id}" class="bio-textarea" rows="5" maxlength="190" name="bio" oninput="updateBioCounter('{bio_id}', '{cnt_id}')" placeholder="{('Enter full bot bio here...' if is_en else 'اكتب نبذة البوت هنا بكل وضوح وسيظهر النص كاملاً...')}">{esc(bio_val)}</textarea>
+    <div class="bio-meta">
+      <span>{('Supports multi-line full preview' if is_en else 'مساحة موسعة لقراءة وتعديل البايو بالكامل')}</span>
+      <span id="{cnt_id}">{len(bio_val)} / 190</span>
+    </div>
 
     <div class="album-box">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
@@ -3360,7 +3411,7 @@ async def handle_premium(request: web.Request) -> web.Response:
         {media_fields_html}
       </div>
 
-      <button class="btn-primary-purple" type="submit">{('Save' if is_en else 'حفظ')}</button>
+      <button class="btn-primary-purple" type="submit">{('Save Premium Settings' if is_en else 'حفظ إعدادات البريميوم')}</button>
     </form>
     """
     return web.Response(text=render_page("Premium" if is_en else "البريميوم", "premium", body, request, flash=flash), content_type="text/html")
@@ -3503,8 +3554,12 @@ async def handle_admin(request: web.Request) -> web.Response:
             else:
                 flash = "Check required IDs or fields." if is_en else "تأكد من إدخال الآيدي أو الحقول المطلوبة بشكل صحيح."
 
-    csrf_tok = issue_csrf_token(session_id)
-    req_nonce = secrets.token_hex(12)
+    def _new_form_sec() -> str:
+        return (
+            f"<input type='hidden' name='csrf_token' value='{esc(issue_csrf_token(session_id))}'>"
+            f"<input type='hidden' name='req_nonce' value='{esc(secrets.token_hex(12))}'>"
+        )
+
     guilds = get_all_guilds()
     backups = get_db_backups()
     admins = get_admin_list()
@@ -3577,8 +3632,7 @@ async def handle_admin(request: web.Request) -> web.Response:
 
       <div id="cat-adm_prem" class="cat-pane active">
         <form method="post" class="sub-panel" style="margin-bottom:0;">
-          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
-          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          {_new_form_sec()}
           <div class="sub-panel-head">
             <h3 class="sub-panel-title">{('Premium Subscriptions (Custom Duration)' if is_en else 'إدارة البريميوم (حدد المدة بنفسك)')}</h3>
             <span class="prem-pill">PREMIUM ({len(prems)})</span>
@@ -3608,8 +3662,7 @@ async def handle_admin(request: web.Request) -> web.Response:
 
       <div id="cat-adm_staff" class="cat-pane">
         <form method="post" class="sub-panel" style="margin-bottom:0;">
-          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
-          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          {_new_form_sec()}
           <div class="sub-panel-head">
             <h3 class="sub-panel-title">{('Admins & Custom Permissions' if is_en else 'إدارة الأدمن وتحديد الصلاحيات')}</h3>
             <span class="admin-pill">ADMINS ({len(admins)})</span>
@@ -3627,8 +3680,7 @@ async def handle_admin(request: web.Request) -> web.Response:
 
       <div id="cat-adm_remote" class="cat-pane">
         <form method="post" class="sub-panel" style="margin-bottom:0;">
-          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
-          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          {_new_form_sec()}
           <div class="sub-panel-head">
             <h3 class="sub-panel-title">{('Remote Actions & Broadcast' if is_en else 'الأوامر عن بُعد والبث')}</h3>
             <span class="tag">REMOTE</span>
@@ -3646,8 +3698,7 @@ async def handle_admin(request: web.Request) -> web.Response:
 
       <div id="cat-adm_sys" class="cat-pane">
         <form method="post" class="sub-panel" style="margin-bottom:0;">
-          <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
-          <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+          {_new_form_sec()}
           <div class="sub-panel-head">
             <h3 class="sub-panel-title">{('Safety Checks & Backups' if is_en else 'فحص الجاهزية والنسخ الاحتياطي')}</h3>
             <span class="tag">SYSTEM</span>
