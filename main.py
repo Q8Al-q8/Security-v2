@@ -2165,8 +2165,8 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
 def _mark_svg(size: int = 18) -> str:
     return (
         f"<svg width='{size}' height='{size}' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>"
-        "<path d='M12 3l7 3.2v5.8c0 4.6-3 8.4-7 10-4-1.6-7-5.4-7-10V6.2L12 3z'/>"
-        "<path d='M9 12l2 2 4-4'/>"
+        "<polygon points='12 2 20 7 20 17 12 22 4 17 4 7 12 2'/>"
+        "<circle cx='12' cy='12' r='3'/>"
         "</svg>"
     )
 
@@ -2264,13 +2264,17 @@ def _render_stats_grid_html(is_en: bool, bot_servers_count: int, total_visits: i
     return f"""
     <section class="stats-row">
       <div class="stat-box">
-        <span class="mark-badge">01</span>
-        <div class="stat-label">{esc(visits_label)}</div>
+        <div class="stat-top">
+          <span class="stat-label">{esc(visits_label)}</span>
+          <span class="mark-badge">01</span>
+        </div>
         <div class="stat-value">{total_visits:,}</div>
       </div>
       <div class="stat-box">
-        <span class="mark-badge">02</span>
-        <div class="stat-label">{esc(servers_label)}</div>
+        <div class="stat-top">
+          <span class="stat-label">{esc(servers_label)}</span>
+          <span class="mark-badge">02</span>
+        </div>
         <div class="stat-value">{bot_servers_count:,}</div>
       </div>
     </section>
@@ -2351,34 +2355,38 @@ def _render_intro_hero_html(
     return f"""
     <div class="workspace-stack">
       <section class="surface-card">
-        <div class="meta-bar">
-          <span class="status-tag"><span class="status-dot"></span>BOT {hb_status}</span>
-          {prem_badge_html}
+        <div class="hero-split">
+          <div class="hero-main-col">
+            <div class="meta-bar">
+              <span class="status-tag"><span class="status-dot"></span>BOT {hb_status}</span>
+              {prem_badge_html}
+            </div>
+            <h1 class="main-heading">{esc(hero_heading)}</h1>
+            <p class="lead-copy">{esc(hero_desc)}</p>
+
+            <div class="action-pair">
+              <a class="btn-gold" href="{esc(primary_href)}">{esc(primary_txt)}</a>
+              <a class="btn-dark" href="{esc(secondary_href)}">{esc(secondary_txt)}</a>
+            </div>
+          </div>
+
+          <div class="monitor-box">
+            <div class="monitor-top">
+              <span class="ok-pill">{('ACTIVE' if is_en else 'نشط')}</span>
+              <span class="muted">{('Monitored Node' if is_en else 'سيرفر مسجل')}</span>
+            </div>
+            <div class="monitor-main">
+              <div class="monitor-name">{feat_name}</div>
+              <div class="muted">{esc(members_lbl)}</div>
+            </div>
+            <div class="meter-track">
+              <div class="meter-bar"></div>
+            </div>
+          </div>
         </div>
-        <h1 class="main-heading">{esc(hero_heading)}</h1>
-        <p class="lead-copy">{esc(hero_desc)}</p>
 
         <div class="pillars-grid">
           {pillars_html}
-        </div>
-
-        <div class="action-pair">
-          <a class="btn-gold" href="{esc(primary_href)}">{esc(primary_txt)}</a>
-          <a class="btn-dark" href="{esc(secondary_href)}">{esc(secondary_txt)}</a>
-        </div>
-
-        <div class="monitor-box">
-          <div class="monitor-top">
-            <span class="ok-pill">{('ACTIVE' if is_en else 'نشط')}</span>
-            <span class="muted">{('Monitored Node' if is_en else 'سيرفر مسجل')}</span>
-          </div>
-          <div class="monitor-main">
-            <div class="monitor-name">{feat_name}</div>
-            <div class="muted">{esc(members_lbl)}</div>
-          </div>
-          <div class="meter-track">
-            <div class="meter-bar"></div>
-          </div>
         </div>
       </section>
 
@@ -2499,6 +2507,11 @@ def render_page(
         active_cls = "active" if active_nav == key else ""
         nav_links_html += f"<a class='nav-item {active_cls}' href='{href}'><span>{esc(lbl)}</span>{pill_html}</a>"
 
+    quick_dock_html = ""
+    for key, href, lbl, _ in nav_items:
+        d_active = "active" if active_nav == key else ""
+        quick_dock_html += f"<a class='dock-link {d_active}' href='{href}'>{esc(lbl)}</a>"
+
     drawer_footer_btn = (
         f"<a class='drawer-logout-btn' href='/logout'><span>{esc(L['logout'])}</span></a>"
         if user
@@ -2574,7 +2587,7 @@ def render_page(
     position: fixed;
     top: 0;
     {('left' if is_en else 'right')}: 0;
-    width: 300px;
+    width: 310px;
     max-width: 86vw;
     height: 100vh;
     background: linear-gradient(180deg, rgba(16, 46, 82, 0.96) 0%, rgba(7, 22, 42, 0.98) 100%);
@@ -2604,7 +2617,7 @@ def render_page(
   .drawer-close-btn {{
     width: 32px;
     height: 32px;
-    border-radius: 9px;
+    border-radius: 999px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-muted);
@@ -2622,7 +2635,7 @@ def render_page(
     align-items: center;
     justify-content: center;
     padding: 11px 14px;
-    border-radius: 11px;
+    border-radius: 999px;
     background: var(--rose-bg);
     border: 1px solid rgba(251, 113, 133, 0.42);
     color: #FECDD3;
@@ -2632,9 +2645,9 @@ def render_page(
   }}
   .page-container {{
     width: 100%;
-    max-width: 860px;
+    max-width: 960px;
     margin: 0 auto;
-    padding: 20px 16px 56px;
+    padding: 20px 16px 64px;
     animation: fadeIn 0.24s ease both;
   }}
   .top-bar {{
@@ -2642,25 +2655,25 @@ def render_page(
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 15px;
-    border-radius: 16px;
+    padding: 11px 16px;
+    border-radius: 999px;
     background: var(--surface);
-    backdrop-filter: blur(14px);
+    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    box-shadow: 0 10px 28px rgba(3, 12, 26, 0.35);
-    margin-bottom: 18px;
+    box-shadow: 0 12px 30px rgba(3, 12, 26, 0.36);
+    margin-bottom: 12px;
   }}
   .top-left {{ display: flex; align-items: center; gap: 8px; }}
   .icon-btn {{
     height: 36px;
     min-width: 36px;
-    padding: 0 12px;
-    border-radius: 10px;
+    padding: 0 13px;
+    border-radius: 999px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-main);
     font-weight: 700;
-    font-size: 14px;
+    font-size: 13px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -2689,7 +2702,7 @@ def render_page(
   .brand-mark {{
     width: 38px;
     height: 38px;
-    border-radius: 11px;
+    border-radius: 999px;
     background: linear-gradient(135deg, rgba(168, 224, 255, 0.26), rgba(56, 138, 198, 0.18));
     border: 1px solid var(--border-strong);
     color: var(--accent-bright);
@@ -2698,12 +2711,44 @@ def render_page(
     justify-content: center;
     flex-shrink: 0;
   }}
+  .dock-bar {{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 8px 12px;
+    border-radius: 18px;
+    background: var(--surface);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border);
+    margin-bottom: 18px;
+  }}
+  .dock-bar::-webkit-scrollbar {{ display: none; }}
+  .dock-link {{
+    padding: 7px 14px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-decoration: none;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }}
+  .dock-link:hover {{ color: var(--text-main); background: var(--surface-raised); }}
+  .dock-link.active {{
+    color: #05182E;
+    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.75);
+    font-weight: 800;
+  }}
   .mark-badge {{
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 3px 8px;
-    border-radius: 7px;
+    padding: 3px 9px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid rgba(142, 212, 250, 0.36);
     color: var(--accent-bright);
@@ -2720,8 +2765,8 @@ def render_page(
     backdrop-filter: blur(12px);
     border: 1px solid var(--border-strong);
     color: var(--text-main);
-    border-radius: 13px;
-    padding: 12px 15px;
+    border-radius: 18px;
+    padding: 12px 16px;
     margin-bottom: 18px;
     font-size: 13.5px;
     font-weight: 700;
@@ -2735,24 +2780,33 @@ def render_page(
     background: var(--surface);
     backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 24px 22px;
-    box-shadow: 0 14px 36px rgba(3, 12, 26, 0.36);
+    border-radius: 26px;
+    padding: 26px 24px;
+    box-shadow: 0 16px 38px rgba(3, 12, 26, 0.38);
   }}
+  .hero-split {{
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(250px, 0.9fr);
+    gap: 18px;
+    align-items: stretch;
+    margin-bottom: 20px;
+  }}
+  @media (max-width: 720px) {{ .hero-split {{ grid-template-columns: 1fr; }} }}
+  .hero-main-col {{ display: flex; flex-direction: column; justify-content: center; }}
   .gate-card {{
     background: var(--surface);
     backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 34px 22px;
+    border-radius: 26px;
+    padding: 36px 24px;
     text-align: center;
-    box-shadow: 0 14px 36px rgba(3, 12, 26, 0.36);
+    box-shadow: 0 16px 38px rgba(3, 12, 26, 0.38);
   }}
   .gate-icon {{
-    width: 54px;
-    height: 54px;
+    width: 56px;
+    height: 56px;
     margin: 0 auto 14px;
-    border-radius: 14px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     color: var(--accent-bright);
@@ -2781,16 +2835,15 @@ def render_page(
   .meta-bar {{
     display: flex;
     align-items: center;
-    justify-content: space-between;
     flex-wrap: wrap;
     gap: 8px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }}
   .status-tag {{
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    padding: 4px 11px;
+    padding: 4px 12px;
     border-radius: 999px;
     background: var(--emerald-bg);
     border: 1px solid rgba(74, 222, 128, 0.38);
@@ -2806,7 +2859,7 @@ def render_page(
   }}
   .main-heading {{
     margin: 0 0 8px;
-    font-size: 25px;
+    font-size: 26px;
     font-weight: 800;
     color: var(--text-main);
   }}
@@ -2817,20 +2870,20 @@ def render_page(
   }}
   .pillars-grid {{
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
-    margin-bottom: 20px;
   }}
-  @media (max-width: 540px) {{ .pillars-grid {{ grid-template-columns: 1fr; }} }}
+  @media (max-width: 780px) {{ .pillars-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
+  @media (max-width: 460px) {{ .pillars-grid {{ grid-template-columns: 1fr; }} }}
   .pillar-item {{
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 14px;
-    border-radius: 12px;
+    gap: 9px;
+    padding: 13px 14px;
+    border-radius: 18px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 700;
     transition: border-color 0.15s ease, transform 0.15s ease;
   }}
@@ -2848,8 +2901,8 @@ def render_page(
     justify-content: center;
     gap: 8px;
     width: 100%;
-    padding: 12px 16px;
-    border-radius: 12px;
+    padding: 12px 18px;
+    border-radius: 999px;
     background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
     border: 1px solid rgba(186, 230, 253, 0.75);
     color: #05182E;
@@ -2867,8 +2920,8 @@ def render_page(
     justify-content: center;
     gap: 8px;
     width: 100%;
-    padding: 12px 16px;
-    border-radius: 12px;
+    padding: 12px 18px;
+    border-radius: 999px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-main);
@@ -2883,8 +2936,8 @@ def render_page(
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 10px 16px;
-    border-radius: 11px;
+    padding: 10px 18px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     color: var(--accent-bright);
@@ -2898,8 +2951,8 @@ def render_page(
   .btn-danger {{
     display: block;
     width: 100%;
-    padding: 11px 14px;
-    border-radius: 12px;
+    padding: 11px 16px;
+    border-radius: 999px;
     background: var(--rose-bg);
     border: 1px solid rgba(251, 113, 133, 0.45);
     color: #FECDD3;
@@ -2910,30 +2963,31 @@ def render_page(
     cursor: pointer;
   }}
   .monitor-box {{
-    margin-top: 18px;
-    padding: 15px 16px;
-    border-radius: 14px;
+    padding: 18px;
+    border-radius: 20px;
     background: var(--surface-input);
     border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
   }}
   .monitor-top {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }}
   .monitor-main {{
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 10px;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 14px;
   }}
-  .monitor-name {{ font-size: 15px; font-weight: 800; }}
+  .monitor-name {{ font-size: 16px; font-weight: 800; }}
   .meter-track {{
     width: 100%;
-    height: 6px;
+    height: 7px;
     border-radius: 999px;
     background: rgba(34, 86, 142, 0.42);
     overflow: hidden;
@@ -2953,12 +3007,18 @@ def render_page(
     background: var(--surface);
     backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 16px 18px;
-    box-shadow: 0 10px 26px rgba(3, 12, 26, 0.28);
+    border-radius: 22px;
+    padding: 18px 20px;
+    box-shadow: 0 12px 28px rgba(3, 12, 26, 0.30);
   }}
-  .stat-label {{ font-size: 12.5px; color: var(--text-muted); margin-top: 8px; font-weight: 600; }}
-  .stat-value {{ font-size: 25px; font-weight: 800; color: var(--text-main); margin-top: 2px; }}
+  .stat-top {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }}
+  .stat-label {{ font-size: 13px; color: var(--text-muted); font-weight: 700; }}
+  .stat-value {{ font-size: 27px; font-weight: 800; color: var(--text-main); margin-top: 8px; }}
   .support-strip {{
     display: flex;
     align-items: center;
@@ -2968,9 +3028,9 @@ def render_page(
     background: var(--surface);
     backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 16px 18px;
-    box-shadow: 0 10px 26px rgba(3, 12, 26, 0.28);
+    border-radius: 22px;
+    padding: 16px 20px;
+    box-shadow: 0 12px 28px rgba(3, 12, 26, 0.30);
   }}
   .support-strip-title {{ font-size: 15px; font-weight: 800; }}
   .support-strip-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }}
@@ -2978,10 +3038,10 @@ def render_page(
     background: var(--surface);
     backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 22px 19px;
+    border-radius: 24px;
+    padding: 24px 20px;
     margin-bottom: 18px;
-    box-shadow: 0 14px 36px rgba(3, 12, 26, 0.34);
+    box-shadow: 0 16px 38px rgba(3, 12, 26, 0.36);
   }}
   .section-head-bar {{
     display: flex;
@@ -3003,7 +3063,7 @@ def render_page(
   @media (max-width: 540px) {{ .admin-kpis {{ grid-template-columns: 1fr; }} }}
   .kpi-box {{
     padding: 14px;
-    border-radius: 13px;
+    border-radius: 18px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     text-align: center;
@@ -3011,8 +3071,8 @@ def render_page(
   .kpi-num {{ font-size: 21px; font-weight: 800; color: var(--text-main); }}
   .kpi-lbl {{ font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }}
   .cat-tabs {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 16px;
   }}
@@ -3020,8 +3080,8 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    border-radius: 11px;
-    padding: 9px 8px;
+    border-radius: 999px;
+    padding: 8px 15px;
     font-size: 12.5px;
     font-weight: 700;
     cursor: pointer;
@@ -3038,17 +3098,18 @@ def render_page(
   .cat-pane {{ display: none; }}
   .cat-pane.active {{ display: block; }}
   .link-hub-grid {{
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }}
+  @media (max-width: 600px) {{ .link-hub-grid {{ grid-template-columns: 1fr; }} }}
   .link-card {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 15px 16px;
-    border-radius: 13px;
+    padding: 16px 18px;
+    border-radius: 18px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     text-decoration: none;
@@ -3059,20 +3120,20 @@ def render_page(
   .link-card-title {{ font-weight: 800; font-size: 15px; }}
   .link-card-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }}
   .link-arrow {{
-    padding: 4px 10px;
-    border-radius: 8px;
+    padding: 4px 11px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-weight: 800;
     color: var(--accent-bright);
-    font-size: 12px;
+    font-size: 11.5px;
     flex-shrink: 0;
   }}
   .panel-section {{
     background: var(--surface-raised);
     border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 15px;
+    border-radius: 20px;
+    padding: 16px;
     margin-bottom: 14px;
   }}
   .panel-section-head {{
@@ -3081,7 +3142,7 @@ def render_page(
     justify-content: space-between;
     gap: 10px;
     margin-bottom: 12px;
-    padding-bottom: 9px;
+    padding-bottom: 10px;
     border-bottom: 1px solid var(--border);
   }}
   .panel-section-title {{ margin: 0; font-size: 14.5px; font-weight: 800; }}
@@ -3092,8 +3153,8 @@ def render_page(
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 10px 12px;
-    border-radius: 11px;
+    padding: 10px 14px;
+    border-radius: 999px;
     color: var(--text-main);
     text-decoration: none;
     font-size: 13.5px;
@@ -3107,8 +3168,8 @@ def render_page(
     color: var(--accent-bright);
   }}
   .new-badge {{
-    padding: 2px 7px;
-    border-radius: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
     background: var(--emerald-bg);
     color: var(--emerald);
     font-size: 10.5px;
@@ -3120,8 +3181,8 @@ def render_page(
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 11px 12px;
-    border-radius: 12px;
+    padding: 11px 14px;
+    border-radius: 18px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
   }}
@@ -3129,7 +3190,7 @@ def render_page(
   .guest-badge {{
     width: 38px;
     height: 38px;
-    border-radius: 10px;
+    border-radius: 999px;
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-muted);
@@ -3142,8 +3203,8 @@ def render_page(
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 10px;
-    border-radius: 10px;
+    padding: 8px 12px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-size: 11.5px;
@@ -3176,8 +3237,8 @@ def render_page(
   .uhandle {{ font-size: 11px; color: var(--text-muted); }}
   .tag {{
     font-size: 10px;
-    padding: 2px 7px;
-    border-radius: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid rgba(142, 212, 250, 0.38);
     color: var(--accent-bright);
@@ -3186,7 +3247,7 @@ def render_page(
   }}
   .ok-pill {{
     font-size: 11px;
-    padding: 4px 10px;
+    padding: 4px 11px;
     border-radius: 999px;
     background: var(--emerald-bg);
     border: 1px solid rgba(74, 222, 128, 0.36);
@@ -3196,7 +3257,7 @@ def render_page(
   }}
   .warn-pill {{
     font-size: 11px;
-    padding: 4px 10px;
+    padding: 4px 11px;
     border-radius: 999px;
     background: var(--rose-bg);
     border: 1px solid rgba(251, 113, 133, 0.42);
@@ -3206,7 +3267,7 @@ def render_page(
   }}
   .prem-pill {{
     font-size: 11px;
-    padding: 4px 10px;
+    padding: 4px 11px;
     border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
@@ -3215,8 +3276,8 @@ def render_page(
   }}
   .admin-pill {{
     font-size: 10.5px;
-    padding: 3px 8px;
-    border-radius: 7px;
+    padding: 3px 9px;
+    border-radius: 999px;
     background: rgba(125, 211, 252, 0.16);
     border: 1px solid rgba(125, 211, 252, 0.4);
     color: #E0F2FE;
@@ -3227,8 +3288,8 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-main);
-    border-radius: 11px;
-    padding: 10px 12px;
+    border-radius: 16px;
+    padding: 10px 14px;
     font-size: 13.5px;
     margin-bottom: 10px;
     font-family: inherit;
@@ -3258,8 +3319,8 @@ def render_page(
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 12px;
-    border-radius: 11px;
+    padding: 10px 14px;
+    border-radius: 16px;
     background: var(--surface-input);
     border: 1px solid var(--border);
     margin-bottom: 8px;
@@ -3305,8 +3366,8 @@ def render_page(
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    padding: 12px 14px;
-    border-radius: 12px;
+    padding: 12px 15px;
+    border-radius: 16px;
     background: var(--surface-input);
     border: 1px solid var(--border);
     margin-bottom: 8px;
@@ -3323,8 +3384,8 @@ def render_page(
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 12px 14px;
-    border-radius: 13px;
+    padding: 13px 15px;
+    border-radius: 18px;
     background: var(--surface-input);
     border: 1px solid var(--border);
     margin-bottom: 8px;
@@ -3348,7 +3409,7 @@ def render_page(
   .guild-icon-wrap {{
     width: 38px;
     height: 38px;
-    border-radius: 11px;
+    border-radius: 999px;
     overflow: hidden;
     display: inline-flex;
     align-items: center;
@@ -3369,8 +3430,8 @@ def render_page(
     font-size: 14px;
   }}
   .mini-btn {{
-    padding: 8px 12px;
-    border-radius: 10px;
+    padding: 8px 14px;
+    border-radius: 999px;
     border: 1px solid var(--border);
     background: var(--surface-raised);
     color: var(--text-main);
@@ -3392,8 +3453,8 @@ def render_page(
     color: #FECDD3;
   }}
   .album-box {{
-    padding: 12px;
-    border-radius: 12px;
+    padding: 13px 15px;
+    border-radius: 18px;
     background: var(--surface-input);
     border: 1px dashed var(--border);
     margin-bottom: 10px;
@@ -3407,7 +3468,7 @@ def render_page(
   .preview-thumb {{
     width: 68px;
     height: 68px;
-    border-radius: 11px;
+    border-radius: 16px;
     object-fit: cover;
     border: 1px solid var(--border);
     margin-top: 8px;
@@ -3416,7 +3477,7 @@ def render_page(
     width: 100%;
     max-width: 240px;
     height: 68px;
-    border-radius: 11px;
+    border-radius: 16px;
     object-fit: cover;
     border: 1px solid var(--border);
     margin-top: 8px;
@@ -3424,8 +3485,8 @@ def render_page(
   .muted {{ color: var(--text-muted); font-size: 13px; }}
   code {{
     background: var(--surface-input);
-    padding: 2px 6px;
-    border-radius: 6px;
+    padding: 2px 7px;
+    border-radius: 8px;
     font-size: 12px;
     color: var(--accent-bright);
     border: 1px solid var(--border);
@@ -3464,6 +3525,10 @@ def render_page(
       <button class="icon-btn" type="button" onclick="toggleDrawer(true)" aria-label="{esc(L['menu'])}">&#9776;</button>
     </div>
   </header>
+
+  <nav class="dock-bar" aria-label="{esc(L['menu'])}">
+    {quick_dock_html}
+  </nav>
 
   {flash_banner}
   {final_content}
@@ -3935,8 +4000,8 @@ async def handle_guild(request: web.Request) -> web.Response:
             <span>{esc(lbl_txt)}</span>
           </label>
           <div style="display:flex;gap:8px;align-items:center;">
-            <input class="inp" style="width:74px;margin:0;padding:6px 8px;" type="number" min="1" max="50" name="an_{rk}_limit" value="{int(r_cfg.get('limit', 1) or 1)}">
-            <select class="sel" style="width:136px;margin:0;padding:6px 8px;" name="an_{rk}_punishment">
+            <input class="inp" style="width:74px;margin:0;padding:6px 10px;" type="number" min="1" max="50" name="an_{rk}_limit" value="{int(r_cfg.get('limit', 1) or 1)}">
+            <select class="sel" style="width:136px;margin:0;padding:6px 10px;" name="an_{rk}_punishment">
               <option value="Kick" {'selected' if pun_cur == 'Kick' else ''}>Kick</option>
               <option value="Ban" {'selected' if pun_cur == 'Ban' else ''}>Ban</option>
               <option value="Remove Roles" {'selected' if pun_cur == 'Remove Roles' else ''}>Remove Roles</option>
@@ -4537,7 +4602,7 @@ async def handle_admin(request: web.Request) -> web.Response:
             <form method="post" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0;">
               {_new_form_sec()}
               <input type="hidden" name="prem_user_id" value="{p_uid_esc}">
-              <input class="inp" style="width:74px;margin:0;padding:7px 9px;font-size:12px;" type="number" min="1" max="3650" name="prem_days" value="7">
+              <input class="inp" style="width:74px;margin:0;padding:7px 10px;font-size:12px;" type="number" min="1" max="3650" name="prem_days" value="7">
               <button class="mini-btn" type="submit" name="admin_action" value="extend_premium">{('+ Add Duration' if is_en else 'زيادة المدة')}</button>
               <button class="mini-btn red" type="submit" name="admin_action" value="revoke_premium">{('Revoke' if is_en else 'سحب')}</button>
             </form>
@@ -4997,25 +5062,27 @@ async def handle_callback(request: web.Request) -> web.Response:
         return web.Response(text="Invalid Discord user ID.", status=400)
 
     uname = str(user_data.get("global_name") or user_data.get("username") or "Member").strip()[:40]
-    uhandle_raw = str(user_data.get("username") or uname).strip()[:40]
+    uhandle_raw = str(user_data.get("username") or uname).strip()[:44]
+    uhandle = uhandle_raw if uhandle_raw.startswith("@") else f"@{uhandle_raw.lstrip('@')}"
     uavatar = str(user_data.get("avatar", "") or "").strip()[:80]
 
-    existing_prem = _get_premium_record(uid)
-    if existing_prem:
-        set_premium_user(
-            uid,
-            True,
-            days=0,
-            hours=0,
-            granted_by=existing_prem.get("granted_by") or existing_prem.get("source") or "sync",
-            username=uname,
-            handle=f"@{uhandle_raw.lstrip('@')}",
-            avatar=uavatar,
-            source=existing_prem.get("source") or "manual",
-            extend_existing=True,
-        )
+    if uid in MEM_PREMIUM or uid == ADMIN_USER_ID:
+        existing_p = _normalize_premium_doc(MEM_PREMIUM.get(uid) or {"user_id": uid})
+        existing_p["username"] = uname
+        existing_p["handle"] = uhandle
+        if uavatar:
+            existing_p["avatar"] = uavatar
+        MEM_PREMIUM[uid] = existing_p
+        if premium_col is not None:
+            try:
+                upd_fields = {"username": uname, "handle": uhandle}
+                if uavatar:
+                    upd_fields["avatar"] = uavatar
+                premium_col.update_one({"user_id": uid}, {"$set": upd_fields})
+            except PyMongoError:
+                pass
 
-    cookie_val = sign_session(
+    token = sign_session(
         {
             "id": uid,
             "username": uname,
@@ -5024,13 +5091,10 @@ async def handle_callback(request: web.Request) -> web.Response:
             "exp": time.time() + 86400 * 7,
         }
     )
-    log_event(f"User logged in ({uid})", level="AUTH")
-    flash_q = quote("Signed in successfully." if is_en else "تم تسجيل الدخول بنجاح.")
-    sep = "&" if "?" in next_url else "?"
-    resp = web.HTTPFound(f"{next_url}{sep}msg={flash_q}")
+    resp = web.HTTPFound(next_url)
     resp.set_cookie(
         "arab_sec_session",
-        cookie_val,
+        token,
         max_age=86400 * 7,
         httponly=True,
         samesite="Lax",
@@ -5041,41 +5105,31 @@ async def handle_callback(request: web.Request) -> web.Response:
 
 
 async def handle_logout(request: web.Request) -> web.Response:
-    is_en = get_lang(request) == "en"
     pair = get_discord_session_with_id(request)
     if pair:
-        sid, u = pair
-        _delete_session_record(sid)
-        log_event(f"User logged out ({u.get('id', '')})", level="AUTH")
-    flash_q = quote("Signed out." if is_en else "تم تسجيل الخروج.")
-    resp = web.HTTPFound(f"/?msg={flash_q}")
+        _delete_session_record(pair[0])
+    resp = web.HTTPFound("/")
     resp.del_cookie("arab_sec_session", path="/")
     return resp
 
 
-async def health_check(request: web.Request) -> web.Response:
-    return web.json_response(
-        {
-            "ok": True,
-            "site": SITE_NAME,
-            "owner": OWNER_NAME,
-            "db_connected": db is not None,
-            "guilds_count": len(get_all_guilds()),
-            "bot_heartbeat": MEM_BOT_HEARTBEAT,
-        }
-    )
+async def handle_health(request: web.Request) -> web.Response:
+    return web.json_response({"ok": True, "bot": MEM_BOT_HEARTBEAT.get("status", "ONLINE")})
+
+
+async def handle_not_found(request: web.Request) -> web.Response:
+    is_en = get_lang(request) == "en"
+    return web.Response(text="404 Not Found" if is_en else "الصفحة غير موجودة", status=404)
 
 
 @web.middleware
-async def security_and_visit_middleware(request: web.Request, handler):
+async def security_headers_middleware(request: web.Request, handler):
     ip = get_client_ip(request)
-    is_sensitive = request.path in ("/login", "/callback", "/logout") or (
-        request.method == "POST" and not request.path.startswith("/api/bot/")
-    )
-    if is_rate_limited(ip, is_sensitive=is_sensitive):
-        return web.Response(text="Too many requests. Please slow down.", status=429)
+    is_sens = request.path.startswith(("/login", "/callback", "/api/bot/"))
+    if is_rate_limited(ip, is_sensitive=is_sens):
+        return web.Response(text="Too Many Requests", status=429)
 
-    if request.method == "GET" and not request.path.startswith(("/api/", "/health", "/login", "/callback", "/logout")):
+    if not request.path.startswith(("/health", "/api/")):
         record_site_visit(request)
 
     try:
@@ -5083,33 +5137,36 @@ async def security_and_visit_middleware(request: web.Request, handler):
     except web.HTTPException as ex:
         response = ex
 
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    if should_use_secure_cookie(request):
-        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "img-src 'self' https://cdn.discordapp.com data: blob:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self' https://discord.com"
+    )
     return response
 
 
 def create_app() -> web.Application:
-    app = web.Application(middlewares=[security_and_visit_middleware], client_max_size=16_000_000)
+    app = web.Application(middlewares=[security_headers_middleware], client_max_size=16_000_000)
     app.router.add_get("/", home_handler)
-    app.router.add_get("/health", health_check)
+    app.router.add_get("/health", handle_health)
     app.router.add_get("/invite", handle_invite_redirect)
     app.router.add_get("/login", handle_login)
     app.router.add_get("/callback", handle_callback)
     app.router.add_get("/logout", handle_logout)
-
     app.router.add_get("/guild", handle_guild)
     app.router.add_post("/guild", handle_guild)
-
     app.router.add_get("/premium", handle_premium)
     app.router.add_post("/premium", handle_premium)
-
     app.router.add_get("/admin", handle_admin)
     app.router.add_post("/admin", handle_admin)
-
     app.router.add_get("/services", handle_services)
     app.router.add_get("/updates", handle_updates)
     app.router.add_get("/links", handle_links)
@@ -5117,26 +5174,15 @@ def create_app() -> web.Application:
     app.router.add_post("/api/bot/sync-guilds", api_bot_sync_guilds)
     app.router.add_post("/api/bot/boost-sync", api_bot_boost_sync)
     app.router.add_get("/api/bot/pending-commands", api_bot_pending_commands)
+    app.router.add_route("*", "/{tail:.*}", handle_not_found)
+
+    async def _on_shutdown(application: web.Application) -> None:
+        flush_visits_if_needed(force=True)
+
+    app.on_shutdown.append(_on_shutdown)
     return app
 
 
-async def _run_server() -> None:
-    app = create_app()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, HOST, PORT)
-    await site.start()
-    print(f"[{SITE_NAME}] Web server running on http://{HOST}:{PORT}")
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    finally:
-        flush_visits_if_needed(force=True)
-        await runner.cleanup()
-
-
 if __name__ == "__main__":
-    try:
-        asyncio.run(_run_server())
-    except KeyboardInterrupt:
-        flush_visits_if_needed(force=True)
+    print(f"[WEB] Starting {SITE_NAME} on http://{HOST}:{PORT} (MAIN={EXPLICIT_MAIN_URL})")
+    web.run_app(create_app(), host=HOST, port=PORT, print=None)
