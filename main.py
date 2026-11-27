@@ -5087,26 +5087,32 @@ async def security_and_visit_middleware(request: web.Request, handler):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if should_use_secure_cookie(request):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
 
 
 def create_app() -> web.Application:
-    app = web.Application(client_max_size=16 * 1024 * 1024, middlewares=[security_and_visit_middleware])
-    app.router.add_get("/health", health_check)
+    app = web.Application(middlewares=[security_and_visit_middleware], client_max_size=16_000_000)
     app.router.add_get("/", home_handler)
-    app.router.add_get("/guild", handle_guild)
-    app.router.add_post("/guild", handle_guild)
-    app.router.add_get("/premium", handle_premium)
-    app.router.add_post("/premium", handle_premium)
-    app.router.add_get("/admin", handle_admin)
-    app.router.add_post("/admin", handle_admin)
-    app.router.add_get("/services", handle_services)
-    app.router.add_get("/updates", handle_updates)
-    app.router.add_get("/links", handle_links)
+    app.router.add_get("/health", health_check)
     app.router.add_get("/invite", handle_invite_redirect)
     app.router.add_get("/login", handle_login)
     app.router.add_get("/callback", handle_callback)
     app.router.add_get("/logout", handle_logout)
+
+    app.router.add_get("/guild", handle_guild)
+    app.router.add_post("/guild", handle_guild)
+
+    app.router.add_get("/premium", handle_premium)
+    app.router.add_post("/premium", handle_premium)
+
+    app.router.add_get("/admin", handle_admin)
+    app.router.add_post("/admin", handle_admin)
+
+    app.router.add_get("/services", handle_services)
+    app.router.add_get("/updates", handle_updates)
+    app.router.add_get("/links", handle_links)
 
     app.router.add_post("/api/bot/sync-guilds", api_bot_sync_guilds)
     app.router.add_post("/api/bot/boost-sync", api_bot_boost_sync)
@@ -5114,5 +5120,23 @@ def create_app() -> web.Application:
     return app
 
 
+async def _run_server() -> None:
+    app = create_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, HOST, PORT)
+    await site.start()
+    print(f"[{SITE_NAME}] Web server running on http://{HOST}:{PORT}")
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    finally:
+        flush_visits_if_needed(force=True)
+        await runner.cleanup()
+
+
 if __name__ == "__main__":
-    web.run_app(create_app(), host=HOST, port=PORT)
+    try:
+        asyncio.run(_run_server())
+    except KeyboardInterrupt:
+        flush_visits_if_needed(force=True)
