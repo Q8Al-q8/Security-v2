@@ -410,11 +410,11 @@ MEM_BOT_HEARTBEAT: dict[str, str] = {
 }
 
 _CFG_CACHE: dict[str, tuple[float, dict]] = {}
-_CFG_TTL = 5.0
+_CFG_TTL = 2.0
 _PERM_CACHE: dict[str, tuple[float, object]] = {}
-_PERM_TTL = 10.0
+_PERM_TTL = 1.0
 _GUILDS_CACHE: tuple[float, list[dict]] = (0.0, [])
-_GUILDS_TTL = 1.5
+_GUILDS_TTL = 1.0
 _VISIT_STATS_CACHE: tuple[float, int, int] = (0.0, 0, 0)
 _VISIT_STATS_TTL = 8.0
 _PENDING_VISITS = 0
@@ -828,7 +828,7 @@ def _sign_hmac(msg: str) -> str:
 def _invalidate_perm_cache(uid: str = "") -> None:
     if uid:
         for k in list(_PERM_CACHE.keys()):
-            if k.endswith(f":{uid}"):
+            if k.endswith(f":{uid}") or k == uid:
                 _PERM_CACHE.pop(k, None)
     else:
         _PERM_CACHE.clear()
@@ -937,7 +937,7 @@ def get_total_visits() -> int:
     return tot
 
 
-def _get_admin_record(uid: str) -> dict | None:
+def _get_admin_record(uid: str, force_db: bool = False) -> dict | None:
     if not uid.isdigit():
         return None
     if uid == ADMIN_USER_ID:
@@ -948,7 +948,7 @@ def _get_admin_record(uid: str) -> dict | None:
             "permissions": _full_admin_perms(),
         }
     rec = MEM_ADMINS.get(uid)
-    if not rec and admins_col is not None:
+    if (not rec or force_db) and admins_col is not None:
         try:
             doc = admins_col.find_one({"user_id": uid}, {"_id": 0})
             if doc:
@@ -959,6 +959,9 @@ def _get_admin_record(uid: str) -> dict | None:
                     "permissions": _default_sub_admin_perms(doc.get("permissions")),
                 }
                 MEM_ADMINS[uid] = rec
+            elif force_db:
+                MEM_ADMINS.pop(uid, None)
+                rec = None
         except PyMongoError:
             pass
     if rec:
@@ -980,7 +983,7 @@ def is_site_admin(user: dict | None) -> bool:
     cached = _PERM_CACHE.get(cache_key)
     if cached and (time.time() - cached[0]) < _PERM_TTL:
         return bool(cached[1])
-    res = _get_admin_record(uid) is not None
+    res = _get_admin_record(uid, force_db=True) is not None
     _PERM_CACHE[cache_key] = (time.time(), res)
     return res
 
@@ -1044,7 +1047,7 @@ def set_admin_user(
     uid = str(user_id or "").strip()
     if not uid.isdigit():
         return False
-    _invalidate_perm_cache(uid)
+    _invalidate_perm_cache("")
     if enabled:
         perms_clean = _full_admin_perms() if uid == ADMIN_USER_ID else _default_sub_admin_perms(permissions)
         stamp = _now_str()
@@ -1073,7 +1076,7 @@ def set_admin_user(
     return True
 
 
-def _get_premium_record(uid: str) -> dict | None:
+def _get_premium_record(uid: str, force_db: bool = False) -> dict | None:
     if not uid.isdigit():
         return None
     if uid == ADMIN_USER_ID:
@@ -1088,13 +1091,16 @@ def _get_premium_record(uid: str) -> dict | None:
         }
     now = time.time()
     rec = MEM_PREMIUM.get(uid)
-    if premium_col is not None:
+    if premium_col is not None and (force_db or not rec):
         try:
             doc = premium_col.find_one({"user_id": uid}, {"_id": 0})
             if doc:
                 rec = _normalize_premium_doc(doc)
                 MEM_PREMIUM[uid] = rec
             elif rec and rec.get("source") == "boost":
+                MEM_PREMIUM.pop(uid, None)
+                return None
+            elif force_db:
                 MEM_PREMIUM.pop(uid, None)
                 return None
         except PyMongoError:
@@ -1121,7 +1127,7 @@ def is_premium_user(user: dict | None) -> bool:
     cached = _PERM_CACHE.get(cache_key)
     if cached and (time.time() - cached[0]) < _PERM_TTL:
         return bool(cached[1])
-    res = _get_premium_record(uid) is not None
+    res = _get_premium_record(uid, force_db=True) is not None
     _PERM_CACHE[cache_key] = (time.time(), res)
     return res
 
@@ -1188,7 +1194,7 @@ def set_premium_user(
     uid = str(user_id or "").strip()
     if not uid.isdigit():
         return False
-    _invalidate_perm_cache(uid)
+    _invalidate_perm_cache("")
     if enabled:
         now = time.time()
         is_perm = uid == ADMIN_USER_ID
@@ -2258,7 +2264,7 @@ def render_page(
     50% {{ box-shadow: 0 0 28px rgba(168, 85, 247, 0.26); }}
   }}
   .anim-card {{
-    animation: fadeSlideUp 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: fadeSlideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   body {{
     margin: 0;
@@ -2276,7 +2282,7 @@ def render_page(
     inset: 0;
     background: rgba(4, 2, 10, 0.78);
     z-index: 60;
-    transition: opacity 0.22s ease;
+    transition: opacity 0.2s ease;
   }}
   .overlay.open {{
     opacity: 1;
@@ -2298,7 +2304,7 @@ def render_page(
     z-index: 70;
     overflow-y: auto;
     transform: translateX({('-105%' if is_en else '105%')});
-    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
   }}
   .sidebar.open {{ transform: translateX(0); }}
   .page-container {{
@@ -2318,7 +2324,7 @@ def render_page(
     border: 1px solid var(--card-border-bright);
     margin-bottom: 18px;
     box-shadow: 0 8px 24px rgba(88, 28, 135, 0.26);
-    animation: fadeSlideUp 0.2s ease both;
+    animation: fadeSlideUp 0.18s ease both;
   }}
   .top-left {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
   .icon-btn {{
@@ -2335,7 +2341,7 @@ def render_page(
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   }}
   .icon-btn:hover {{
     background: linear-gradient(135deg, rgba(147, 51, 234, 0.55), rgba(192, 38, 211, 0.42));
@@ -2361,16 +2367,16 @@ def render_page(
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }}
   .flash-banner {{
-    background: linear-gradient(135deg, rgba(107, 33, 168, 0.52), rgba(134, 25, 143, 0.42));
+    background: linear-gradient(135deg, rgba(107, 33, 168, 0.56), rgba(134, 25, 143, 0.46));
     border: 1.5px solid var(--card-border-bright);
     color: #faf5ff; border-radius: 16px; padding: 13px 16px;
     margin-bottom: 18px; font-size: 13.5px; font-weight: 800; line-height: 1.55; text-align: center;
-    box-shadow: 0 8px 20px rgba(107, 33, 168, 0.24);
+    box-shadow: 0 8px 20px rgba(107, 33, 168, 0.28);
   }}
   .hero-card {{
     background: var(--card-bg); border: 1px solid var(--card-border-bright);
     border-radius: 22px; padding: 28px 20px; text-align: center; margin-bottom: 18px;
-    animation: fadeSlideUp 0.28s ease both, pulseGlow 4s infinite ease-in-out;
+    animation: fadeSlideUp 0.24s ease both, pulseGlow 4s infinite ease-in-out;
   }}
   .prem-active-box {{
     padding: 9px 12px; border-radius: 12px;
@@ -2386,7 +2392,7 @@ def render_page(
     border: 1px solid var(--card-border-bright); color: #fff; text-decoration: none;
     font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
     box-shadow: 0 8px 20px rgba(147, 51, 234, 0.34);
-    transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
+    transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
   }}
   .btn-primary-purple:hover {{
     transform: translateY(-2px);
@@ -2400,7 +2406,7 @@ def render_page(
     border: 1px solid rgba(244, 114, 182, 0.52); color: #fff; text-decoration: none;
     font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
     box-shadow: 0 8px 18px rgba(190, 24, 93, 0.28);
-    transition: transform 0.16s ease, filter 0.16s ease, box-shadow 0.16s ease;
+    transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
   }}
   .btn-crimson:hover {{
     transform: translateY(-2px);
@@ -2414,7 +2420,7 @@ def render_page(
     border: 1px solid var(--card-border-bright);
     color: #f5f3ff; text-decoration: none; font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
     box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
-    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   }}
   .btn-secondary-dark:hover {{
     transform: translateY(-2px);
@@ -2426,7 +2432,7 @@ def render_page(
   .stat-card {{
     background: var(--card-bg); border: 1px solid var(--card-border);
     border-radius: 22px; padding: 24px 20px; text-align: center; margin-bottom: 16px;
-    transition: transform 0.18s ease, border-color 0.18s ease;
+    transition: transform 0.16s ease, border-color 0.16s ease;
   }}
   .stat-card:hover {{ transform: translateY(-2px); border-color: var(--card-border-bright); }}
   .stat-number {{ font-size: 32px; font-weight: 900; color: #ffffff; line-height: 1.1; }}
@@ -2462,7 +2468,7 @@ def render_page(
     background: linear-gradient(160deg, rgba(28, 15, 54, 0.92), rgba(12, 7, 24, 0.94));
     border: 1px solid var(--card-border);
     text-align: center;
-    transition: transform 0.16s ease, border-color 0.16s ease;
+    transition: transform 0.15s ease, border-color 0.15s ease;
   }}
   .kpi-box:hover {{ transform: translateY(-2px); border-color: var(--card-border-bright); }}
   .kpi-num {{ font-size: 22px; font-weight: 900; color: #fff; }}
@@ -2482,7 +2488,7 @@ def render_page(
     font-size: 12.5px;
     font-weight: 800;
     cursor: pointer;
-    transition: all 0.16s ease;
+    transition: all 0.15s ease;
     text-align: center;
   }}
   .cat-tab-btn:hover {{
@@ -2498,7 +2504,7 @@ def render_page(
     box-shadow: 0 6px 20px rgba(168, 85, 247, 0.42);
   }}
   .cat-pane {{ display: none; }}
-  .cat-pane.active {{ display: block; animation: fadeSlideUp 0.2s ease both; }}
+  .cat-pane.active {{ display: block; animation: fadeSlideUp 0.18s ease both; }}
   .link-card {{
     display: flex;
     align-items: center;
@@ -2511,7 +2517,7 @@ def render_page(
     text-decoration: none;
     color: #fff;
     margin-bottom: 10px;
-    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   }}
   .link-card:hover {{
     transform: translateY(-1px);
@@ -2550,7 +2556,7 @@ def render_page(
   .sub-panel {{
     background: rgba(12, 7, 24, 0.92); border: 1px solid var(--card-border);
     border-radius: 18px; padding: 16px; margin-bottom: 16px;
-    transition: border-color 0.16s ease;
+    transition: border-color 0.15s ease;
   }}
   .sub-panel:hover {{ border-color: var(--card-border-bright); }}
   .sub-panel-head {{
@@ -2618,7 +2624,7 @@ def render_page(
     background: linear-gradient(145deg, rgba(31, 16, 62, 0.78), rgba(18, 10, 38, 0.88));
     border: 1px solid rgba(168, 85, 247, 0.26); margin-bottom: 10px; font-size: 13.5px; font-weight: 700;
     cursor: pointer; user-select: none;
-    transition: background 0.16s ease, border-color 0.16s ease, transform 0.15s ease, box-shadow 0.16s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   }}
   .switch-row:hover {{
     background: linear-gradient(145deg, rgba(54, 27, 104, 0.88), rgba(29, 15, 58, 0.94));
@@ -2637,7 +2643,7 @@ def render_page(
     background: rgba(12, 7, 24, 0.95);
     border: 1.5px solid rgba(168, 85, 247, 0.45);
     cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   }}
   .switch-input::after {{
     content: "";
@@ -2649,7 +2655,7 @@ def render_page(
     border-radius: 999px;
     background: #e9d5ff;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
-    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease;
+    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), background 0.18s ease;
   }}
   .switch-input:checked {{
     background: linear-gradient(135deg, #9333ea 0%, #d946ef 100%);
@@ -2908,10 +2914,10 @@ def _process_premium_profile_and_perks(form: dict, cur_prof: dict, cur_perks: di
     ava_data = sanitize_image_data_url(form.get("avatar_data_url", "")) if "avatar_data_url" in form else old_ava
     ban_data = sanitize_image_data_url(form.get("banner_data_url", "")) if "banner_data_url" in form else old_ban
 
-    bio_changed = bio_clean != old_bio
-    avatar_changed = ava_data != old_ava
-    banner_changed = ban_data != old_ban
-    profile_changed = bio_changed or avatar_changed or banner_changed
+    bio_changed = ("bio" in form) and (bio_clean != old_bio or bool(bio_clean))
+    avatar_changed = ("avatar_data_url" in form) and (ava_data != old_ava)
+    banner_changed = ("banner_data_url" in form) and (ban_data != old_ban)
+    profile_changed = ("bio" in form) or avatar_changed or banner_changed
 
     prof_data = {
         "bio": bio_clean,
@@ -3543,6 +3549,7 @@ async def handle_admin(request: web.Request) -> web.Response:
     is_owner = str(user.get("id", "")).strip() == ADMIN_USER_ID
     actor_uid = str(user.get("id", "")).strip()
     flash = ""
+    active_adm_tab = "adm_prem"
     if request.method == "POST":
         form = await read_post_safe(request)
         if not form:
@@ -3555,6 +3562,15 @@ async def handle_admin(request: web.Request) -> web.Response:
             act = str(form.get("admin_action", "")).strip()
             gid = str(form.get("cmd_guild_id", "")).strip()
             target_id = str(form.get("cmd_target", "")).strip()
+
+            if act in ("grant_premium", "revoke_premium"):
+                active_adm_tab = "adm_prem"
+            elif act in ("grant_admin", "revoke_admin"):
+                active_adm_tab = "adm_staff"
+            elif act in ("kick", "ban", "unban", "timeout", "broadcast"):
+                active_adm_tab = "adm_remote"
+            elif act in ("simulate", "create_backup", "test_restore"):
+                active_adm_tab = "adm_sys"
 
             if act == "grant_premium":
                 if not has_admin_perm(user, "manage_premium"):
@@ -3589,9 +3605,9 @@ async def handle_admin(request: web.Request) -> web.Response:
                         )
                         log_event(f"Granted custom Premium ({p_days}d {p_hours}h) to {p_uid}", level="ADMIN")
                         flash = (
-                            f"Granted Premium ({p_days}d {p_hours}h) to {p_uid}"
+                            f"Granted Premium ({p_days}d {p_hours}h) to {p_uid} — Active immediately"
                             if is_en
-                            else f"تم منح بريميوم ({p_days} يوم و {p_hours} ساعة) للحساب {p_uid}"
+                            else f"تم منح بريميوم ({p_days} يوم و {p_hours} ساعة) للحساب {p_uid} وتفعيله فوراً"
                         )
             elif act == "revoke_premium":
                 if not has_admin_perm(user, "manage_premium"):
@@ -3601,7 +3617,7 @@ async def handle_admin(request: web.Request) -> web.Response:
                     if p_uid.isdigit():
                         set_premium_user(p_uid, False)
                         log_event(f"Revoked Premium from {p_uid}", level="ADMIN")
-                        flash = f"Revoked Premium from {p_uid}" if is_en else f"تم سحب البريميوم من الحساب {p_uid}"
+                        flash = f"Revoked Premium from {p_uid} — Updated immediately" if is_en else f"تم سحب البريميوم من الحساب {p_uid} وتحديث القائمة فوراً"
                     else:
                         flash = "Enter a valid User ID." if is_en else "أدخل آيدي مستخدم رقمي صحيح."
             elif act == "grant_admin":
@@ -3613,7 +3629,7 @@ async def handle_admin(request: web.Request) -> web.Response:
                         selected_perms = {pk: (form.get(f"perm_{pk}") == "on") for pk in ADMIN_PERMISSION_KEYS}
                         set_admin_user(a_uid, True, granted_by=actor_uid, permissions=selected_perms)
                         log_event(f"Updated Admin & permissions for {a_uid}", level="ADMIN")
-                        flash = f"Saved Admin & permissions for {a_uid}" if is_en else f"تم حفظ الأدمن وصلاحياته للحساب {a_uid}"
+                        flash = f"Saved Admin & permissions for {a_uid} — Active immediately" if is_en else f"تم حفظ الأدمن وصلاحياته للحساب {a_uid} وتفعيله فوراً"
                     else:
                         flash = "Enter a valid Admin User ID." if is_en else "أدخل آيدي أدمن رقمي صحيح."
             elif act == "revoke_admin":
@@ -3623,7 +3639,7 @@ async def handle_admin(request: web.Request) -> web.Response:
                     a_uid = str(form.get("admin_user_id", "")).strip()
                     if a_uid.isdigit() and set_admin_user(a_uid, False):
                         log_event(f"Revoked Admin from {a_uid}", level="ADMIN")
-                        flash = f"Revoked Admin from {a_uid}" if is_en else f"تم سحب صلاحية أدمن من الحساب {a_uid}"
+                        flash = f"Revoked Admin from {a_uid} — Updated immediately" if is_en else f"تم سحب صلاحية أدمن من الحساب {a_uid} وتحديث القائمة فوراً"
                     else:
                         flash = "Cannot revoke owner admin." if is_en else "لا يمكن سحب صلاحية المالك."
             elif act in ("kick", "ban", "unban", "timeout") and gid.isdigit() and target_id.isdigit():
@@ -3704,6 +3720,17 @@ async def handle_admin(request: web.Request) -> web.Response:
     role_label = "OWNER" if is_owner else ("SUB-ADMIN" if is_en else "إداري بصلاحيات")
     hb_last = esc(MEM_BOT_HEARTBEAT.get("last_seen") or "-")
 
+    tabs_meta = [
+        ("adm_prem", "Premium" if is_en else "البريميوم"),
+        ("adm_staff", "Admins" if is_en else "الأدمن"),
+        ("adm_remote", "Remote" if is_en else "عن بُعد"),
+        ("adm_sys", "System" if is_en else "النظام"),
+    ]
+    tabs_html = "".join(
+        f"<button type='button' class='cat-tab-btn {'active' if t_key == active_adm_tab else ''}' onclick=\"switchCat('{t_key}', this)\">{esc(t_lbl)}</button>"
+        for t_key, t_lbl in tabs_meta
+    )
+
     body = f"""
     <div class="glass-card anim-card">
       <div class="admin-hero">
@@ -3730,13 +3757,10 @@ async def handle_admin(request: web.Request) -> web.Response:
       </div>
 
       <div class="cat-tabs" role="tablist">
-        <button type="button" class="cat-tab-btn active" onclick="switchCat('adm_prem', this)">{('Premium' if is_en else 'البريميوم')}</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('adm_staff', this)">{('Admins' if is_en else 'الأدمن')}</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('adm_remote', this)">{('Remote' if is_en else 'عن بُعد')}</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('adm_sys', this)">{('System' if is_en else 'النظام')}</button>
+        {tabs_html}
       </div>
 
-      <div id="cat-adm_prem" class="cat-pane active">
+      <div id="cat-adm_prem" class="cat-pane {'active' if active_adm_tab == 'adm_prem' else ''}">
         <form method="post" class="sub-panel" style="margin-bottom:0;">
           {_new_form_sec()}
           <div class="sub-panel-head">
@@ -3766,7 +3790,7 @@ async def handle_admin(request: web.Request) -> web.Response:
         </form>
       </div>
 
-      <div id="cat-adm_staff" class="cat-pane">
+      <div id="cat-adm_staff" class="cat-pane {'active' if active_adm_tab == 'adm_staff' else ''}">
         <form method="post" class="sub-panel" style="margin-bottom:0;">
           {_new_form_sec()}
           <div class="sub-panel-head">
@@ -3784,7 +3808,7 @@ async def handle_admin(request: web.Request) -> web.Response:
         </form>
       </div>
 
-      <div id="cat-adm_remote" class="cat-pane">
+      <div id="cat-adm_remote" class="cat-pane {'active' if active_adm_tab == 'adm_remote' else ''}">
         <form method="post" class="sub-panel" style="margin-bottom:0;">
           {_new_form_sec()}
           <div class="sub-panel-head">
@@ -3802,7 +3826,7 @@ async def handle_admin(request: web.Request) -> web.Response:
         </form>
       </div>
 
-      <div id="cat-adm_sys" class="cat-pane">
+      <div id="cat-adm_sys" class="cat-pane {'active' if active_adm_tab == 'adm_sys' else ''}">
         <form method="post" class="sub-panel" style="margin-bottom:0;">
           {_new_form_sec()}
           <div class="sub-panel-head">
