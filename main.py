@@ -2182,11 +2182,11 @@ def _render_guild_card(g: dict, is_en: bool, show_admin_meta: bool = False) -> s
 
 def _render_discord_community_card(is_en: bool) -> str:
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
-    title_txt = "Join Our Discord Server" if is_en else "انضم لسيرفرنا"
+    title_txt = "انضم لسيرفرنا"
     sub_txt = "تحديثات ، دعم فني ، تنبيهات"
-    btn_txt = "Enter Server →" if is_en else "دخول السيرفر ←"
+    btn_txt = "دخول السيرفر ←"
     return f"""
-    <section class="discord-hub-card anim-card">
+    <section class="discord-hub-card anim-card" dir="rtl">
       <div class="discord-hub-icon">{_discord_svg_icon(26)}</div>
       <h2 class="discord-hub-title">{esc(title_txt)}</h2>
       <p class="discord-hub-sub">{esc(sub_txt)}</p>
@@ -2216,12 +2216,14 @@ def _render_stats_grid_html(is_en: bool, bot_servers_count: int, total_visits: i
 
 def _render_login_gate_card(is_en: bool, next_url: str = "/guild") -> str:
     safe_next = quote(sanitize_next_url(next_url))
-    heading = "Login Required" if is_en else "تسجيل الدخول مطلوب"
+    heading = "تسجيل الدخول مطلوب" if not is_en else "Login Required"
     desc = (
-        "Sign in with Discord first to access your server protection controls and manage settings."
-        if is_en
-        else "سجّل دخولك بحساب ديسكورد أولاً للوصول إلى لوحة الحماية والتحكم بإعدادات السيرفر."
+        "سجّل دخولك بديسكورد أولاً للوصول إلى لوحة الحماية والتحكم بإعدادات السيرفر."
+        if not is_en
+        else "Sign in with Discord first to access your server protection controls and manage settings."
     )
+    btn_txt = "تسجيل الدخول بديسكورد" if not is_en else "Login With Discord"
+    back_txt = "رجوع للرئيسية" if not is_en else "Back to Home"
     return f"""
     <section class="login-gate-card anim-card">
       <div class="login-lock-circle">{_lock_svg_icon(24)}</div>
@@ -2229,12 +2231,9 @@ def _render_login_gate_card(is_en: bool, next_url: str = "/guild") -> str:
       <p class="login-gate-desc">{esc(desc)}</p>
       <a class="login-discord-cta" href="/login?next={safe_next}">
         {_discord_svg_icon(20)}
-        <span>Login With Discord</span>
+        <span>{esc(btn_txt)}</span>
       </a>
-      <a class="login-back-link" href="/">{('Back to Home' if is_en else 'العودة إلى الرئيسية')}</a>
-      <div class="login-gate-note">
-        {('Fast Discord OAuth verification with no extra personal data requested.' if is_en else 'تحقق سريع عبر ديسكورد ولا نطلب أي بيانات إضافية.')}
-      </div>
+      <a class="login-back-link" href="/">{esc(back_txt)}</a>
     </section>
     """
 
@@ -2321,12 +2320,16 @@ def render_page(
         )
         if str(user.get("id", "")) == ADMIN_USER_ID:
             badge_txt = "OWNER"
+            badge_cls = "tag tag-owner"
         elif is_admin and staff_tag in STAFF_ROLE_OPTIONS:
             badge_txt = staff_tag.upper()
+            badge_cls = "tag tag-staff"
         elif is_prem:
             badge_txt = "PREMIUM"
+            badge_cls = "tag tag-prem"
         else:
             badge_txt = "MEMBER"
+            badge_cls = "tag tag-member"
 
         prem_status_line = (
             f"<div class='prem-active-box'>★ {'PREMIUM ACTIVE' if is_en else 'البريميوم مفعل'} • {esc(format_remaining_time(prem_rec, is_en=is_en))}</div>"
@@ -2335,8 +2338,8 @@ def render_page(
         )
         account_block = (
             f"<div class='user-box'>{avatar_html}"
-            f"<div style='min-width:0;'><div class='uname'>{uname_safe} <span class='tag'>{esc(badge_txt)}</span></div>"
-            f"<div class='uhandle'>ID: <code>{uid}</code></div></div></div>"
+            f"<div style='min-width:0;'><div class='uname'>{uname_safe}</div>"
+            f"<div style='margin-top:4px;'><span class='{badge_cls}'>{esc(badge_txt)}</span></div></div></div>"
             f"{prem_status_line}"
             f"<a class='nav-item danger' href='/logout'><span>{L['logout']}</span></a>"
         )
@@ -2351,14 +2354,14 @@ def render_page(
 
     if is_logged_in:
         primary_href = "/invite"
-        primary_txt = L["invite"]
+        primary_txt = "Invite Arab Security Bot"
         secondary_href = "/guild"
         secondary_txt = L["guild"]
     else:
         primary_href = "/login?next=/guild"
         primary_txt = L["login_discord"]
         secondary_href = "/invite"
-        secondary_txt = L["invite"]
+        secondary_txt = "Invite Arab Security Bot"
 
     prem_badge_html = (
         f"<span class='prem-pill'>★ {esc(format_remaining_time(prem_rec, is_en=is_en))}</span>"
@@ -2424,15 +2427,19 @@ def render_page(
   }}
   * {{ box-sizing: border-box; }}
   @keyframes fadeSlideUp {{
-    from {{ opacity: 0; transform: translateY(10px) scale(0.99); }}
+    from {{ opacity: 0; transform: translateY(14px) scale(0.985); }}
     to {{ opacity: 1; transform: translateY(0) scale(1); }}
   }}
+  @keyframes softFloat {{
+    0%, 100% {{ transform: translateY(0px); }}
+    50% {{ transform: translateY(-3px); }}
+  }}
   @keyframes pulseGlow {{
-    0%, 100% {{ box-shadow: 0 0 0 rgba(58, 134, 255, 0); }}
-    50% {{ box-shadow: 0 0 26px rgba(58, 134, 255, 0.22); }}
+    0%, 100% {{ box-shadow: 0 12px 30px rgba(0, 0, 0, 0.36), 0 0 0 rgba(58, 134, 255, 0); }}
+    50% {{ box-shadow: 0 14px 34px rgba(0, 0, 0, 0.44), 0 0 28px rgba(58, 134, 255, 0.22); }}
   }}
   .anim-card {{
-    animation: fadeSlideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: fadeSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   body {{
     margin: 0;
@@ -2448,9 +2455,10 @@ def render_page(
     pointer-events: none;
     position: fixed;
     inset: 0;
-    background: rgba(7, 11, 16, 0.78);
+    background: rgba(7, 11, 16, 0.80);
+    backdrop-filter: blur(3px);
     z-index: 60;
-    transition: opacity 0.2s ease;
+    transition: opacity 0.22s ease;
   }}
   .overlay.open {{
     opacity: 1;
@@ -2460,10 +2468,10 @@ def render_page(
     position: fixed;
     top: 0;
     {('left' if is_en else 'right')}: 0;
-    width: 286px;
+    width: 292px;
     max-width: 86vw;
     height: 100vh;
-    background: rgba(14, 20, 27, 0.99);
+    background: linear-gradient(180deg, rgba(19, 28, 38, 0.99) 0%, rgba(14, 20, 27, 0.99) 100%);
     border-{('right' if is_en else 'left')}: 1px solid var(--card-border);
     padding: 18px 14px;
     display: flex;
@@ -2471,35 +2479,36 @@ def render_page(
     gap: 8px;
     z-index: 70;
     overflow-y: auto;
-    transform: translateX({('-105%' if is_en else '105%')});
-    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+    transform: translateX({('-106%' if is_en else '106%')});
+    transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
   }}
   .sidebar.open {{ transform: translateX(0); }}
   .page-container {{
     width: 100%;
-    max-width: 820px;
+    max-width: 840px;
     margin: 0 auto;
-    padding: 18px 16px 56px;
+    padding: 18px 16px 60px;
   }}
   .top-bar {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 11px 15px;
-    border-radius: 18px;
+    padding: 12px 16px;
+    border-radius: 20px;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     margin-bottom: 18px;
-    box-shadow: 0 8px 24px rgba(14, 20, 27, 0.45);
-    animation: fadeSlideUp 0.18s ease both;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.42);
+    animation: fadeSlideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
   }}
   .top-left {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
   .icon-btn {{
     height: 38px;
     padding: 0 13px;
     border-radius: 12px;
-    background: linear-gradient(145deg, rgba(22, 50, 79, 0.9), rgba(18, 26, 36, 0.96));
+    background: linear-gradient(145deg, rgba(22, 50, 79, 0.92), rgba(18, 26, 36, 0.98));
     border: 1px solid var(--card-border);
     color: var(--text-main);
     font-weight: 800;
@@ -2509,12 +2518,13 @@ def render_page(
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   }}
   .icon-btn:hover {{
     background: linear-gradient(135deg, var(--accent-indigo), var(--accent-violet));
     border-color: var(--card-border-bright);
-    transform: translateY(-1px);
+    transform: translateY(-1.5px);
+    box-shadow: 0 6px 16px rgba(58, 134, 255, 0.24);
   }}
   .icon-btn:active {{ transform: scale(0.95); }}
   .lang-btn {{ font-size: 12.5px; }}
@@ -2524,146 +2534,155 @@ def render_page(
     gap: 10px;
     text-align: {('left' if is_en else 'right')};
   }}
-  .brand-title {{ font-size: 14px; font-weight: 900; letter-spacing: 0.4px; color: var(--text-main); line-height: 1.2; }}
+  .brand-title {{ font-size: 14.5px; font-weight: 900; letter-spacing: 0.4px; color: var(--text-main); line-height: 1.2; }}
   .brand-sub {{ font-size: 11px; color: var(--brand); line-height: 1.25; }}
   .brand-badge {{
-    width: 38px; height: 38px; border-radius: 12px;
+    width: 39px; height: 39px; border-radius: 13px;
     background: linear-gradient(135deg, var(--accent-indigo) 0%, var(--accent-violet) 100%);
     border: 1px solid var(--brand);
-    box-shadow: 0 0 16px rgba(58, 134, 255, 0.35);
+    box-shadow: 0 0 18px rgba(58, 134, 255, 0.34);
     color: var(--text-main); font-weight: 900; font-size: 14px;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: transform 0.2s ease, border-color 0.2s ease;
   }}
+  .brand-badge:hover {{ transform: rotate(-4deg) scale(1.04); border-color: var(--card-border-bright); }}
   .flash-banner {{
-    background: linear-gradient(135deg, rgba(22, 50, 79, 0.85), rgba(58, 134, 255, 0.25));
+    background: linear-gradient(135deg, rgba(22, 50, 79, 0.90), rgba(58, 134, 255, 0.26));
     border: 1.5px solid var(--card-border-bright);
     color: var(--text-main); border-radius: 16px; padding: 13px 16px;
     margin-bottom: 18px; font-size: 13.5px; font-weight: 800; line-height: 1.55; text-align: center;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
   }}
+
   .login-gate-card {{
-    background: var(--card-bg);
+    background: linear-gradient(175deg, rgba(22, 50, 79, 0.55) 0%, rgba(18, 26, 36, 0.98) 45%, rgba(14, 20, 27, 0.99) 100%);
     border: 1.5px solid var(--card-border);
-    border-radius: 24px;
-    padding: 32px 22px;
+    border-radius: 26px;
+    padding: 36px 24px 32px;
+    max-width: 470px;
+    margin: 10px auto 20px;
     text-align: center;
-    margin-bottom: 18px;
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 20px 44px rgba(0, 0, 0, 0.50);
   }}
   .login-lock-circle {{
-    width: 58px;
-    height: 58px;
-    margin: 0 auto 14px;
+    width: 62px;
+    height: 62px;
+    margin: 0 auto 18px;
     border-radius: 999px;
     background: linear-gradient(145deg, var(--accent-violet), var(--accent-indigo));
-    border: 1.5px solid var(--brand);
+    border: 1.5px solid var(--card-border-bright);
     color: var(--text-main);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 8px 22px rgba(22, 50, 79, 0.6);
+    box-shadow: 0 10px 24px rgba(58, 134, 255, 0.30);
+    animation: softFloat 3.2s ease-in-out infinite;
   }}
   .login-gate-title {{
-    margin: 0 0 8px;
-    font-size: 24px;
+    margin: 0 0 10px;
+    font-size: 27px;
     font-weight: 900;
     color: var(--text-main);
+    letter-spacing: -0.2px;
   }}
   .login-gate-desc {{
-    margin: 0 auto 20px;
-    max-width: 440px;
-    font-size: 13.5px;
-    line-height: 1.7;
+    margin: 0 auto 24px;
+    max-width: 390px;
+    font-size: 14.5px;
+    line-height: 1.72;
     color: var(--text-sub);
     font-weight: 600;
   }}
   .login-discord-cta {{
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
     width: 100%;
-    max-width: 380px;
-    padding: 13px 18px;
+    padding: 15px 20px;
     border-radius: 999px;
     background: linear-gradient(135deg, var(--brand) 0%, #c8e7f5 100%);
-    border: 1px solid var(--card-border-bright);
+    border: 1.5px solid var(--card-border-bright);
     color: var(--bg-deep);
     text-decoration: none;
     font-weight: 900;
-    font-size: 14.5px;
-    box-shadow: 0 8px 22px rgba(142, 202, 230, 0.25);
-    transition: transform 0.15s ease, filter 0.15s ease;
+    font-size: 15px;
+    box-shadow: 0 10px 26px rgba(142, 202, 230, 0.24);
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), filter 0.16s ease, box-shadow 0.16s ease;
   }}
   .login-discord-cta:hover {{
     transform: translateY(-2px);
     filter: brightness(1.05);
+    box-shadow: 0 14px 30px rgba(142, 202, 230, 0.34);
   }}
+  .login-discord-cta:active {{ transform: scale(0.98); }}
   .login-back-link {{
-    display: block;
-    margin-top: 14px;
-    color: var(--brand);
-    text-decoration: none;
-    font-size: 13px;
-    font-weight: 700;
-  }}
-  .login-back-link:hover {{ color: var(--text-main); }}
-  .login-gate-note {{
+    display: inline-block;
     margin-top: 16px;
-    padding-top: 14px;
-    border-top: 1px solid var(--card-border);
-    font-size: 11.5px;
     color: var(--text-sub);
-    line-height: 1.6;
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 800;
+    transition: color 0.15s ease, transform 0.15s ease;
   }}
+  .login-back-link:hover {{
+    color: var(--card-border-bright);
+    transform: translateY(-1px);
+  }}
+
   .hero-card {{
-    background: var(--card-bg); border: 1px solid var(--card-border);
-    border-radius: 22px; padding: 28px 20px; text-align: center; margin-bottom: 16px;
-    animation: fadeSlideUp 0.24s ease both, pulseGlow 4s infinite ease-in-out;
+    background: linear-gradient(165deg, rgba(22, 50, 79, 0.42) 0%, rgba(18, 26, 36, 0.98) 55%);
+    border: 1px solid var(--card-border);
+    border-radius: 24px; padding: 30px 22px; text-align: center; margin-bottom: 16px;
+    animation: fadeSlideUp 0.26s cubic-bezier(0.22, 1, 0.36, 1) both, pulseGlow 4.2s infinite ease-in-out;
   }}
   .prem-active-box {{
-    padding: 9px 12px; border-radius: 12px;
-    background: rgba(58, 134, 255, 0.16); border: 1px solid var(--prem-border);
+    padding: 9px 12px; border-radius: 13px;
+    background: linear-gradient(135deg, rgba(22, 50, 79, 0.85), rgba(58, 134, 255, 0.22));
+    border: 1px solid var(--prem-border);
     color: var(--text-main); font-size: 12px; font-weight: 800; text-align: center;
   }}
-  .hero-title {{ margin: 0 0 12px; font-size: 28px; font-weight: 900; letter-spacing: 0.6px; color: var(--text-main); }}
-  .hero-desc {{ margin: 0 auto 22px; max-width: 540px; font-size: 14px; line-height: 1.75; color: var(--text-sub); font-weight: 600; }}
+  .hero-title {{ margin: 0 0 12px; font-size: 29px; font-weight: 900; letter-spacing: 0.6px; color: var(--text-main); }}
+  .hero-desc {{ margin: 0 auto 22px; max-width: 560px; font-size: 14px; line-height: 1.78; color: var(--text-sub); font-weight: 600; }}
   .hero-actions {{ display: flex; flex-direction: column; gap: 10px; }}
   .btn-primary-purple {{
-    display: block; width: 100%; padding: 13px 18px; border-radius: 14px;
+    display: block; width: 100%; padding: 13.5px 18px; border-radius: 15px;
     background: linear-gradient(135deg, var(--accent-indigo) 0%, var(--accent-violet) 100%);
     border: 1px solid var(--brand); color: var(--text-main); text-decoration: none;
     font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
-    box-shadow: 0 8px 20px rgba(22, 50, 79, 0.5);
-    transition: transform 0.15s ease, filter 0.15s ease, border-color 0.15s ease;
+    box-shadow: 0 8px 22px rgba(22, 50, 79, 0.55);
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), filter 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   }}
   .btn-primary-purple:hover {{
     transform: translateY(-2px);
-    filter: brightness(1.1);
+    filter: brightness(1.12);
     border-color: var(--card-border-bright);
+    box-shadow: 0 12px 26px rgba(58, 134, 255, 0.32);
   }}
   .btn-primary-purple:active {{ transform: scale(0.985); }}
   .btn-crimson {{
-    display: block; width: 100%; padding: 13px 18px; border-radius: 14px;
-    background: linear-gradient(135deg, rgba(255, 123, 84, 0.30), rgba(22, 50, 79, 0.85));
+    display: block; width: 100%; padding: 13.5px 18px; border-radius: 15px;
+    background: linear-gradient(135deg, rgba(255, 123, 84, 0.32), rgba(22, 50, 79, 0.88));
     border: 1px solid var(--accent-coral); color: var(--text-main); text-decoration: none;
     font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
-    transition: transform 0.15s ease, filter 0.15s ease;
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), filter 0.16s ease, border-color 0.16s ease;
   }}
   .btn-crimson:hover {{
     transform: translateY(-2px);
     filter: brightness(1.12);
+    border-color: var(--card-border-bright);
   }}
   .btn-crimson:active {{ transform: scale(0.985); }}
   .btn-secondary-dark {{
-    display: block; width: 100%; padding: 13px 18px; border-radius: 14px;
-    background: rgba(14, 20, 27, 0.92);
+    display: block; width: 100%; padding: 13.5px 18px; border-radius: 15px;
+    background: rgba(14, 20, 27, 0.94);
     border: 1px solid var(--card-border);
     color: var(--text-main); text-decoration: none; font-weight: 800; font-size: 14.5px; text-align: center; cursor: pointer;
-    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), background 0.16s ease, border-color 0.16s ease;
   }}
   .btn-secondary-dark:hover {{
     transform: translateY(-2px);
-    background: rgba(22, 50, 79, 0.55);
+    background: rgba(22, 50, 79, 0.58);
     border-color: var(--card-border-bright);
   }}
   .btn-secondary-dark:active {{ transform: scale(0.985); }}
@@ -2677,18 +2696,20 @@ def render_page(
   .stat-tile {{
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    border-radius: 20px;
+    border-radius: 22px;
     padding: 20px 16px;
     text-align: center;
-    transition: transform 0.16s ease, border-color 0.16s ease;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.18s ease, box-shadow 0.18s ease;
   }}
   .stat-tile:hover {{
-    transform: translateY(-2px);
+    transform: translateY(-3px);
     border-color: var(--card-border-bright);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.44);
   }}
   .stat-icon-circle {{
-    width: 44px;
-    height: 44px;
+    width: 46px;
+    height: 46px;
     margin: 0 auto 10px;
     border-radius: 999px;
     background: linear-gradient(145deg, var(--accent-indigo), var(--accent-violet));
@@ -2711,70 +2732,107 @@ def render_page(
     line-height: 1.1;
   }}
   .discord-hub-card {{
-    background: linear-gradient(145deg, rgba(22, 50, 79, 0.78), var(--card-bg));
-    border: 1.5px solid var(--brand);
-    border-radius: 22px;
-    padding: 24px 20px;
+    background: linear-gradient(160deg, rgba(22, 50, 79, 0.88) 0%, rgba(18, 26, 36, 0.98) 100%);
+    border: 1.5px solid var(--card-border);
+    border-radius: 24px;
+    padding: 34px 24px 30px;
     text-align: center;
     margin-bottom: 16px;
-    box-shadow: 0 12px 28px rgba(22, 50, 79, 0.45);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
+    transition: transform 0.18s ease, border-color 0.18s ease;
+  }}
+  .discord-hub-card:hover {{
+    transform: translateY(-2px);
+    border-color: var(--card-border-bright);
   }}
   .discord-hub-icon {{
-    width: 52px;
-    height: 52px;
-    margin: 0 auto 10px;
-    border-radius: 16px;
-    background: rgba(14, 20, 27, 0.85);
-    border: 1px solid var(--card-border-bright);
+    width: 66px;
+    height: 66px;
+    margin: 0 auto 18px;
+    border-radius: 18px;
+    background: var(--bg-deep);
+    border: 1.5px solid var(--card-border-bright);
     color: var(--text-main);
     display: flex;
     align-items: center;
     justify-content: center;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    animation: softFloat 3.6s ease-in-out infinite;
   }}
   .discord-hub-title {{
-    margin: 0 0 6px;
-    font-size: 20px;
+    margin: 0 0 8px;
+    font-size: 32px;
     font-weight: 900;
     color: var(--text-main);
+    line-height: 1.25;
   }}
   .discord-hub-sub {{
-    margin: 0 0 18px;
-    font-size: 13.5px;
+    margin: 0 auto 24px;
+    max-width: 520px;
+    font-size: 17px;
     font-weight: 700;
-    color: var(--brand);
+    color: var(--text-sub);
+    line-height: 1.65;
   }}
   .discord-hub-btn {{
-    display: inline-block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 100%;
-    max-width: 340px;
-    padding: 12px 18px;
-    border-radius: 14px;
-    background: var(--text-main);
+    padding: 16px 22px;
+    border-radius: 18px;
+    background: #FFFFFF;
     color: var(--bg-deep);
-    border: 1px solid var(--card-border-bright);
+    border: 1.5px solid var(--card-border-bright);
     text-decoration: none;
     font-weight: 900;
-    font-size: 14px;
-    transition: transform 0.15s ease, background 0.15s ease;
+    font-size: 18px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), background 0.16s ease, filter 0.16s ease;
   }}
   .discord-hub-btn:hover {{
     transform: translateY(-2px);
-    background: var(--brand);
+    background: var(--text-main);
+    filter: brightness(1.02);
   }}
   .glass-card {{
     background: var(--card-bg); border: 1px solid var(--card-border);
-    border-radius: 22px; padding: 20px; margin-bottom: 16px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38);
+    border-radius: 24px; padding: 22px; margin-bottom: 16px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
   }}
+  .studio-banner {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 18px 20px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(22, 50, 79, 0.85), rgba(58, 134, 255, 0.20), rgba(14, 20, 27, 0.96));
+    border: 1px solid var(--card-border);
+    margin-bottom: 16px;
+  }}
+  .studio-banner-title {{ margin: 0 0 4px; font-size: 20px; font-weight: 900; color: var(--text-main); }}
+  .studio-banner-sub {{ font-size: 12.5px; color: var(--text-sub); font-weight: 600; }}
+  .score-ring-box {{
+    padding: 10px 14px;
+    border-radius: 16px;
+    background: rgba(14, 20, 27, 0.90);
+    border: 1px solid var(--card-border-bright);
+    text-align: center;
+    min-width: 132px;
+  }}
+  .score-ring-val {{ font-size: 20px; font-weight: 900; color: var(--text-main); line-height: 1.1; }}
+  .score-ring-lbl {{ font-size: 11px; color: var(--brand); font-weight: 800; margin-top: 3px; }}
   .admin-hero {{
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
     gap: 12px;
-    padding: 18px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, rgba(22, 50, 79, 0.78), rgba(58, 134, 255, 0.18), rgba(14, 20, 27, 0.96));
+    padding: 18px 20px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(22, 50, 79, 0.85), rgba(58, 134, 255, 0.22), rgba(14, 20, 27, 0.97));
     border: 1px solid var(--card-border);
     margin-bottom: 16px;
   }}
@@ -2786,16 +2844,16 @@ def render_page(
   }}
   @media (max-width: 540px) {{ .admin-kpis {{ grid-template-columns: 1fr; }} }}
   .kpi-box {{
-    padding: 14px;
-    border-radius: 16px;
-    background: rgba(14, 20, 27, 0.92);
+    padding: 15px 14px;
+    border-radius: 18px;
+    background: linear-gradient(160deg, rgba(22, 50, 79, 0.36), rgba(14, 20, 27, 0.96));
     border: 1px solid var(--card-border);
     text-align: center;
-    transition: transform 0.15s ease, border-color 0.15s ease;
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.16s ease;
   }}
   .kpi-box:hover {{ transform: translateY(-2px); border-color: var(--card-border-bright); }}
-  .kpi-num {{ font-size: 22px; font-weight: 900; color: var(--text-main); }}
-  .kpi-lbl {{ font-size: 11.5px; color: var(--text-sub); margin-top: 4px; font-weight: 700; }}
+  .kpi-num {{ font-size: 24px; font-weight: 900; color: var(--text-main); }}
+  .kpi-lbl {{ font-size: 12px; color: var(--text-sub); margin-top: 4px; font-weight: 700; }}
   .cat-tabs {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
@@ -2803,123 +2861,192 @@ def render_page(
     margin-bottom: 16px;
   }}
   .cat-tab-btn {{
-    background: rgba(14, 20, 27, 0.94);
+    background: rgba(14, 20, 27, 0.95);
     border: 1px solid var(--card-border);
     color: var(--text-sub);
-    border-radius: 13px;
-    padding: 11px 9px;
+    border-radius: 14px;
+    padding: 11px 10px;
     font-size: 12.5px;
     font-weight: 800;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.16s cubic-bezier(0.22, 1, 0.36, 1);
     text-align: center;
   }}
   .cat-tab-btn:hover {{
     border-color: var(--card-border-bright);
     color: var(--text-main);
-    transform: translateY(-1px);
+    transform: translateY(-1.5px);
   }}
   .cat-tab-btn:active {{ transform: scale(0.97); }}
   .cat-tab-btn.active {{
     background: linear-gradient(135deg, var(--accent-indigo) 0%, var(--accent-violet) 100%);
     border-color: var(--card-border-bright);
     color: var(--text-main);
+    box-shadow: 0 6px 18px rgba(58, 134, 255, 0.28);
   }}
   .cat-pane {{ display: none; }}
-  .cat-pane.active {{ display: block; animation: fadeSlideUp 0.18s ease both; }}
+  .cat-pane.active {{ display: block; animation: fadeSlideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }}
+
   .link-card {{
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 14px 16px;
-    border-radius: 15px;
-    background: rgba(14, 20, 27, 0.92);
+    gap: 14px;
+    padding: 17px 18px;
+    border-radius: 18px;
+    background: linear-gradient(145deg, rgba(22, 50, 79, 0.45), rgba(14, 20, 27, 0.96));
     border: 1px solid var(--card-border);
     text-decoration: none;
     color: var(--text-main);
-    margin-bottom: 10px;
-    transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    margin-bottom: 12px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.30);
+    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   }}
   .link-card:hover {{
-    transform: translateY(-1px);
-    background: rgba(22, 50, 79, 0.48);
+    transform: translateY(-2.5px);
+    background: linear-gradient(145deg, rgba(22, 50, 79, 0.78), rgba(58, 134, 255, 0.20));
     border-color: var(--card-border-bright);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.42);
   }}
-  .link-card-title {{ font-weight: 800; font-size: 14px; }}
-  .link-card-sub {{ font-size: 12px; color: var(--text-sub); margin-top: 2px; }}
-  .link-arrow {{ font-weight: 900; color: var(--brand); font-size: 15px; }}
+  .link-card-left {{ display: flex; align-items: center; gap: 13px; min-width: 0; }}
+  .link-card-badge {{
+    width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--accent-indigo), var(--accent-violet));
+    border: 1px solid var(--brand);
+    color: var(--text-main);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 16px;
+  }}
+  .link-card-title {{ font-weight: 900; font-size: 15px; color: var(--text-main); }}
+  .link-card-sub {{ font-size: 12.5px; color: var(--text-sub); margin-top: 3px; font-weight: 600; }}
+  .link-arrow {{ font-weight: 900; color: var(--card-border-bright); font-size: 18px; transition: transform 0.16s ease; }}
+  .link-card:hover .link-arrow {{ transform: translateX({('3px' if is_en else '-3px')}); }}
+
   .panel-section {{
-    background: rgba(14, 20, 27, 0.90);
+    background: linear-gradient(170deg, rgba(22, 50, 79, 0.26), rgba(14, 20, 27, 0.94));
     border: 1px solid var(--card-border);
-    border-radius: 18px;
-    padding: 16px;
+    border-radius: 20px;
+    padding: 18px;
     margin-bottom: 14px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
   }}
   .panel-section.prem-sec {{
-    background: linear-gradient(160deg, rgba(22, 50, 79, 0.48), rgba(18, 26, 36, 0.96));
+    background: linear-gradient(160deg, rgba(22, 50, 79, 0.56), rgba(58, 134, 255, 0.14), rgba(18, 26, 36, 0.98));
     border-color: var(--prem-border);
+    box-shadow: 0 10px 26px rgba(58, 134, 255, 0.14);
   }}
   .panel-section-head {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 12px;
-    padding-bottom: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 11px;
     border-bottom: 1px solid var(--card-border);
   }}
   .panel-section-title {{
     margin: 0;
-    font-size: 15px;
-    font-weight: 800;
+    font-size: 15.5px;
+    font-weight: 900;
     color: var(--text-main);
+    letter-spacing: 0.2px;
   }}
   .sub-panel {{
-    background: rgba(14, 20, 27, 0.92); border: 1px solid var(--card-border);
-    border-radius: 18px; padding: 16px; margin-bottom: 16px;
+    background: linear-gradient(170deg, rgba(22, 50, 79, 0.28), rgba(14, 20, 27, 0.95));
+    border: 1px solid var(--card-border);
+    border-radius: 20px; padding: 18px; margin-bottom: 16px;
   }}
   .sub-panel-head {{
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--card-border);
+    margin-bottom: 14px; padding-bottom: 11px; border-bottom: 1px solid var(--card-border);
   }}
-  .sub-panel-title {{ margin: 0; font-size: 15px; font-weight: 800; color: var(--text-main); }}
+  .sub-panel-title {{ margin: 0; font-size: 15.5px; font-weight: 900; color: var(--text-main); }}
   .grid-2 {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }}
   @media (max-width: 540px) {{ .grid-2 {{ grid-template-columns: 1fr; }} }}
   .nav-item {{
-    display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px;
+    display: flex; align-items: center; gap: 10px; padding: 10.5px 13px; border-radius: 13px;
     color: var(--text-main); text-decoration: none; font-size: 13.5px; font-weight: 700;
-    transition: background 0.15s ease, transform 0.15s ease;
+    transition: background 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
   }}
-  .nav-item:hover {{ background: rgba(58, 134, 255, 0.18); transform: translateX({('2px' if is_en else '-2px')}); }}
-  .nav-item.active {{ background: rgba(22, 50, 79, 0.82); border: 1px solid var(--brand); color: var(--text-main); }}
+  .nav-item:hover {{ background: rgba(58, 134, 255, 0.18); transform: translateX({('3px' if is_en else '-3px')}); }}
+  .nav-item.active {{ background: linear-gradient(135deg, rgba(22, 50, 79, 0.90), rgba(58, 134, 255, 0.24)); border: 1px solid var(--brand); color: var(--text-main); }}
   .nav-item.danger {{ color: var(--accent-coral); }}
-  .sep {{ height: 1px; background: var(--card-border); margin: 6px 0; }}
+  .sep {{ height: 1px; background: var(--card-border); margin: 7px 0; }}
   .user-box {{
-    display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 14px;
-    background: rgba(18, 26, 36, 0.95); border: 1px solid var(--card-border);
+    display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px;
+    background: linear-gradient(145deg, rgba(22, 50, 79, 0.45), rgba(18, 26, 36, 0.96));
+    border: 1px solid var(--card-border);
   }}
-  .avatar, .avatar-img {{ width: 38px; height: 38px; border-radius: 999px; object-fit: cover; }}
-  .avatar {{ background: var(--accent-violet); display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--bg-deep); }}
-  .uname {{ font-weight: 800; font-size: 13px; }}
-  .uhandle {{ font-size: 11px; color: var(--text-sub); }}
-  .tag {{ font-size: 10.5px; padding: 4px 10px; border-radius: 9px; background: rgba(58, 134, 255, 0.22); border: 1px solid var(--brand); color: var(--text-main); font-weight: 800; white-space: nowrap; }}
-  .ok-pill {{ font-size: 10.5px; padding: 4px 10px; border-radius: 9px; background: rgba(142, 202, 230, 0.16); border: 1px solid var(--brand); color: var(--text-main); font-weight: 800; white-space: nowrap; }}
-  .warn-pill {{ font-size: 10.5px; padding: 4px 10px; border-radius: 9px; background: rgba(255, 123, 84, 0.18); border: 1px solid var(--accent-coral); color: var(--card-border-bright); font-weight: 800; white-space: nowrap; }}
-  .prem-pill {{ font-size: 10.5px; padding: 4px 10px; border-radius: 999px; background: linear-gradient(135deg, rgba(22, 50, 79, 0.85), rgba(58, 134, 255, 0.35)); border: 1px solid var(--brand); color: var(--text-main); font-weight: 800; }}
-  .admin-pill {{ font-size: 10.5px; padding: 4px 9px; border-radius: 8px; background: rgba(22, 50, 79, 0.72); border: 1px solid var(--card-border); color: var(--text-main); font-weight: 800; }}
+  .avatar, .avatar-img {{ width: 44px; height: 44px; border-radius: 999px; object-fit: cover; border: 1.5px solid var(--brand); flex-shrink: 0; }}
+  .avatar {{ background: linear-gradient(135deg, var(--accent-violet), var(--accent-indigo)); display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 16px; color: var(--text-main); }}
+  .uname {{ font-weight: 900; font-size: 14px; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+
+  .tag {{
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; padding: 4px 11px; border-radius: 999px;
+    background: linear-gradient(135deg, rgba(22, 50, 79, 0.9), rgba(58, 134, 255, 0.30));
+    border: 1px solid var(--brand); color: var(--text-main);
+    font-weight: 900; letter-spacing: 0.3px; white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(58, 134, 255, 0.16);
+  }}
+  .tag-owner {{
+    background: linear-gradient(135deg, rgba(22, 50, 79, 0.95), rgba(58, 134, 255, 0.45));
+    border-color: var(--card-border-bright);
+    color: var(--card-border-bright);
+  }}
+  .tag-staff {{
+    background: linear-gradient(135deg, rgba(22, 50, 79, 0.9), rgba(142, 202, 230, 0.25));
+    border-color: var(--brand);
+    color: var(--text-main);
+  }}
+  .tag-prem {{
+    background: linear-gradient(135deg, rgba(58, 134, 255, 0.35), rgba(22, 50, 79, 0.9));
+    border-color: var(--card-border-bright);
+    color: var(--text-main);
+  }}
+  .tag-member {{
+    background: rgba(14, 20, 27, 0.9);
+    border-color: var(--card-border);
+    color: var(--text-sub);
+  }}
+  .ok-pill {{
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; padding: 4px 11px; border-radius: 999px;
+    background: rgba(142, 202, 230, 0.16); border: 1px solid var(--brand);
+    color: var(--text-main); font-weight: 800; white-space: nowrap;
+  }}
+  .warn-pill {{
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; padding: 4px 11px; border-radius: 999px;
+    background: rgba(255, 123, 84, 0.18); border: 1px solid var(--accent-coral);
+    color: var(--card-border-bright); font-weight: 800; white-space: nowrap;
+  }}
+  .prem-pill {{
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; padding: 4px 12px; border-radius: 999px;
+    background: linear-gradient(135deg, rgba(22, 50, 79, 0.92), rgba(58, 134, 255, 0.38));
+    border: 1px solid var(--card-border-bright); color: var(--text-main); font-weight: 900; white-space: nowrap;
+  }}
+  .admin-pill {{
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10.5px; padding: 4px 10px; border-radius: 999px;
+    background: rgba(22, 50, 79, 0.78); border: 1px solid var(--card-border);
+    color: var(--text-main); font-weight: 800; white-space: nowrap;
+  }}
+
   .login-btn {{
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    text-align: center; padding: 11px 14px; border-radius: 13px;
+    text-align: center; padding: 12px 14px; border-radius: 14px;
     background: linear-gradient(135deg, var(--brand), #c8e7f5); color: var(--bg-deep); text-decoration: none; font-weight: 900; font-size: 13.5px;
+    border: 1px solid var(--card-border-bright);
     transition: filter 0.15s ease, transform 0.15s ease;
   }}
   .login-btn:hover {{ filter: brightness(1.06); transform: translateY(-1px); }}
   .inp, .sel, .bio-textarea {{
     width: 100%; background: var(--bg-deep); border: 1px solid var(--card-border);
-    color: var(--text-main); border-radius: 12px; padding: 11px 13px; font-size: 14px; margin-bottom: 10px;
+    color: var(--text-main); border-radius: 13px; padding: 11.5px 14px; font-size: 14px; margin-bottom: 10px;
     font-family: inherit;
-    transition: border-color 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }}
   .bio-textarea {{
     min-height: 142px;
@@ -2931,23 +3058,25 @@ def render_page(
   .inp:focus, .sel:focus, .bio-textarea:focus {{
     outline: none;
     border-color: var(--card-border-bright);
+    box-shadow: 0 0 0 3px rgba(58, 134, 255, 0.16);
   }}
-  .lbl {{ display: block; font-size: 12.5px; color: var(--text-sub); margin: 8px 0 5px; font-weight: 700; }}
+  .lbl {{ display: block; font-size: 12.5px; color: var(--text-sub); margin: 8px 0 5px; font-weight: 800; }}
   .bio-meta {{
     display: flex; justify-content: space-between; align-items: center; gap: 8px;
     font-size: 11.5px; color: var(--text-sub); margin-bottom: 12px;
   }}
   .switch-row {{
     display: flex; align-items: center; justify-content: space-between; gap: 14px;
-    padding: 12px 14px; border-radius: 14px;
-    background: rgba(18, 26, 36, 0.90);
+    padding: 12.5px 15px; border-radius: 15px;
+    background: rgba(18, 26, 36, 0.92);
     border: 1px solid var(--card-border); margin-bottom: 10px; font-size: 13.5px; font-weight: 700;
     cursor: pointer; user-select: none;
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
   }}
   .switch-row:hover {{
-    background: rgba(22, 50, 79, 0.48);
+    background: rgba(22, 50, 79, 0.52);
     border-color: var(--card-border-bright);
+    transform: translateY(-1px);
   }}
   .switch-input {{
     position: relative;
@@ -2983,20 +3112,25 @@ def render_page(
   }}
   .list-row {{
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    padding: 11px 13px; border-radius: 13px; background: rgba(14, 20, 27, 0.85);
+    padding: 12px 14px; border-radius: 15px; background: rgba(14, 20, 27, 0.88);
     border: 1px solid var(--card-border); margin-bottom: 8px;
+    transition: border-color 0.15s ease, background 0.15s ease;
   }}
-  .guild-icon, .guild-icon-ph {{ width: 42px; height: 42px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }}
+  .list-row:hover {{
+    border-color: var(--card-border-bright);
+    background: rgba(22, 50, 79, 0.35);
+  }}
+  .guild-icon, .guild-icon-ph {{ width: 44px; height: 44px; border-radius: 13px; object-fit: cover; flex-shrink: 0; }}
   .guild-icon-ph {{
     background: linear-gradient(135deg, var(--accent-indigo), var(--accent-violet));
     border: 1px solid var(--brand);
     display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; color: var(--text-main);
   }}
   .mini-btn {{
-    padding: 10px 14px; border-radius: 12px; border: 1px solid var(--brand);
+    padding: 10px 14px; border-radius: 13px; border: 1px solid var(--brand);
     background: linear-gradient(135deg, var(--accent-indigo), var(--accent-violet));
     color: var(--text-main); font-size: 12.5px; font-weight: 800; cursor: pointer; text-align: center;
-    transition: background 0.15s ease, transform 0.15s ease;
+    transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
   }}
   .mini-btn:hover {{
     border-color: var(--card-border-bright);
@@ -3011,7 +3145,7 @@ def render_page(
     background: rgba(255, 123, 84, 0.38);
   }}
   .album-box {{
-    padding: 14px; border-radius: 15px; background: var(--bg-deep);
+    padding: 15px; border-radius: 16px; background: var(--bg-deep);
     border: 1px dashed var(--card-border); margin-bottom: 12px;
   }}
   .preview-thumb {{
@@ -3023,7 +3157,7 @@ def render_page(
     border: 1px solid var(--card-border); margin-top: 8px;
   }}
   .muted {{ color: var(--text-sub); font-size: 13px; }}
-  code {{ background: var(--bg-deep); padding: 2px 6px; border-radius: 6px; font-size: 12px; color: var(--text-main); border: 1px solid var(--card-border); }}
+  code {{ background: var(--bg-deep); padding: 2px 7px; border-radius: 7px; font-size: 12px; color: var(--text-main); border: 1px solid var(--card-border); }}
 </style>
 </head>
 <body>
@@ -3503,6 +3637,9 @@ async def handle_guild(request: web.Request) -> web.Response:
         for g in active_guilds
     )
 
+    active_shields_cnt = sum(1 for k in SHIELD_TOGGLE_KEYS if cfg.get(k))
+    rules_enabled_cnt = sum(1 for v in (cfg.get("antinuke") or {}).values() if isinstance(v, dict) and v.get("enabled"))
+
     general_html = _build_toggle_items(GENERAL_TOGGLE_KEYS, cfg, is_en)
     antinuke_html = _build_toggle_items(ANTINUKE_TOGGLE_KEYS, cfg, is_en)
     antiraid_html = _build_toggle_items(ANTIRAID_TOGGLE_KEYS, cfg, is_en)
@@ -3604,9 +3741,30 @@ async def handle_guild(request: web.Request) -> web.Response:
       <input type="hidden" name="target_uid" value="">
       <input type="hidden" name="target_snapshot_id" value="">
 
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
-        <h2 style="margin:0;">{('Security Panel' if is_en else 'لوحة الحماية')}</h2>
-        <span class="tag">{score}/100 — {esc(grade)}</span>
+      <div class="studio-banner">
+        <div>
+          <h2 class="studio-banner-title">{('Security Control Studio' if is_en else 'استوديو التحكم بالحماية')}</h2>
+          <div class="studio-banner-sub">{('Fine-tune active shields, anti-sabotage limits, snapshots & logs' if is_en else 'تحكم متكامل بالدروع المفعلة، حدود التخريب، اللقطات والسجلات')}</div>
+        </div>
+        <div class="score-ring-box">
+          <div class="score-ring-val">{score}/100</div>
+          <div class="score-ring-lbl">{esc(grade)}</div>
+        </div>
+      </div>
+
+      <div class="admin-kpis">
+        <div class="kpi-box">
+          <div class="kpi-num">{active_shields_cnt}</div>
+          <div class="kpi-lbl">{('Active Shields' if is_en else 'الدروع المفعلة')}</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-num">{rules_enabled_cnt}/{len(ANTINUKE_RULE_KEYS)}</div>
+          <div class="kpi-lbl">{('Sabotage Rules' if is_en else 'قواعد التخريب')}</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-num">{len(cfg.get('perms_snapshots') or [])}</div>
+          <div class="kpi-lbl">{('Snapshots' if is_en else 'اللقطات المحفوظة')}</div>
+        </div>
       </div>
 
       <label class="lbl">{('Select Server' if is_en else 'اختر السيرفر')}</label>
@@ -3853,9 +4011,12 @@ async def handle_premium(request: web.Request) -> web.Response:
       <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
       <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
 
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;">
-        <h2 style="margin:0;">{('★ Premium Perks' if is_en else '★ مزايا البريميوم')}</h2>
-        <span class="prem-pill">{esc(rem_txt)}</span>
+      <div class="studio-banner">
+        <div>
+          <h2 class="studio-banner-title">{('★ Premium Suite' if is_en else '★ جناح البريميوم الخاص')}</h2>
+          <div class="studio-banner-sub">{('Customize bot identity, high-tier shield response, and instant alerts' if is_en else 'تخصيص هوية البوت، سرعة الاستجابة الدفاعية، وقنوات التنبيه الفورية')}</div>
+        </div>
+        <span class="prem-pill">★ {esc(rem_txt)}</span>
       </div>
 
       <label class="lbl">{('Select Server' if is_en else 'اختر السيرفر')}</label>
@@ -4058,9 +4219,10 @@ async def handle_admin(request: web.Request) -> web.Response:
         a_perms = a.get("permissions") or {}
         active_perms = [k for k, v in a_perms.items() if v]
         perms_badge = "ALL PERMS" if a_uid == ADMIN_USER_ID else f"{len(active_perms)}/{len(ADMIN_PERMISSION_KEYS)} perms"
+        role_cls = "tag tag-owner" if a_uid == ADMIN_USER_ID else "tag tag-staff"
         a_rows += (
             f"<div class='list-row' style='flex-wrap:wrap;'>"
-            f"<div><span class='tag'>{esc(a_tag)}</span> <code>{esc(a_uid)}</code> <span class='muted'>({esc(a.get('granted_by'))})</span></div>"
+            f"<div><span class='{role_cls}'>{esc(a_tag)}</span> <code>{esc(a_uid)}</code> <span class='muted'>({esc(a.get('granted_by'))})</span></div>"
             f"<span class='admin-pill'>{esc(perms_badge)}</span></div>"
         )
 
@@ -4089,10 +4251,10 @@ async def handle_admin(request: web.Request) -> web.Response:
     <div class="glass-card anim-card">
       <div class="admin-hero">
         <div>
-          <h2 style="margin:0 0 4px;">{('Admin Control Center' if is_en else 'لوحة الإدارة المركزية')}</h2>
-          <div class="muted">{('Manage custom-duration subscriptions, boost sync, staff tags & permissions, remote actions, and backups' if is_en else 'إدارة الاشتراكات بمدة مخصصة، تاقات وصلاحيات الإدارة، الأوامر عن بُعد، والنسخ الاحتياطي')} • Last Sync: <code>{hb_last}</code></div>
+          <h2 class="studio-banner-title">{('Admin Command Hub' if is_en else 'مركز قيادة الإدارة')}</h2>
+          <div class="studio-banner-sub">{('Custom subscriptions, staff tags & permissions, remote actions & backups' if is_en else 'الاشتراكات بمدة مخصصة، تاقات وصلاحيات الطاقم، الأوامر عن بُعد والنسخ الاحتياطي')} • Sync: <code>{hb_last}</code></div>
         </div>
-        <span class="tag">{esc(role_label)}</span>
+        <span class="tag tag-owner">{esc(role_label)}</span>
       </div>
 
       <div class="admin-kpis">
@@ -4220,8 +4382,8 @@ async def handle_services(request: web.Request) -> web.Response:
         <div class='glass-card anim-card'>
           <div class='admin-hero' style='margin-bottom:14px;'>
             <div>
-              <h2 style='margin:0 0 4px;'>Arab Security — Services</h2>
-              <div class='muted'>Organized protection modules, separated role guards, dangerous permissions guard, and app abuse defense.</div>
+              <h2 class='studio-banner-title'>Arab Security — Services</h2>
+              <div class='studio-banner-sub'>Organized protection modules, separated role guards, dangerous permissions guard, and app abuse defense.</div>
             </div>
             <span class='ok-pill'>GENERAL + PREMIUM</span>
           </div>
@@ -4247,8 +4409,8 @@ async def handle_services(request: web.Request) -> web.Response:
         <div class='glass-card anim-card'>
           <div class='admin-hero' style='margin-bottom:14px;'>
             <div>
-              <h2 style='margin:0 0 4px;'>خدمات بوت ARAB SECURITY</h2>
-              <div class='muted'>تنظيم واضح للحمايات العامة مع فصل حذف وتعديل الرتب، حماية الصلاحيات الخطيرة، وحماية تطبيقات الربط، بالإضافة إلى مزايا البريميوم.</div>
+              <h2 class='studio-banner-title'>خدمات بوت ARAB SECURITY</h2>
+              <div class='studio-banner-sub'>تنظيم واضح للحمايات العامة مع فصل حذف وتعديل الرتب، حماية الصلاحيات الخطيرة، وحماية تطبيقات الربط، بالإضافة إلى مزايا البريميوم.</div>
             </div>
             <span class='ok-pill'>عام + بريميوم</span>
           </div>
@@ -4306,36 +4468,37 @@ async def handle_links(request: web.Request) -> web.Response:
     user = get_discord_session(request)
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
     invite_href = "/invite" if user else ("/login?next=" + quote("/invite") + "&msg=" + quote("Please login with Discord first."))
-    panel_href = "/guild" if user else "/login?next=/guild"
     arrow = "&#8594;" if is_en else "&#8592;"
+    support_title = "Support Server" if is_en else "سيرفر الدعم الفني"
 
     body = f"""
     <div class='glass-card anim-card'>
-      <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;'>
-        <h2 style='margin:0;'>{('Links' if is_en else 'الروابط')}</h2>
+      <div class='admin-hero' style='margin-bottom:16px;'>
+        <div>
+          <h2 class='studio-banner-title'>{('Links' if is_en else 'الروابط')}</h2>
+          <div class='studio-banner-sub'>{('Quick access to bot invite and support server' if is_en else 'وصول سريع لإضافة البوت وسيرفر الدعم الفني')}</div>
+        </div>
         <span class='tag'>{esc(SITE_NAME)}</span>
       </div>
 
       <a class='link-card' href='{esc(invite_href)}'>
-        <div>
-          <div class='link-card-title'>Invite Arab Security Bot</div>
-          <div class='link-card-sub'>{('Add the bot to your Discord server' if is_en else 'إضافة البوت إلى سيرفر ديسكورد الخاص بك')}</div>
-        </div>
-        <span class='link-arrow'>{arrow}</span>
-      </a>
-
-      <a class='link-card' href='{esc(panel_href)}'>
-        <div>
-          <div class='link-card-title'>{('Security Panel' if is_en else 'لوحة الحماية')}</div>
-          <div class='link-card-sub'>{('Open your server security settings' if is_en else 'فتح لوحة إعدادات الحماية لسيرفرك')}</div>
+        <div class='link-card-left'>
+          <div class='link-card-badge'>+</div>
+          <div>
+            <div class='link-card-title'>Invite Arab Security Bot</div>
+            <div class='link-card-sub'>{('Add the bot to your Discord server' if is_en else 'إضافة البوت إلى سيرفر ديسكورد الخاص بك')}</div>
+          </div>
         </div>
         <span class='link-arrow'>{arrow}</span>
       </a>
 
       <a class='link-card' href='{safe_support}' target='_blank' rel='noopener noreferrer'>
-        <div>
-          <div class='link-card-title'>{('Support Server' if is_en else 'سيرفر الدعم الفني')}</div>
-          <div class='link-card-sub'>تحديثات ، دعم فني ، تنبيهات</div>
+        <div class='link-card-left'>
+          <div class='link-card-badge'>{_discord_svg_icon(20)}</div>
+          <div>
+            <div class='link-card-title'>{esc(support_title)}</div>
+            <div class='link-card-sub'>تحديثات ، دعم فني ، تنبيهات</div>
+          </div>
         </div>
         <span class='link-arrow'>{arrow}</span>
       </a>
@@ -4426,31 +4589,35 @@ async def handle_callback(request: web.Request) -> web.Response:
 
     if not access_token:
         detail = f" ({err_reason[:60]})" if err_reason else ""
-        raise web.HTTPFound("/?msg=" + quote(f"Could not get Discord access token{detail}."))
+        raise web.HTTPFound("/?msg=" + quote(f"Could not complete Discord login{detail}."))
 
     uid = str(user_info.get("id", "")).strip()
     if not uid.isdigit():
-        raise web.HTTPFound("/?msg=" + quote("Could not read Discord user profile."))
+        raise web.HTTPFound("/?msg=" + quote("Could not fetch Discord user profile."))
 
-    signed_tok = sign_session(
+    uname = str(user_info.get("global_name") or user_info.get("username") or f"User {uid}")[:40]
+    ava = str(user_info.get("avatar", "") or "")[:40]
+
+    signed = sign_session(
         {
             "id": uid,
-            "username": str(user_info.get("username", "User"))[:40],
-            "avatar": str(user_info.get("avatar", "") or "")[:40],
+            "username": uname,
+            "avatar": ava,
             "guilds": compact_guilds,
             "exp": time.time() + 86400 * 7,
         }
     )
-    log_event(f"User {uid} logged in via Discord", level="AUTH")
-    resp = web.HTTPFound(next_url or "/guild")
+
+    log_event(f"Discord login: {uname} ({uid})", level="AUTH")
+    resp = web.HTTPFound(sanitize_next_url(next_url))
     resp.set_cookie(
         "arab_sec_session",
-        signed_tok,
-        max_age=86400 * 7,
+        signed,
         httponly=True,
-        secure=should_use_secure_cookie(request),
         samesite="Lax",
+        secure=should_use_secure_cookie(request),
         path="/",
+        max_age=86400 * 7,
     )
     return resp
 
@@ -4465,45 +4632,42 @@ async def handle_logout(request: web.Request) -> web.Response:
 
 
 async def health_handler(request: web.Request) -> web.Response:
-    return web.json_response(
-        {
-            "ok": True,
-            "site": SITE_NAME,
-            "bot_guilds_count": len(get_all_guilds()),
-            "total_visits": get_total_visits(),
-            "premium_count": len(get_premium_list()),
-            "db_online": db is not None,
-            "bot_heartbeat": MEM_BOT_HEARTBEAT,
-        }
-    )
+    return web.json_response({"ok": True, "service": SITE_NAME, "db_connected": db is not None})
 
 
 @web.middleware
-async def security_and_visit_middleware(request: web.Request, handler):
+async def security_headers_middleware(request: web.Request, handler):
     ip = get_client_ip(request)
-    is_auth = request.path in ("/login", "/callback")
-    if is_rate_limited(ip, is_sensitive=is_auth):
-        return web.Response(text="Rate limit exceeded.", status=429)
+    is_sensitive = request.path in ("/login", "/callback")
+    if is_rate_limited(ip, is_sensitive=is_sensitive):
+        return web.json_response({"ok": False, "error": "Too many requests"}, status=429)
 
     record_site_visit(request)
     try:
         response = await handler(request)
-    except web.HTTPException:
-        raise
-    except Exception as exc:
-        log_event(f"Unhandled web error on {request.path}: {type(exc).__name__}", level="ERROR")
-        return web.Response(text="Internal server error.", status=500)
-
+    except web.HTTPException as exc:
+        response = exc
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if not request.path.startswith("/api/"):
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; "
+            "img-src 'self' https: data: blob:; "
+            "style-src 'self' https: 'unsafe-inline'; "
+            "script-src 'self' https: 'unsafe-inline';"
+        )
     return response
 
 
 def create_app() -> web.Application:
-    hydrate_from_db()
-    app = web.Application(middlewares=[security_and_visit_middleware])
+    app = web.Application(client_max_size=16_000_000, middlewares=[security_headers_middleware])
     app.router.add_get("/", home_handler)
+    app.router.add_get("/health", health_handler)
+    app.router.add_get("/login", handle_login)
+    app.router.add_get("/callback", handle_callback)
+    app.router.add_get("/logout", handle_logout)
     app.router.add_get("/invite", handle_invite_redirect)
     app.router.add_get("/guild", handle_guild)
     app.router.add_post("/guild", handle_guild)
@@ -4514,15 +4678,18 @@ def create_app() -> web.Application:
     app.router.add_get("/services", handle_services)
     app.router.add_get("/updates", handle_updates)
     app.router.add_get("/links", handle_links)
-    app.router.add_get("/login", handle_login)
-    app.router.add_get("/callback", handle_callback)
-    app.router.add_get("/logout", handle_logout)
-    app.router.add_get("/health", health_handler)
+
     app.router.add_post("/api/bot/sync-guilds", api_bot_sync_guilds)
     app.router.add_post("/api/bot/boost-sync", api_bot_boost_sync)
     app.router.add_get("/api/bot/pending-commands", api_bot_pending_commands)
+    app.router.add_post("/api/bot/pending-commands", api_bot_pending_commands)
     return app
 
 
+def main() -> None:
+    app = create_app()
+    web.run_app(app, host=HOST, port=PORT)
+
+
 if __name__ == "__main__":
-    web.run_app(create_app(), host=HOST, port=PORT)
+    main()
