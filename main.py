@@ -52,7 +52,7 @@ MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").stri
 DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:QiADlkDohqCpFP6z@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "zFF12Oc6tFhB3mhDzF80HYwY4Zyd7NyX"
+DEFAULT_SYNC_SECRET = "DILCwxwjftlHL0E19KZQoSD99Ktw1F5N"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -61,7 +61,7 @@ SESSION_SECRET = (
     else "ArabSecurity_Session_Secret_2026_x9K#mP2vL8qR5tW7zY3nB6jH4cF1gD0sA"
 )
 BOT_SYNC_SECRET = (
-    (os.environ.get("BOT_SYNC_SECRET") or "zFF12Oc6tFhB3mhDzF80HYwY4Zyd7NyX").strip()
+    (os.environ.get("BOT_SYNC_SECRET") or "DILCwxwjftlHL0E19KZQoSD99Ktw1F5N").strip()
     or (os.environ.get("SILENT_SECRET") or "").strip()
     or DEFAULT_SYNC_SECRET
 )
@@ -78,7 +78,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = (os.getenv("COOKIE_SECURE", "") or "").strip().lower()
 
 DISCORD_CLIENT_ID = (os.getenv("DISCORD_CLIENT_ID", "1573635674551357550") or "").strip()
-DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "zFF12Oc6tFhB3mhDzF80HYwY4Zyd7NyX") or "").strip()
+DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "DILCwxwjftlHL0E19KZQoSD99Ktw1F5N") or "").strip()
 
 MAX_IMAGE_BYTES = 10_000_000
 MAX_IMAGE_DATA_URL_LEN = 14_000_000
@@ -89,6 +89,8 @@ ADMIN_PERM = 0x8
 
 ADMIN_PERMISSION_KEYS = (
     "manage_premium",
+    "extend_premium",
+    "revoke_premium",
     "manage_admins",
     "remote_actions",
     "simulations",
@@ -97,7 +99,9 @@ ADMIN_PERMISSION_KEYS = (
 )
 
 ADMIN_PERMISSION_LABELS = {
-    "manage_premium": ("Manage Premium", "إدارة البريميوم"),
+    "manage_premium": ("Grant & Manage Premium", "منح وإدارة البريميوم"),
+    "extend_premium": ("Extend Premium Duration", "زيادة مدة البريميوم"),
+    "revoke_premium": ("Revoke Premium", "سحب البريميوم"),
     "manage_admins": ("Manage Admins & Perms", "إدارة الأدمن والصلاحيات"),
     "remote_actions": ("Remote Actions & Broadcast", "الأوامر عن بُعد والبث"),
     "simulations": ("Safety Checks", "فحص الجاهزية"),
@@ -105,7 +109,7 @@ ADMIN_PERMISSION_LABELS = {
     "view_logs": ("System & Security Logs", "السجلات والتنبيهات"),
 }
 
-STAFF_ROLE_OPTIONS = ("Co owner", "Staff")
+STAFF_ROLE_OPTIONS = ("Co owner", "Senior Moderator", "Moderator", "Staff")
 
 ANTINUKE_RULE_KEYS = (
     "anti_ban",
@@ -285,33 +289,31 @@ ANTINUKE_LABELS_AR = {
 }
 
 
-def _compress_payload(obj: dict) -> str:
-    raw = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return base64.b64encode(zlib.compress(raw, level=9)).decode("ascii")
-
-
-def _decompress_payload(blob: str) -> dict | None:
-    if not blob or not isinstance(blob, str):
-        return None
+def compress_blob(payload_obj) -> str:
     try:
-        dec = zlib.decompress(base64.b64decode(blob.encode("ascii"))).decode("utf-8")
-        data = json.loads(dec)
-        return data if isinstance(data, dict) else None
+        raw = json.dumps(payload_obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        comp = zlib.compress(raw, level=9)
+        if len(comp) < len(raw):
+            return "z:" + base64.b64encode(comp).decode("ascii")
+        return "j:" + base64.b64encode(raw).decode("ascii")
     except Exception:
-        return None
+        return ""
 
 
-def _strip_heavy_media_for_db(cfg: dict) -> dict:
-    light = json.loads(json.dumps(cfg))
-    prof = light.get("guild_profile")
-    if isinstance(prof, dict):
-        ava = str(prof.get("avatar_data_url") or "")
-        ban = str(prof.get("banner_data_url") or "")
-        if ava.startswith("data:"):
-            prof["avatar_data_url"] = ""
-        if ban.startswith("data:"):
-            prof["banner_data_url"] = ""
-    return light
+def decompress_blob(blob_str: str | None, fallback):
+    s = str(blob_str or "").strip()
+    if not s:
+        return fallback
+    try:
+        if s.startswith("z:"):
+            raw = zlib.decompress(base64.b64decode(s[2:].encode("ascii")))
+            return json.loads(raw.decode("utf-8"))
+        if s.startswith("j:"):
+            raw = base64.b64decode(s[2:].encode("ascii"))
+            return json.loads(raw.decode("utf-8"))
+        return json.loads(s)
+    except Exception:
+        return fallback
 
 
 def _full_admin_perms() -> dict[str, bool]:
@@ -319,14 +321,7 @@ def _full_admin_perms() -> dict[str, bool]:
 
 
 def _default_sub_admin_perms(custom: dict | None = None) -> dict[str, bool]:
-    base = {
-        "manage_premium": True,
-        "manage_admins": False,
-        "remote_actions": True,
-        "simulations": True,
-        "backups": False,
-        "view_logs": True,
-    }
+    base = {k: False for k in ADMIN_PERMISSION_KEYS}
     if isinstance(custom, dict):
         for k in ADMIN_PERMISSION_KEYS:
             if k in custom:
@@ -343,9 +338,13 @@ def _sanitize_staff_role(raw_role: str | None, uid: str = "") -> str:
     low = val.lower()
     if low in ("co owner", "co-owner", "coowner"):
         return "Co owner"
+    if low in ("senior moderator", "senior mod", "sr mod", "seniormoderator"):
+        return "Senior Moderator"
+    if low in ("moderator", "mod"):
+        return "Moderator"
     if low == "staff":
         return "Staff"
-    return "Staff"
+    return "Moderator"
 
 
 def _fresh_default_guild_cfg() -> dict:
@@ -417,6 +416,11 @@ def _fresh_default_guild_cfg() -> dict:
             "anti_emoji_delete": {"enabled": True, "limit": 2, "punishment": "Kick"},
         },
         "guild_profile": {
+            "bot_name": SITE_NAME,
+            "bot_status": "online",
+            "activity_type": "playing",
+            "activity_text": "",
+            "stream_url": "",
             "bio": "",
             "avatar_data_url": "",
             "avatar_name": "",
@@ -434,11 +438,11 @@ def _fresh_default_guild_cfg() -> dict:
     }
 
 
-MEM_LOGS: deque[dict] = deque(maxlen=150)
-MEM_INCIDENTS: deque[dict] = deque(maxlen=100)
+MEM_LOGS: deque[dict] = deque(maxlen=120)
+MEM_INCIDENTS: deque[dict] = deque(maxlen=90)
 MEM_GUILDS: dict[str, dict] = {}
 MEM_GUILD_CFG: dict[str, dict] = defaultdict(_fresh_default_guild_cfg)
-MEM_QUEUE: deque[dict] = deque(maxlen=150)
+MEM_QUEUE: deque[dict] = deque(maxlen=120)
 MEM_PREMIUM: dict[str, dict] = {
     ADMIN_USER_ID: {
         "user_id": ADMIN_USER_ID,
@@ -463,7 +467,7 @@ MEM_ADMINS: dict[str, dict] = {
 }
 MEM_VISITORS: dict[str, object] = {
     "total_visits": 0,
-    "unique_hashes": deque(maxlen=3000),
+    "unique_hashes": deque(maxlen=2500),
     "unique_seen": set(),
 }
 MEM_BACKUPS: deque[dict] = deque(maxlen=15)
@@ -473,13 +477,13 @@ MEM_BOT_HEARTBEAT: dict[str, str] = {
 }
 
 _CFG_CACHE: dict[str, tuple[float, dict]] = {}
-_CFG_TTL = 4.0
+_CFG_TTL = 5.0
 _PERM_CACHE: dict[str, tuple[float, object]] = {}
-_PERM_TTL = 2.0
+_PERM_TTL = 3.0
 _GUILDS_CACHE: tuple[float, list[dict]] = (0.0, [])
-_GUILDS_TTL = 2.5
+_GUILDS_TTL = 3.0
 _VISIT_STATS_CACHE: tuple[float, int, int] = (0.0, 0, 0)
-_VISIT_STATS_TTL = 15.0
+_VISIT_STATS_TTL = 20.0
 _PENDING_VISITS = 0
 _PENDING_UNIQUE: list[str] = []
 _LAST_VISIT_FLUSH = 0.0
@@ -487,8 +491,8 @@ _LAST_VISIT_FLUSH = 0.0
 CSRF_TOKENS: dict[str, dict] = {}
 OAUTH_STATES: dict[str, dict] = {}
 USED_NONCES: dict[str, float] = {}
-RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=400))
-AUTH_RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=120))
+RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=300))
+AUTH_RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=100))
 SESSIONS: dict[str, dict] = {}
 
 
@@ -504,7 +508,7 @@ def sanitize_next_url(raw_next: str | None) -> str:
 
 
 def sanitize_http_url(raw_url: str | None) -> str:
-    val = str(raw_url or "").strip()[:400]
+    val = str(raw_url or "").strip()[:350]
     if not val:
         return ""
     try:
@@ -545,7 +549,7 @@ def sanitize_bio_text(raw_bio: str | None) -> str:
 
 def sanitize_flash_msg(raw_msg: str | None) -> str:
     cleaned = "".join(ch for ch in str(raw_msg or "") if ch.isprintable()).strip()
-    return cleaned[:240]
+    return cleaned[:220]
 
 
 def _now_str() -> str:
@@ -625,25 +629,6 @@ def user_avatar_url(user_id: str, avatar_val: str | None) -> str:
     return f"https://cdn.discordapp.com/avatars/{uid}/{ava}.{ext}?size=128"
 
 
-def _render_avatar_badge(user_id: str, avatar_val: str | None, display_name: str, size: int = 42, cls_prefix: str = "prem-ava") -> str:
-    safe_name = esc(display_name or "User")
-    initial = esc((str(display_name or "U").strip()[:1] or "U").upper())
-    url = user_avatar_url(user_id, avatar_val)
-    if url:
-        return (
-            f"<span class='{cls_prefix}-wrap' style='width:{size}px;height:{size}px;'>"
-            f"<img class='{cls_prefix}-img' src='{esc(url)}' alt='{safe_name}' loading='lazy' referrerpolicy='no-referrer' "
-            f"onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex';\">"
-            f"<span class='{cls_prefix}-fb' style='display:none;'>{initial}</span>"
-            f"</span>"
-        )
-    return (
-        f"<span class='{cls_prefix}-wrap' style='width:{size}px;height:{size}px;'>"
-        f"<span class='{cls_prefix}-fb'>{initial}</span>"
-        f"</span>"
-    )
-
-
 db = None
 logs_col = None
 incidents_col = None
@@ -657,20 +642,23 @@ backups_col = None
 sessions_col = None
 
 
-def _merge_guild_cfg_doc(doc: dict) -> dict:
-    base = _fresh_default_guild_cfg()
-    expanded = _decompress_payload(doc.get("cfg_z", "")) if isinstance(doc.get("cfg_z"), str) else None
-    src = expanded if isinstance(expanded, dict) else doc
-    for k in base:
-        if k == "antinuke" and isinstance(src.get("antinuke"), dict):
-            for ak, av in src["antinuke"].items():
-                if ak in base["antinuke"] and isinstance(av, dict):
-                    base["antinuke"][ak].update(av)
-        elif k in ("guild_profile", "premium_perks") and isinstance(src.get(k), dict):
-            base[k].update(src[k])
-        elif k in src:
-            base[k] = src[k]
-    return base
+def _trim_db_collections() -> None:
+    if db is None:
+        return
+    try:
+        for col, keep_n in ((logs_col, 80), (incidents_col, 60), (backups_col, 12)):
+            if col is None:
+                continue
+            total = col.estimated_document_count()
+            if total > keep_n + 20:
+                oldest_ids = [
+                    d["_id"]
+                    for d in col.find({}, {"_id": 1}).sort("_id", 1).limit(max(1, total - keep_n))
+                ]
+                if oldest_ids:
+                    col.delete_many({"_id": {"$in": oldest_ids}})
+    except PyMongoError:
+        pass
 
 
 def hydrate_from_db() -> None:
@@ -684,32 +672,42 @@ def hydrate_from_db() -> None:
                 if gid.isdigit():
                     MEM_GUILDS[gid] = {
                         "id": gid,
-                        "name": str(g.get("name", f"Server {gid}"))[:100],
+                        "name": str(g.get("name", f"Server {gid}"))[:80],
                         "icon": str(g.get("icon", "") or "").strip()[:80],
                         "member_count": int(g.get("member_count", 0) or 0),
                         "owner_id": str(g.get("owner_id", "") or "").strip(),
-                        "updated_at": str(g.get("updated_at", "") or "").strip(),
+                        "updated_at": str(g.get("updated_at", "") or "").strip()[:24],
                     }
 
         if guild_settings_col is not None:
             for doc in guild_settings_col.find({}, {"_id": 0}).limit(500):
                 gid = str(doc.get("guild_id", "")).strip()
                 if gid.isdigit():
-                    merged = _merge_guild_cfg_doc(doc)
-                    prev_prof = (MEM_GUILD_CFG.get(gid) or {}).get("guild_profile") or {}
-                    if prev_prof.get("avatar_data_url") and not merged["guild_profile"].get("avatar_data_url"):
-                        merged["guild_profile"]["avatar_data_url"] = prev_prof["avatar_data_url"]
-                    if prev_prof.get("banner_data_url") and not merged["guild_profile"].get("banner_data_url"):
-                        merged["guild_profile"]["banner_data_url"] = prev_prof["banner_data_url"]
-                    MEM_GUILD_CFG[gid] = merged
+                    base = _fresh_default_guild_cfg()
+                    if doc.get("cfg_blob"):
+                        unpacked = decompress_blob(doc.get("cfg_blob"), {})
+                        if isinstance(unpacked, dict):
+                            for k, v in unpacked.items():
+                                if k in base:
+                                    base[k] = v
+                    else:
+                        for k in base:
+                            if k == "antinuke" and isinstance(doc.get("antinuke"), dict):
+                                for ak, av in doc["antinuke"].items():
+                                    if ak in base["antinuke"] and isinstance(av, dict):
+                                        base["antinuke"][ak].update(av)
+                            elif k in ("guild_profile", "premium_perks") and isinstance(doc.get(k), dict):
+                                base[k].update(doc[k])
+                            elif k in doc:
+                                base[k] = doc[k]
+                    MEM_GUILD_CFG[gid] = base
 
         if premium_col is not None:
             for doc in premium_col.find({}, {"_id": 0}).limit(300):
                 norm = _normalize_premium_doc(doc)
                 uid = norm["user_id"]
-                if not uid.isdigit() or not _is_premium_record_active(norm, now):
-                    continue
-                MEM_PREMIUM[uid] = norm
+                if uid.isdigit() and _is_premium_record_active(norm, now):
+                    MEM_PREMIUM[uid] = norm
 
         if admins_col is not None:
             for doc in admins_col.find({}, {"_id": 0}).limit(150):
@@ -719,7 +717,7 @@ def hydrate_from_db() -> None:
                         "user_id": uid,
                         "role_tag": _sanitize_staff_role(doc.get("role_tag"), uid=uid),
                         "granted_by": str(doc.get("granted_by", "owner")),
-                        "updated_at": str(doc.get("updated_at", "-")),
+                        "updated_at": str(doc.get("updated_at", "-"))[:24],
                         "permissions": _full_admin_perms()
                         if uid == ADMIN_USER_ID
                         else _default_sub_admin_perms(doc.get("permissions")),
@@ -734,7 +732,7 @@ def hydrate_from_db() -> None:
                 MEM_LOGS.appendleft(dict(l))
 
         if incidents_col is not None:
-            for inc in reversed(list(incidents_col.find({}, {"_id": 0}).sort("_id", -1).limit(50))):
+            for inc in reversed(list(incidents_col.find({}, {"_id": 0}).sort("_id", -1).limit(60))):
                 MEM_INCIDENTS.appendleft(dict(inc))
 
         if stats_col is not None:
@@ -752,10 +750,10 @@ if MONGO_URI and MongoClient is not None:
     try:
         client = MongoClient(
             MONGO_URI,
-            serverSelectionTimeoutMS=3000,
-            connectTimeoutMS=3000,
-            socketTimeoutMS=3000,
-            maxPoolSize=15,
+            serverSelectionTimeoutMS=2500,
+            connectTimeoutMS=2500,
+            socketTimeoutMS=2500,
+            maxPoolSize=16,
             compressors="zlib",
         )
         client.admin.command("ping")
@@ -801,27 +799,32 @@ if MONGO_URI and MongoClient is not None:
             upsert=True,
         )
         hydrate_from_db()
-        print(f"[WEB DB] Connected & hydrated persistently from MongoDB ({MONGO_DB_NAME})")
+        _trim_db_collections()
+        print(f"[WEB DB] Connected & compressed mode active ({MONGO_DB_NAME})")
     except (PyMongoError, Exception) as exc:
         print(f"[WEB DB] Fallback memory mode ({type(exc).__name__})")
 
 
 def _store_session_record(sid: str, record: dict) -> None:
-    if len(SESSIONS) >= 3000:
+    if len(SESSIONS) >= 2000:
         oldest_sid = next(iter(SESSIONS))
         SESSIONS.pop(oldest_sid, None)
     SESSIONS[sid] = dict(record)
     if sessions_col is not None:
         try:
-            compact_sess = {
+            compact = {
                 "sid": sid,
-                "id": record.get("id", ""),
-                "username": record.get("username", "User"),
-                "avatar": record.get("avatar", ""),
-                "exp": record.get("exp", 0.0),
-                "g_z": _compress_payload({"g": record.get("guilds") or []}),
+                "exp": float(record.get("exp", 0.0)),
+                "sess_blob": compress_blob(
+                    {
+                        "id": record.get("id", ""),
+                        "username": record.get("username", "User"),
+                        "avatar": record.get("avatar", ""),
+                        "guilds": record.get("guilds") or [],
+                    }
+                ),
             }
-            sessions_col.update_one({"sid": sid}, {"$set": compact_sess}, upsert=True)
+            sessions_col.update_one({"sid": sid}, {"$set": compact}, upsert=True)
         except PyMongoError:
             pass
 
@@ -839,23 +842,24 @@ def _load_session_record(sid: str) -> dict | None:
         try:
             doc = sessions_col.find_one({"sid": sid}, {"_id": 0})
             if doc:
-                if _safe_exp(doc.get("exp", 0)) <= now:
+                exp_val = _safe_exp(doc.get("exp", 0))
+                if exp_val <= now:
                     sessions_col.delete_one({"sid": sid})
                     return None
-                guilds_val = doc.get("guilds")
-                if not isinstance(guilds_val, list):
-                    unp = _decompress_payload(doc.get("g_z", ""))
-                    guilds_val = unp.get("g", []) if isinstance(unp, dict) else []
-                restored = {
-                    "sid": sid,
-                    "id": str(doc.get("id", "")),
-                    "username": str(doc.get("username", "User"))[:40],
-                    "avatar": str(doc.get("avatar", "") or "")[:80],
-                    "guilds": guilds_val,
-                    "exp": _safe_exp(doc.get("exp", 0)),
-                }
-                SESSIONS[sid] = dict(restored)
-                return restored
+                if doc.get("sess_blob"):
+                    unpacked = decompress_blob(doc.get("sess_blob"), {})
+                    restored = {
+                        "sid": sid,
+                        "exp": exp_val,
+                        "id": str(unpacked.get("id", "")),
+                        "username": str(unpacked.get("username", "User")),
+                        "avatar": str(unpacked.get("avatar", "")),
+                        "guilds": unpacked.get("guilds") or [],
+                    }
+                else:
+                    restored = {**doc, "sid": sid, "exp": exp_val}
+                SESSIONS[sid] = restored
+                return dict(restored)
         except PyMongoError:
             pass
     return None
@@ -884,16 +888,11 @@ def _cleanup_expired() -> None:
     for sid, sess in list(SESSIONS.items()):
         if _safe_exp(sess.get("exp", 0)) <= now:
             SESSIONS.pop(sid, None)
-    if sessions_col is not None:
-        try:
-            sessions_col.delete_many({"exp": {"$lte": now}})
-        except PyMongoError:
-            pass
 
 
 def issue_oauth_state(next_url: str = "/") -> str:
     _cleanup_expired()
-    st = secrets.token_urlsafe(24)
+    st = secrets.token_urlsafe(20)
     if len(OAUTH_STATES) >= 1500:
         oldest = next(iter(OAUTH_STATES))
         OAUTH_STATES.pop(oldest, None)
@@ -914,8 +913,8 @@ def consume_oauth_state(state_val: str | None) -> tuple[bool, str]:
 
 def issue_csrf_token(session_id: str) -> str:
     _cleanup_expired()
-    tok = secrets.token_hex(24)
-    if len(CSRF_TOKENS) >= 3000:
+    tok = secrets.token_hex(20)
+    if len(CSRF_TOKENS) >= 2500:
         oldest = next(iter(CSRF_TOKENS))
         CSRF_TOKENS.pop(oldest, None)
     CSRF_TOKENS[tok] = {"sid": str(session_id or ""), "exp": time.time() + 3600.0}
@@ -941,7 +940,7 @@ def is_replay_request(nonce: str | None) -> bool:
         return False
     if clean in USED_NONCES:
         return True
-    if len(USED_NONCES) >= 3000:
+    if len(USED_NONCES) >= 2500:
         oldest = next(iter(USED_NONCES))
         USED_NONCES.pop(oldest, None)
     USED_NONCES[clean] = time.time() + 300.0
@@ -995,27 +994,19 @@ def flush_visits_if_needed(force: bool = False) -> None:
     now = time.time()
     if not force and (now - _LAST_VISIT_FLUSH) < 12.0 and _PENDING_VISITS < 25:
         return
-    if stats_col is None or (_PENDING_VISITS == 0 and not _PENDING_UNIQUE):
+    if stats_col is None or _PENDING_VISITS == 0:
         _LAST_VISIT_FLUSH = now
         return
     inc_v = _PENDING_VISITS
-    uniq_batch = list(_PENDING_UNIQUE)
     _PENDING_VISITS = 0
     _PENDING_UNIQUE = []
     _LAST_VISIT_FLUSH = now
     try:
-        if inc_v > 0:
-            stats_col.update_one(
-                {"_id": "visitors"},
-                {"$inc": {"total_visits": inc_v}, "$set": {"updated_at": _now_str()}},
-                upsert=True,
-            )
-        if uniq_batch and UpdateOne is not None:
-            ops = [
-                UpdateOne({"_id": f"uv_{vh}"}, {"$set": {"hash": vh}}, upsert=True)
-                for vh in uniq_batch[:30]
-            ]
-            stats_col.bulk_write(ops, ordered=False)
+        stats_col.update_one(
+            {"_id": "visitors"},
+            {"$inc": {"total_visits": inc_v}},
+            upsert=True,
+        )
     except PyMongoError:
         pass
 
@@ -1026,7 +1017,7 @@ def record_site_visit(request: web.Request) -> None:
         return
     ip = get_client_ip(request)
     ua = request.headers.get("User-Agent", "")
-    v_hash = hashlib.sha256(f"{ip}|{ua}|{SESSION_SECRET}".encode("utf-8")).hexdigest()[:20]
+    v_hash = hashlib.sha256(f"{ip}|{ua}|{SESSION_SECRET}".encode("utf-8")).hexdigest()[:16]
 
     MEM_VISITORS["total_visits"] = int(MEM_VISITORS.get("total_visits", 0)) + 1
     _PENDING_VISITS += 1
@@ -1039,7 +1030,6 @@ def record_site_visit(request: web.Request) -> None:
             u_seen.discard(evicted)
         u_deque.append(v_hash)
         u_seen.add(v_hash)
-        _PENDING_UNIQUE.append(v_hash)
 
     flush_visits_if_needed(force=False)
 
@@ -1084,7 +1074,7 @@ def _get_admin_record(uid: str, force_db: bool = False) -> dict | None:
                     "user_id": uid,
                     "role_tag": _sanitize_staff_role(doc.get("role_tag"), uid=uid),
                     "granted_by": str(doc.get("granted_by", "owner")),
-                    "updated_at": str(doc.get("updated_at", "-")),
+                    "updated_at": str(doc.get("updated_at", "-"))[:24],
                     "permissions": _default_sub_admin_perms(doc.get("permissions")),
                 }
                 MEM_ADMINS[uid] = rec
@@ -1149,7 +1139,7 @@ def get_admin_list() -> list[dict]:
                 "user_id": uid,
                 "role_tag": _sanitize_staff_role(rec.get("role_tag"), uid=uid),
                 "granted_by": str(rec.get("granted_by", "admin")),
-                "updated_at": str(rec.get("updated_at", "-")),
+                "updated_at": str(rec.get("updated_at", "-"))[:24],
                 "permissions": _default_sub_admin_perms(rec.get("permissions")),
             }
     return list(items.values())
@@ -1160,7 +1150,7 @@ def set_admin_user(
     enabled: bool,
     granted_by: str = "",
     permissions: dict[str, bool] | None = None,
-    role_tag: str = "Staff",
+    role_tag: str = "Moderator",
 ) -> bool:
     uid = str(user_id or "").strip()
     if not uid.isdigit():
@@ -1178,7 +1168,6 @@ def set_admin_user(
             "permissions": perms_clean,
         }
         MEM_ADMINS[uid] = rec
-        set_premium_user(uid, True, days=365, hours=0, granted_by=granted_by or ADMIN_USER_ID, source="admin")
         if admins_col is not None:
             try:
                 admins_col.update_one({"user_id": uid}, {"$set": rec}, upsert=True)
@@ -1332,7 +1321,7 @@ def set_premium_user(
             "source": existing.get("source") if (extend_existing and existing.get("source")) else source,
             "duration_days": int(days or 0),
             "duration_hours": int(hours or 0),
-            "granted_at": existing.get("granted_at") or _now_str(),
+            "granted_at": existing.get("granted_at") or _now_str()[:16],
             "expires_at": new_exp,
             "permanent": is_perm,
         }
@@ -1355,7 +1344,7 @@ def set_premium_user(
 
 
 def sync_boosters_premium(boosters: list[dict]) -> tuple[int, int]:
-    stamp = _now_str()
+    stamp = _now_str()[:16]
     active_map: dict[str, dict] = {}
     for b in boosters or []:
         if not isinstance(b, dict):
@@ -1398,8 +1387,7 @@ def sync_boosters_premium(boosters: list[dict]) -> tuple[int, int]:
         current_src = (existing_mem or {}).get("source")
         if current_src in ("manual", "admin", "owner"):
             continue
-        preserved_granted = (existing_mem or {}).get("granted_at") or stamp
-        record_to_save = {**rec, "granted_at": preserved_granted}
+        record_to_save = {**rec, "granted_at": (existing_mem or {}).get("granted_at") or stamp}
         MEM_PREMIUM[uid] = dict(record_to_save)
         _invalidate_perm_cache(uid)
         if premium_col is not None:
@@ -1414,69 +1402,46 @@ def sync_boosters_premium(boosters: list[dict]) -> tuple[int, int]:
 def record_incident(guild_id: str, category: str, summary: str, severity: str = "HIGH") -> None:
     inc = {
         "time": _now_str(),
-        "guild_id": str(guild_id)[:22],
-        "category": str(category)[:30],
+        "guild_id": str(guild_id)[:20],
+        "category": str(category)[:24],
         "severity": str(severity)[:10],
-        "summary": str(summary)[:200],
+        "summary": str(summary)[:180],
     }
     MEM_INCIDENTS.appendleft(dict(inc))
     if incidents_col is not None:
         try:
             incidents_col.insert_one(dict(inc))
-            if incidents_col.count_documents({}) > 120:
-                oldest = incidents_col.find_one({}, {"_id": 1}, sort=[("_id", 1)])
-                if oldest:
-                    incidents_col.delete_one({"_id": oldest["_id"]})
         except PyMongoError:
             pass
 
 
-def get_recent_incidents(limit: int = 30) -> list[dict]:
+def get_recent_incidents(limit: int = 25) -> list[dict]:
     return list(MEM_INCIDENTS)[:limit]
-
-
-def clear_logs_and_incidents() -> None:
-    MEM_LOGS.clear()
-    MEM_INCIDENTS.clear()
-    if logs_col is not None:
-        try:
-            logs_col.delete_many({})
-        except PyMongoError:
-            pass
-    if incidents_col is not None:
-        try:
-            incidents_col.delete_many({})
-        except PyMongoError:
-            pass
 
 
 def log_event(msg: str, guild_id: str = "", level: str = "WEB") -> None:
     entry = {
         "time": _now_str(),
         "level": str(level)[:10],
-        "guild_id": str(guild_id)[:22],
-        "message": str(msg)[:220],
+        "guild_id": str(guild_id)[:20],
+        "message": str(msg)[:180],
     }
     MEM_LOGS.appendleft(dict(entry))
     if logs_col is not None:
         try:
             logs_col.insert_one(dict(entry))
-            if logs_col.count_documents({}) > 150:
-                oldest = logs_col.find_one({}, {"_id": 1}, sort=[("_id", 1)])
-                if oldest:
-                    logs_col.delete_one({"_id": oldest["_id"]})
         except PyMongoError:
             pass
     if level in ("ALERT", "ADMIN", "SEC", "WARN", "ERROR"):
         record_incident(guild_id or "GLOBAL", level, msg, "HIGH" if level in ("ALERT", "ERROR") else "MEDIUM")
 
 
-def get_recent_logs(limit: int = 50) -> list[dict]:
+def get_recent_logs(limit: int = 40) -> list[dict]:
     return list(MEM_LOGS)[:limit]
 
 
 def upsert_bot_guilds(guilds_payload: list[dict], replace_missing: bool = False) -> list[dict]:
-    stamp = _now_str()
+    stamp = _now_str()[:16]
     cleaned: dict[str, dict] = {}
     for item in guilds_payload or []:
         if not isinstance(item, dict):
@@ -1486,7 +1451,7 @@ def upsert_bot_guilds(guilds_payload: list[dict], replace_missing: bool = False)
             continue
         cleaned[gid] = {
             "id": gid,
-            "name": str(item.get("name", f"Server {gid}"))[:100],
+            "name": str(item.get("name", f"Server {gid}"))[:80],
             "icon": str(item.get("icon", "") or "").strip()[:80],
             "member_count": int(item.get("member_count", 0) or 0),
             "owner_id": str(item.get("owner_id", "") or "").strip(),
@@ -1519,7 +1484,7 @@ def upsert_bot_guilds(guilds_payload: list[dict], replace_missing: bool = False)
 def get_all_guilds() -> list[dict]:
     global _GUILDS_CACHE
     now = time.time()
-    if (now - _GUILDS_CACHE[0]) < _GUILDS_TTL and (_GUILDS_CACHE[1] or not MEM_GUILDS):
+    if (now - _GUILDS_CACHE[0]) < _GUILDS_TTL:
         return [dict(x) for x in _GUILDS_CACHE[1]]
     out = [dict(v) for v in MEM_GUILDS.values()]
     _GUILDS_CACHE = (now, out)
@@ -1575,7 +1540,7 @@ def get_user_visible_guilds(user: dict | None) -> tuple[list[dict], bool]:
             matched.append(
                 {
                     "id": gid,
-                    "name": str(ug.get("name", f"Server {gid}"))[:100],
+                    "name": str(ug.get("name", f"Server {gid}"))[:80],
                     "icon": str(ug.get("icon", "")).strip(),
                     "member_count": 0,
                     "bot_missing": True,
@@ -1584,6 +1549,11 @@ def get_user_visible_guilds(user: dict | None) -> tuple[list[dict], bool]:
 
     matched.sort(key=lambda item: (bool(item.get("bot_missing")), str(item.get("name", "")).lower()))
     return matched, True
+
+
+def get_user_connected_guilds(user: dict | None) -> list[dict]:
+    visible, _ = get_user_visible_guilds(user)
+    return [g for g in visible if not g.get("bot_missing")]
 
 
 def user_can_manage_guild(guild_id: str, user: dict | None, require_bot_present: bool = True) -> dict | None:
@@ -1639,30 +1609,31 @@ def get_guild_cfg(guild_id: str) -> dict:
         else:
             cfg[k] = v
 
+    if guild_settings_col is not None:
+        try:
+            doc = guild_settings_col.find_one({"guild_id": gid}, {"_id": 0})
+            if doc:
+                if doc.get("cfg_blob"):
+                    unpacked = decompress_blob(doc.get("cfg_blob"), {})
+                    if isinstance(unpacked, dict):
+                        for k, v in unpacked.items():
+                            if k in cfg:
+                                cfg[k] = v
+                else:
+                    for k in cfg:
+                        if k == "antinuke" and isinstance(doc.get("antinuke"), dict):
+                            for ak, av in doc["antinuke"].items():
+                                if ak in cfg["antinuke"] and isinstance(av, dict):
+                                    cfg["antinuke"][ak].update(av)
+                        elif k in ("guild_profile", "premium_perks") and isinstance(doc.get(k), dict):
+                            cfg[k].update(doc[k])
+                        elif k in doc:
+                            cfg[k] = doc[k]
+        except PyMongoError:
+            pass
+
     _CFG_CACHE[gid] = (now, json.loads(json.dumps(cfg)))
     return cfg
-
-
-def _persist_guild_cfg_compressed(gid: str, cfg: dict, is_premium: bool) -> None:
-    if not gid.isdigit() or guild_settings_col is None:
-        return
-    light = _strip_heavy_media_for_db(cfg)
-    compact_blob = _compress_payload(light)
-    try:
-        guild_settings_col.update_one(
-            {"guild_id": gid},
-            {
-                "$set": {
-                    "guild_id": gid,
-                    "cfg_z": compact_blob,
-                    "p": bool(is_premium),
-                    "u": _now_str(),
-                }
-            },
-            upsert=True,
-        )
-    except PyMongoError:
-        pass
 
 
 def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> dict:
@@ -1672,7 +1643,22 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
         fresh = _fresh_default_guild_cfg()
         if gid.isdigit():
             MEM_GUILD_CFG[gid] = json.loads(json.dumps(fresh))
-            _persist_guild_cfg_compressed(gid, fresh, is_premium)
+            if guild_settings_col is not None:
+                try:
+                    guild_settings_col.update_one(
+                        {"guild_id": gid},
+                        {
+                            "$set": {
+                                "guild_id": gid,
+                                "cfg_blob": compress_blob(fresh),
+                                "is_premium": bool(is_premium),
+                                "updated_at": _now_str()[:16],
+                            }
+                        },
+                        upsert=True,
+                    )
+                except PyMongoError:
+                    pass
         _CFG_CACHE[gid] = (time.time(), json.loads(json.dumps(fresh)))
         return fresh
 
@@ -1744,6 +1730,22 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
         if "guild_profile" in updates and isinstance(updates["guild_profile"], dict):
             prof = cfg.setdefault("guild_profile", {})
             p_upd = updates["guild_profile"]
+            if "bot_name" in p_upd:
+                bname = "".join(ch for ch in str(p_upd["bot_name"] or "") if ch.isprintable()).strip()[:48]
+                if bname:
+                    prof["bot_name"] = bname
+            if "bot_status" in p_upd:
+                bstat = str(p_upd["bot_status"] or "online").strip().lower()
+                if bstat in ("online", "idle", "dnd", "invisible"):
+                    prof["bot_status"] = bstat
+            if "activity_type" in p_upd:
+                atype = str(p_upd["activity_type"] or "playing").strip().lower()
+                if atype in ("playing", "listening", "watching", "streaming"):
+                    prof["activity_type"] = atype
+            if "activity_text" in p_upd:
+                prof["activity_text"] = "".join(ch for ch in str(p_upd["activity_text"] or "") if ch.isprintable()).strip()[:120]
+            if "stream_url" in p_upd:
+                prof["stream_url"] = sanitize_http_url(p_upd["stream_url"])
             if "bio" in p_upd:
                 prof["bio"] = sanitize_bio_text(p_upd["bio"])
             if "avatar_data_url" in p_upd:
@@ -1779,12 +1781,12 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
     if "save_snapshot" in updates and updates["save_snapshot"]:
         snap = {
             "id": secrets.token_hex(4),
-            "saved_at": _now_str(),
+            "saved_at": _now_str()[:16],
             "rules_count": len(cfg.get("antinuke", {})),
             "trusted_count": len(cfg.get("trusted_admins", [])),
             "snapshot_hash": hashlib.sha256(
                 json.dumps(cfg.get("antinuke", {}), sort_keys=True).encode("utf-8")
-            ).hexdigest()[:12],
+            ).hexdigest()[:10],
             "antinuke_data": json.loads(json.dumps(cfg.get("antinuke", {}))),
             "trusted_data": list(cfg.get("trusted_admins", [])),
         }
@@ -1812,7 +1814,22 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
 
     if gid.isdigit():
         MEM_GUILD_CFG[gid] = json.loads(json.dumps(cfg))
-        _persist_guild_cfg_compressed(gid, cfg, is_premium)
+        if guild_settings_col is not None:
+            try:
+                guild_settings_col.update_one(
+                    {"guild_id": gid},
+                    {
+                        "$set": {
+                            "guild_id": gid,
+                            "cfg_blob": compress_blob(cfg),
+                            "is_premium": bool(is_premium),
+                            "updated_at": _now_str()[:16],
+                        }
+                    },
+                    upsert=True,
+                )
+            except PyMongoError:
+                pass
         _CFG_CACHE[gid] = (time.time(), json.loads(json.dumps(cfg)))
     return cfg
 
@@ -1856,23 +1873,27 @@ def run_attack_simulation(guild_id: str, scenario: str, is_en: bool = True) -> s
 
 
 def create_db_backup() -> dict:
-    snapshot = {
-        "backup_id": secrets.token_hex(5),
-        "created_at": _now_str(),
+    compact_meta = {
         "guilds_count": len(get_all_guilds()),
         "admins_count": len(get_admin_list()),
         "premium_count": len(get_premium_list()),
-        "logs_count": len(get_recent_logs(60)),
-        "signature": _sign_hmac(f"backup|{_now_str()}")[:16],
+        "logs_count": len(get_recent_logs(40)),
+    }
+    snapshot = {
+        "backup_id": secrets.token_hex(4),
+        "created_at": _now_str()[:16],
+        "guilds_count": compact_meta["guilds_count"],
+        "admins_count": compact_meta["admins_count"],
+        "premium_count": compact_meta["premium_count"],
+        "logs_count": compact_meta["logs_count"],
+        "meta_blob": compress_blob(compact_meta),
+        "signature": _sign_hmac(f"backup|{_now_str()[:16]}")[:12],
     }
     MEM_BACKUPS.appendleft(dict(snapshot))
     if backups_col is not None:
         try:
             backups_col.insert_one(dict(snapshot))
-            if backups_col.count_documents({}) > 15:
-                oldest = backups_col.find_one({}, {"_id": 1}, sort=[("_id", 1)])
-                if oldest:
-                    backups_col.delete_one({"_id": oldest["_id"]})
+            _trim_db_collections()
         except PyMongoError:
             pass
     log_event(f"Backup created [{snapshot['backup_id']}]", level="ADMIN")
@@ -1969,14 +1990,25 @@ def detect_redirect_uri(request: web.Request) -> str:
 
 def sign_session(payload: dict) -> str:
     _cleanup_expired()
-    sid = secrets.token_urlsafe(24)
+    sid = secrets.token_urlsafe(20)
     exp_val = float(payload.get("exp", time.time() + 86400 * 7))
+    compact_guilds = [
+        {
+            "id": str(g.get("id", "")),
+            "name": str(g.get("name", ""))[:60],
+            "icon": str(g.get("icon", "") or "")[:60],
+            "owner": bool(g.get("owner", False)),
+            "permissions": int(g.get("permissions", 0) or 0),
+        }
+        for g in (payload.get("guilds") or [])
+        if isinstance(g, dict) and (bool(g.get("owner", False)) or (int(g.get("permissions", 0) or 0) & (ADMIN_PERM | MANAGE_GUILD_PERM)))
+    ]
     record = {
         "sid": sid,
         "id": str(payload.get("id", "")),
         "username": str(payload.get("username", "User"))[:40],
         "avatar": str(payload.get("avatar", "") or "")[:80],
-        "guilds": payload.get("guilds") or [],
+        "guilds": compact_guilds,
         "exp": exp_val,
     }
     _store_session_record(sid, record)
@@ -2120,7 +2152,7 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
     items: list[dict] = []
     if queue_col is not None:
         try:
-            done_stamp = _now_str()
+            done_stamp = _now_str()[:16]
             ret_opt = ReturnDocument.AFTER if ReturnDocument is not None else True
             for _ in range(25):
                 d = queue_col.find_one_and_update(
@@ -2144,7 +2176,10 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
                     cmd_item["user_id"] = uid_val
                     cmd_item["actor_id"] = uid_val
                 items.append(cmd_item)
-                queue_col.delete_one({"_id": d["_id"]})
+                try:
+                    queue_col.delete_one({"_id": d["_id"]})
+                except PyMongoError:
+                    pass
         except PyMongoError:
             pass
 
@@ -2212,15 +2247,6 @@ def _lock_svg_icon(size: int = 22) -> str:
     )
 
 
-def _user_svg_icon(size: int = 20) -> str:
-    return (
-        f"<svg width='{size}' height='{size}' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true'>"
-        "<circle cx='12' cy='8' r='4'/>"
-        "<path d='M5 20a7 7 0 0 1 14 0'/>"
-        "</svg>"
-    )
-
-
 def _render_guild_card(g: dict, is_en: bool, show_admin_meta: bool = False) -> str:
     gid_raw = str(g.get("id", ""))
     gid = esc(gid_raw)
@@ -2254,7 +2280,7 @@ def _render_guild_card(g: dict, is_en: bool, show_admin_meta: bool = False) -> s
         sub_line += f" / {esc(g.get('updated_at'))}"
 
     return (
-        f"<a class='list-row guild-search-item' data-search='{esc((gname_raw + ' ' + gid_raw).lower())}' href='{href}'>"
+        f"<a class='list-row guild-search-item anim-item' data-search='{esc((gname_raw + ' ' + gid_raw).lower())}' href='{href}'>"
         f"<div class='row-main'>{icon_html}"
         f"<div class='row-copy'><div class='row-title'>{gname}</div>"
         f"<div class='muted row-sub'>{sub_line}</div></div></div>"
@@ -2268,11 +2294,11 @@ def _render_discord_community_card(is_en: bool) -> str:
     sub_txt = (
         "Updates, live support, and instant alerts when a new update drops."
         if is_en
-        else "تحديثات، دعم مباشر، وتنبيه أول ما ينزل تحديث جديد."
+        else "تحديثات، دعم مباشر، وتنبيه أول ما ينزل تحديث."
     )
-    btn_txt = "Enter Server →" if is_en else "← دخول السيرفر"
+    btn_txt = "← Enter Server" if is_en else "← دخول السيرفر"
     return f"""
-    <section class="discord-hub-card">
+    <section class="discord-hub-card anim-card">
       <div class="discord-hub-icon">{_discord_svg_icon(26)}</div>
       <h2 class="discord-hub-title">{esc(title_txt)}</h2>
       <p class="discord-hub-sub">{esc(sub_txt)}</p>
@@ -2285,7 +2311,7 @@ def _render_stats_grid_html(is_en: bool, bot_servers_count: int, total_visits: i
     visits_label = "Total Visits" if is_en else "إجمالي الزيارات"
     servers_label = "Active Servers" if is_en else "السيرفرات النشطة"
     return f"""
-    <section class="stats-row">
+    <section class="stats-row anim-card">
       <div class="stat-box">
         <div class="stat-top">
           <span class="stat-label">{esc(visits_label)}</span>
@@ -2313,21 +2339,23 @@ def _render_login_gate_card(
     safe_next = quote(sanitize_next_url(next_url))
     heading = custom_title or ("Sign In Required" if is_en else "تسجيل الدخول مطلوب")
     desc = custom_desc or (
-        "Sign in with your Discord account to manage servers, guards, snapshots, and subscriptions."
+        f"Control panels are locked. Sign in with Discord first to manage {SITE_NAME}."
         if is_en
-        else "سجّل دخولك بحساب ديسكورد للوصول إلى إدارة السيرفرات وأنظمة الحماية واللقطات."
+        else f"صفحات اللوحة مقفلة. سجّل دخولك بديسكورد أولاً للوصول إلى لوحة {SITE_NAME}."
     )
+    secondary_txt = "Return to Main View" if is_en else "رجوع للواجهة الرئيسية"
     return f"""
-    <section class="gate-card">
+    <section class="gate-card anim-card">
       <div class="gate-icon">{_lock_svg_icon(22)}</div>
       <h1 class="gate-title">{esc(heading)}</h1>
       <p class="gate-desc">{esc(desc)}</p>
       <a class="btn-gold" href="/login?next={safe_next}">
         {_discord_svg_icon(18)}
-        <span>{('Continue with Discord' if is_en else 'الدخول عبر ديسكورد')}</span>
+        <span>{('Sign In with Discord' if is_en else 'تسجيل الدخول بديسكورد')}</span>
       </a>
+      <a class="gate-secondary-link" href="/">{esc(secondary_txt)}</a>
       <div class="gate-foot">
-        {('Discord OAuth verification only; no extra account permissions requested.' if is_en else 'تحقق رسمي عبر ديسكورد دون طلب صلاحيات إضافية.')}
+        {('Instant Discord verification with no extra account permissions requested.' if is_en else 'تحقق فوري عبر ديسكورد دون طلب صلاحيات إضافية على حسابك.')}
       </div>
     </section>
     """
@@ -2335,6 +2363,7 @@ def _render_login_gate_card(
 
 def _render_intro_hero_html(
     is_en: bool,
+    user: dict | None,
     bot_servers_count: int,
     total_visits: int,
     primary_href: str,
@@ -2342,7 +2371,6 @@ def _render_intro_hero_html(
     secondary_href: str,
     secondary_txt: str,
     prem_badge_html: str = "",
-    user_connected_guild: dict | None = None,
 ) -> str:
     hb_status = esc(MEM_BOT_HEARTBEAT.get("status", "ONLINE"))
     hero_heading = (
@@ -2363,23 +2391,24 @@ def _render_intro_hero_html(
         ("star", "Instant Rollback", "استرجاع الإعدادات"),
     ]
     pillars_html = "".join(
-        f"<div class='pillar-item'>"
+        f"<div class='pillar-item anim-item'>"
         f"<span class='mark-badge'>{_symbol_svg(ico_key, 15)}</span>"
         f"<span class='pillar-text'>{esc(en_lbl if is_en else ar_lbl)}</span>"
         f"</div>"
         for ico_key, en_lbl, ar_lbl in pillars
     )
 
-    if user_connected_guild:
-        feat_gid = esc(user_connected_guild.get("id", ""))
-        feat_name = esc(user_connected_guild.get("name") or SITE_NAME)
-        feat_members = int(user_connected_guild.get("member_count", 0) or 0)
+    user_connected = get_user_connected_guilds(user) if user else []
+    if user_connected:
+        featured = user_connected[0]
+        feat_name = esc(featured.get("name"))
+        feat_members = int(featured.get("member_count", 0) or 0)
         members_lbl = f"{feat_members:,} {'members' if is_en else 'عضو'}"
         monitor_html = f"""
-        <a class="monitor-box monitor-link" href="/guild?id={feat_gid}">
+        <div class="monitor-box">
           <div class="monitor-top">
-            <span class="ok-pill">{('ACTIVE' if is_en else 'نشط')}</span>
-            <span class="muted">{('Your Server' if is_en else 'سيرفر مسجل')}</span>
+            <span class="ok-pill">{('CONNECTED' if is_en else 'متصل')}</span>
+            <span class="muted">{('Your Server' if is_en else 'سيرفرك')}</span>
           </div>
           <div class="monitor-main">
             <div class="monitor-name">{feat_name}</div>
@@ -2388,16 +2417,16 @@ def _render_intro_hero_html(
           <div class="meter-track">
             <div class="meter-bar"></div>
           </div>
-        </a>
+        </div>
         """
     else:
         monitor_html = ""
 
-    hero_grid_cls = "hero-split" if monitor_html else "hero-split hero-single"
+    hero_grid_cls = "hero-split" if monitor_html else "hero-single"
 
     return f"""
     <div class="workspace-stack">
-      <section class="surface-card">
+      <section class="surface-card anim-card">
         <div class="{hero_grid_cls}">
           <div class="hero-main-col">
             <div class="meta-bar">
@@ -2412,6 +2441,7 @@ def _render_intro_hero_html(
               <a class="btn-dark" href="{esc(secondary_href)}">{esc(secondary_txt)}</a>
             </div>
           </div>
+
           {monitor_html}
         </div>
 
@@ -2467,13 +2497,6 @@ def render_page(
 
     if user:
         uname_safe = esc(user.get("username", "Member"))
-        avatar_html = _render_avatar_badge(
-            str(user.get("id", "")),
-            str(user.get("avatar", "")),
-            str(user.get("username", "Member")),
-            size=40,
-            cls_prefix="sess-ava",
-        )
         if str(user.get("id", "")) == ADMIN_USER_ID:
             badge_txt = "OWNER"
         elif is_admin and staff_tag in STAFF_ROLE_OPTIONS:
@@ -2491,14 +2514,13 @@ def render_page(
         account_block = (
             f"<div class='user-box'>"
             f"<div class='user-meta'><div class='uhandle'>{esc(L['account_lbl'])}</div><div class='uname'>{uname_safe} <span class='tag'>{esc(badge_txt)}</span></div></div>"
-            f"{avatar_html}</div>"
+            f"</div>"
             f"{prem_status_line}"
         )
     else:
         account_block = (
             f"<div class='user-box'>"
             f"<div class='user-meta'><div class='uhandle'>{esc(L['account_lbl'])}</div><div class='uname'>{esc(L['guest_name'])}</div></div>"
-            f"<div class='guest-badge'>{_user_svg_icon(20)}</div>"
             f"</div>"
         )
 
@@ -2513,7 +2535,7 @@ def render_page(
         final_content = content_html
 
     flash_banner = (
-        f"<div class='flash-banner' role='status'><span class='mark-badge'>{_symbol_svg('shield', 14)}</span><span>{esc(safe_flash)}</span></div>"
+        f"<div class='flash-banner anim-card' role='status'><span class='mark-badge'>{_symbol_svg('shield', 14)}</span><span>{esc(safe_flash)}</span></div>"
         if safe_flash
         else ""
     )
@@ -2565,11 +2587,11 @@ def render_page(
       radial-gradient(circle at 82% 14%, rgba(62, 138, 196, 0.28), transparent 46%),
       radial-gradient(circle at 50% 85%, rgba(15, 62, 114, 0.42), transparent 58%),
       linear-gradient(180deg, #1E578A 0%, #0F355E 42%, #081E38 78%, #051222 100%);
-    --surface: rgba(10, 29, 54, 0.80);
-    --surface-raised: rgba(15, 42, 76, 0.78);
-    --surface-input: rgba(6, 19, 38, 0.86);
-    --border: rgba(168, 216, 244, 0.22);
-    --border-strong: rgba(158, 216, 248, 0.62);
+    --surface: rgba(10, 29, 54, 0.78);
+    --surface-raised: rgba(15, 42, 76, 0.76);
+    --surface-input: rgba(6, 19, 38, 0.84);
+    --border: rgba(168, 216, 244, 0.20);
+    --border-strong: rgba(158, 216, 248, 0.56);
     --text-main: #F4FAFF;
     --text-muted: #B6D3EA;
     --accent: #8ED4FA;
@@ -2580,7 +2602,6 @@ def render_page(
     --emerald-bg: rgba(74, 222, 128, 0.14);
     --rose: #FB7185;
     --rose-bg: rgba(251, 113, 133, 0.16);
-    --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -2593,26 +2614,43 @@ def render_page(
     min-height: 100vh;
     line-height: 1.55;
   }}
-  @keyframes pageEnter {{
-    from {{ opacity: 0; transform: translateY(12px) scale(0.992); }}
-    to {{ opacity: 1; transform: translateY(0) scale(1); }}
+  @keyframes pageSlideIn {{
+    0% {{ opacity: 0; transform: translateY(14px) scale(0.992); }}
+    100% {{ opacity: 1; transform: translateY(0) scale(1); }}
   }}
-  @keyframes tabEnter {{
-    from {{ opacity: 0; transform: translateY(8px); }}
-    to {{ opacity: 1; transform: translateY(0); }}
+  @keyframes cardPopIn {{
+    0% {{ opacity: 0; transform: translateY(10px); }}
+    100% {{ opacity: 1; transform: translateY(0); }}
+  }}
+  @keyframes paneReveal {{
+    0% {{ opacity: 0; transform: translateY(8px); }}
+    100% {{ opacity: 1; transform: translateY(0); }}
+  }}
+  @keyframes meterPulse {{
+    0%, 100% {{ filter: brightness(1); }}
+    50% {{ filter: brightness(1.18); }}
   }}
   @media (prefers-reduced-motion: reduce) {{
     *, *::before, *::after {{ animation: none !important; transition-duration: 0.05s !important; }}
+  }}
+  .page-transition-wrap {{
+    animation: pageSlideIn 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }}
+  .anim-card {{
+    animation: cardPopIn 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }}
+  .anim-item {{
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease, background 0.2s ease, box-shadow 0.22s ease;
   }}
   .overlay {{
     opacity: 0;
     pointer-events: none;
     position: fixed;
     inset: 0;
-    background: rgba(4, 14, 28, 0.74);
+    background: rgba(4, 14, 28, 0.72);
     backdrop-filter: blur(5px);
     z-index: 60;
-    transition: opacity 0.24s var(--ease-smooth);
+    transition: opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1);
   }}
   .overlay.open {{
     opacity: 1;
@@ -2622,10 +2660,10 @@ def render_page(
     position: fixed;
     top: 0;
     {('left' if is_en else 'right')}: 0;
-    width: 312px;
+    width: 310px;
     max-width: 86vw;
     height: 100vh;
-    background: linear-gradient(180deg, rgba(16, 46, 82, 0.97) 0%, rgba(7, 22, 42, 0.99) 100%);
+    background: linear-gradient(180deg, rgba(16, 46, 82, 0.96) 0%, rgba(7, 22, 42, 0.98) 100%);
     backdrop-filter: blur(18px);
     border-{('right' if is_en else 'left')}: 1px solid var(--border);
     padding: 18px 14px;
@@ -2635,7 +2673,8 @@ def render_page(
     z-index: 70;
     overflow-y: auto;
     transform: translateX({('-100%' if is_en else '100%')});
-    transition: transform 0.28s var(--ease-smooth);
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
   }}
   .sidebar.open {{ transform: translateX(0); }}
   .drawer-head {{
@@ -2650,28 +2689,28 @@ def render_page(
     color: var(--text-main);
   }}
   .drawer-close-btn {{
-    width: 34px;
-    height: 34px;
-    border-radius: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 13px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: 700;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s var(--ease-smooth);
+    transition: transform 0.18s ease, color 0.18s ease, border-color 0.18s ease;
   }}
-  .drawer-close-btn:hover {{ color: var(--text-main); border-color: var(--border-strong); transform: scale(1.05); }}
+  .drawer-close-btn:hover {{ color: var(--text-main); border-color: var(--border-strong); transform: scale(1.06); }}
   .drawer-lang-btn {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
     width: 100%;
-    padding: 11px 15px;
+    padding: 10px 14px;
     border-radius: 16px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
@@ -2679,31 +2718,30 @@ def render_page(
     font-weight: 800;
     font-size: 13px;
     cursor: pointer;
-    transition: all 0.2s var(--ease-smooth);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
   }}
-  .drawer-lang-btn:hover {{ border-color: var(--border-strong); background: rgba(29, 76, 132, 0.8); transform: translateY(-1px); }}
+  .drawer-lang-btn:hover {{ border-color: var(--border-strong); background: rgba(29, 76, 132, 0.75); transform: translateY(-1px); }}
   .drawer-spacer {{ flex: 1; min-height: 12px; }}
   .drawer-logout-btn {{
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 11px 15px;
-    border-radius: 16px;
+    padding: 11px 14px;
+    border-radius: 999px;
     background: var(--rose-bg);
-    border: 1px solid rgba(251, 113, 133, 0.45);
+    border: 1px solid rgba(251, 113, 133, 0.42);
     color: #FECDD3;
     text-decoration: none;
-    font-weight: 800;
+    font-weight: 700;
     font-size: 13px;
-    transition: all 0.2s var(--ease-smooth);
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s ease;
   }}
-  .drawer-logout-btn:hover {{ filter: brightness(1.08); transform: translateY(-1px); }}
+  .drawer-logout-btn:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
   .page-container {{
     width: 100%;
     max-width: 960px;
     margin: 0 auto;
     padding: 20px 16px 64px;
-    animation: pageEnter 0.32s var(--ease-smooth) both;
   }}
   .top-bar {{
     display: flex;
@@ -2734,13 +2772,14 @@ def render_page(
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    transition: all 0.2s var(--ease-smooth);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
   }}
   .icon-btn:hover {{
     border-color: var(--border-strong);
-    background: rgba(29, 76, 132, 0.8);
+    background: rgba(29, 76, 132, 0.75);
     transform: translateY(-1px);
   }}
+  .icon-btn:active {{ transform: scale(0.96); }}
   .top-right {{
     display: flex;
     align-items: center;
@@ -2766,7 +2805,9 @@ def render_page(
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
   }}
+  .brand-mark:hover {{ transform: scale(1.05); }}
   .dock-bar {{
     display: flex;
     align-items: center;
@@ -2783,22 +2824,23 @@ def render_page(
   .dock-bar::-webkit-scrollbar {{ display: none; }}
   .dock-link {{
     padding: 8px 15px;
-    border-radius: 14px;
+    border-radius: 999px;
     font-size: 12.5px;
     font-weight: 700;
     color: var(--text-muted);
     text-decoration: none;
     white-space: nowrap;
     border: 1px solid transparent;
-    transition: all 0.2s var(--ease-smooth);
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
   }}
   .dock-link:hover {{ color: var(--text-main); background: var(--surface-raised); transform: translateY(-1px); }}
+  .dock-link:active {{ transform: scale(0.97); }}
   .dock-link.active {{
     color: #05182E;
-    background: linear-gradient(135deg, #CBEBFF 0%, #6CC2F5 100%);
-    border-color: rgba(186, 230, 253, 0.85);
+    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.75);
     font-weight: 800;
-    box-shadow: 0 4px 14px rgba(108, 194, 245, 0.25);
+    box-shadow: 0 4px 14px rgba(108, 194, 245, 0.28);
   }}
   .mark-badge {{
     display: inline-flex;
@@ -2825,7 +2867,6 @@ def render_page(
     margin-bottom: 18px;
     font-size: 13.5px;
     font-weight: 700;
-    animation: tabEnter 0.25s var(--ease-smooth) both;
   }}
   .workspace-stack {{
     display: flex;
@@ -2847,8 +2888,9 @@ def render_page(
     align-items: stretch;
     margin-bottom: 20px;
   }}
-  .hero-split.hero-single {{
-    grid-template-columns: 1fr;
+  .hero-single {{
+    display: block;
+    margin-bottom: 20px;
   }}
   @media (max-width: 720px) {{ .hero-split {{ grid-template-columns: 1fr; }} }}
   .hero-main-col {{ display: flex; flex-direction: column; justify-content: center; }}
@@ -2865,7 +2907,7 @@ def render_page(
     width: 56px;
     height: 56px;
     margin: 0 auto 14px;
-    border-radius: 18px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     color: var(--accent-bright);
@@ -2884,6 +2926,16 @@ def render_page(
     font-size: 13.5px;
     color: var(--text-muted);
   }}
+  .gate-secondary-link {{
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.2s ease;
+  }}
+  .gate-secondary-link:hover {{ color: var(--accent-bright); }}
   .gate-foot {{
     margin-top: 18px;
     padding-top: 14px;
@@ -2944,9 +2996,8 @@ def render_page(
     border: 1px solid var(--border);
     font-size: 12.5px;
     font-weight: 700;
-    transition: all 0.2s var(--ease-smooth);
   }}
-  .pillar-item:hover {{ border-color: var(--border-strong); transform: translateY(-2px); }}
+  .pillar-item:hover {{ border-color: var(--border-strong); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(3, 12, 26, 0.25); }}
   .pillar-text {{ color: var(--text-main); }}
   .action-pair {{
     display: grid;
@@ -2961,19 +3012,19 @@ def render_page(
     gap: 8px;
     width: 100%;
     padding: 12px 18px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, #D4EFFF 0%, #6CC2F5 100%);
-    border: 1px solid rgba(186, 230, 253, 0.85);
+    border-radius: 999px;
+    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
+    border: 1px solid rgba(186, 230, 253, 0.75);
     color: #05182E;
     text-decoration: none;
     font-weight: 800;
     font-size: 14px;
     cursor: pointer;
-    box-shadow: 0 6px 18px rgba(72, 162, 224, 0.28);
-    transition: all 0.2s var(--ease-smooth);
+    box-shadow: 0 6px 18px rgba(72, 162, 224, 0.25);
+    transition: filter 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
   }}
-  .btn-gold:hover {{ filter: brightness(1.07); transform: translateY(-2px); }}
-  .btn-gold:active {{ transform: scale(0.985); }}
+  .btn-gold:hover {{ filter: brightness(1.06); transform: translateY(-2px); box-shadow: 0 10px 24px rgba(108, 194, 245, 0.36); }}
+  .btn-gold:active {{ transform: scale(0.98); }}
   .btn-dark {{
     display: inline-flex;
     align-items: center;
@@ -2981,7 +3032,7 @@ def render_page(
     gap: 8px;
     width: 100%;
     padding: 12px 18px;
-    border-radius: 16px;
+    border-radius: 999px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-main);
@@ -2989,15 +3040,15 @@ def render_page(
     font-weight: 700;
     font-size: 13.5px;
     cursor: pointer;
-    transition: all 0.2s var(--ease-smooth);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
   }}
-  .btn-dark:hover {{ border-color: var(--border-strong); background: rgba(26, 70, 122, 0.86); transform: translateY(-1px); }}
-  .btn-dark:active {{ transform: scale(0.985); }}
+  .btn-dark:hover {{ border-color: var(--border-strong); background: rgba(26, 70, 122, 0.82); transform: translateY(-2px); }}
+  .btn-dark:active {{ transform: scale(0.98); }}
   .btn-danger {{
     display: block;
     width: 100%;
     padding: 11px 16px;
-    border-radius: 16px;
+    border-radius: 999px;
     background: var(--rose-bg);
     border: 1px solid rgba(251, 113, 133, 0.45);
     color: #FECDD3;
@@ -3006,9 +3057,10 @@ def render_page(
     font-size: 13px;
     text-align: center;
     cursor: pointer;
-    transition: all 0.2s var(--ease-smooth);
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), filter 0.2s ease;
   }}
-  .btn-danger:hover {{ filter: brightness(1.1); transform: translateY(-1px); }}
+  .btn-danger:hover {{ transform: translateY(-1px); filter: brightness(1.08); }}
+  .btn-danger:active {{ transform: scale(0.98); }}
   .monitor-box {{
     padding: 18px;
     border-radius: 20px;
@@ -3017,11 +3069,9 @@ def render_page(
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    text-decoration: none;
-    color: var(--text-main);
-    transition: all 0.22s var(--ease-smooth);
+    transition: border-color 0.22s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
   }}
-  .monitor-link:hover {{ border-color: var(--border-strong); transform: translateY(-2px); }}
+  .monitor-box:hover {{ border-color: var(--border-strong); transform: translateY(-2px); }}
   .monitor-top {{
     display: flex;
     align-items: center;
@@ -3047,6 +3097,7 @@ def render_page(
     width: 100%;
     height: 100%;
     background: linear-gradient(90deg, #C7ECFF 0%, #65BEF2 55%, #2B7CC2 100%);
+    animation: meterPulse 2.8s ease-in-out infinite;
   }}
   .stats-row {{
     display: grid;
@@ -3061,9 +3112,9 @@ def render_page(
     border-radius: 22px;
     padding: 18px 20px;
     box-shadow: 0 12px 28px rgba(3, 12, 26, 0.30);
-    transition: all 0.2s var(--ease-smooth);
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease;
   }}
-  .stat-box:hover {{ border-color: var(--border-strong); transform: translateY(-2px); }}
+  .stat-box:hover {{ transform: translateY(-2px); border-color: var(--border-strong); }}
   .stat-top {{
     display: flex;
     align-items: center;
@@ -3082,9 +3133,9 @@ def render_page(
     box-shadow: 0 16px 36px rgba(3, 12, 26, 0.38);
   }}
   .discord-hub-icon {{
-    width: 52px;
-    height: 52px;
-    margin: 0 auto 12px;
+    width: 54px;
+    height: 54px;
+    margin: 0 auto 14px;
     border-radius: 16px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
@@ -3121,9 +3172,10 @@ def render_page(
     font-weight: 800;
     font-size: 15px;
     box-shadow: 0 8px 22px rgba(72, 162, 224, 0.28);
-    transition: all 0.2s var(--ease-smooth);
+    transition: filter 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
   }}
-  .discord-hub-btn:hover {{ filter: brightness(1.06); transform: translateY(-2px); }}
+  .discord-hub-btn:hover {{ filter: brightness(1.05); transform: translateY(-2px); box-shadow: 0 12px 26px rgba(152, 215, 251, 0.38); }}
+  .discord-hub-btn:active {{ transform: scale(0.98); }}
   .page-card {{
     background: var(--surface);
     backdrop-filter: blur(16px);
@@ -3157,7 +3209,9 @@ def render_page(
     background: var(--surface-raised);
     border: 1px solid var(--border);
     text-align: center;
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease;
   }}
+  .kpi-box:hover {{ transform: translateY(-2px); border-color: var(--border-strong); }}
   .kpi-num {{ font-size: 21px; font-weight: 800; color: var(--text-main); }}
   .kpi-lbl {{ font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }}
   .cat-tabs {{
@@ -3170,24 +3224,25 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    border-radius: 14px;
-    padding: 9px 15px;
+    border-radius: 999px;
+    padding: 8px 15px;
     font-size: 12.5px;
     font-weight: 700;
     cursor: pointer;
     text-align: center;
-    transition: all 0.2s var(--ease-smooth);
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
   }}
   .cat-tab-btn:hover {{ border-color: var(--border-strong); color: var(--text-main); transform: translateY(-1px); }}
+  .cat-tab-btn:active {{ transform: scale(0.97); }}
   .cat-tab-btn.active {{
-    background: linear-gradient(135deg, #D4EFFF 0%, #6CC2F5 100%);
-    border-color: rgba(186, 230, 253, 0.85);
+    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.75);
     color: #05182E;
     font-weight: 800;
-    box-shadow: 0 4px 12px rgba(108, 194, 245, 0.25);
+    box-shadow: 0 4px 14px rgba(108, 194, 245, 0.28);
   }}
   .cat-pane {{ display: none; }}
-  .cat-pane.active {{ display: block; animation: tabEnter 0.24s var(--ease-smooth) both; }}
+  .cat-pane.active {{ display: block; animation: paneReveal 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }}
   .link-hub-stack {{
     display: flex;
     flex-direction: column;
@@ -3204,14 +3259,14 @@ def render_page(
     border: 1px solid var(--border);
     text-decoration: none;
     color: var(--text-main);
-    transition: all 0.2s var(--ease-smooth);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
   }}
-  .link-banner-card:hover {{ border-color: var(--border-strong); background: rgba(20, 56, 100, 0.88); transform: translateY(-2px); }}
+  .link-banner-card:hover {{ border-color: var(--border-strong); background: rgba(20, 56, 100, 0.85); transform: translateY(-2px); }}
   .link-card-title {{ font-weight: 800; font-size: 15.5px; }}
   .link-card-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }}
   .link-arrow {{
     padding: 6px 13px;
-    border-radius: 12px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-weight: 800;
@@ -3229,7 +3284,9 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     margin-bottom: 8px;
+    transition: border-color 0.2s ease, transform 0.2s ease;
   }}
+  .log-entry-row:hover {{ border-color: var(--border-strong); transform: translateY(-1px); }}
   .log-entry-msg {{ font-size: 13.5px; font-weight: 700; color: var(--text-main); }}
   .log-entry-time {{ font-size: 11.5px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }}
   @media (max-width: 600px) {{ .log-entry-row {{ flex-direction: column; gap: 4px; }} }}
@@ -3258,14 +3315,14 @@ def render_page(
     justify-content: space-between;
     gap: 8px;
     padding: 10px 14px;
-    border-radius: 14px;
+    border-radius: 999px;
     color: var(--text-main);
     text-decoration: none;
     font-size: 13.5px;
     font-weight: 700;
-    transition: all 0.18s var(--ease-smooth);
+    transition: background 0.18s ease, transform 0.18s ease;
   }}
-  .nav-item:hover {{ background: rgba(25, 68, 120, 0.6); transform: translateX({('3px' if is_en else '-3px')}); }}
+  .nav-item:hover {{ background: rgba(25, 68, 120, 0.55); transform: translateX({('3px' if is_en else '-3px')}); }}
   .nav-item.active {{
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
@@ -3291,51 +3348,17 @@ def render_page(
     border: 1px solid var(--border);
   }}
   .user-meta {{ min-width: 0; flex: 1; text-align: {('left' if is_en else 'right')}; }}
-  .guest-badge {{
-    width: 38px;
-    height: 38px;
-    border-radius: 12px;
-    background: var(--surface-input);
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }}
   .prem-status-strip {{
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    border-radius: 14px;
+    border-radius: 999px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-size: 11.5px;
     font-weight: 700;
     color: var(--accent-bright);
-  }}
-  .sess-ava-wrap, .prem-ava-wrap {{
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    overflow: hidden;
-    flex-shrink: 0;
-    border: 1px solid var(--border-strong);
-  }}
-  .sess-ava-img, .prem-ava-img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
-  .sess-ava-fb, .prem-ava-fb {{
-    width: 100%;
-    height: 100%;
-    background: #143963;
-    color: var(--accent-bright);
-    font-weight: 800;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }}
   .uname {{ font-weight: 800; font-size: 13.5px; color: var(--text-main); }}
   .uhandle {{ font-size: 11px; color: var(--text-muted); }}
@@ -3392,15 +3415,15 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-main);
-    border-radius: 15px;
+    border-radius: 16px;
     padding: 10px 14px;
     font-size: 13.5px;
     margin-bottom: 10px;
     font-family: inherit;
-    transition: border-color 0.2s var(--ease-smooth);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }}
   .bio-textarea {{
-    min-height: 120px;
+    min-height: 112px;
     margin-top: 6px;
     margin-bottom: 6px;
     resize: vertical;
@@ -3408,6 +3431,7 @@ def render_page(
   .inp:focus, .sel:focus, .bio-textarea:focus {{
     outline: none;
     border-color: var(--border-strong);
+    box-shadow: 0 0 0 3px rgba(142, 212, 250, 0.14);
   }}
   .lbl {{ display: block; font-size: 12.5px; color: var(--text-muted); margin: 6px 0 4px; font-weight: 700; }}
   .bio-meta {{
@@ -3433,9 +3457,9 @@ def render_page(
     font-weight: 700;
     cursor: pointer;
     user-select: none;
-    transition: border-color 0.18s var(--ease-smooth);
+    transition: border-color 0.2s ease, background 0.2s ease;
   }}
-  .switch-row:hover {{ border-color: var(--border-strong); }}
+  .switch-row:hover {{ border-color: var(--border-strong); background: rgba(11, 31, 60, 0.92); }}
   .switch-input {{
     position: relative;
     appearance: none;
@@ -3447,7 +3471,7 @@ def render_page(
     background: rgba(18, 49, 88, 0.9);
     border: 1px solid var(--border);
     cursor: pointer;
-    transition: background 0.2s var(--ease-smooth), border-color 0.2s var(--ease-smooth);
+    transition: background 0.22s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.22s ease;
   }}
   .switch-input::after {{
     content: "";
@@ -3458,7 +3482,7 @@ def render_page(
     height: 18px;
     border-radius: 999px;
     background: var(--text-muted);
-    transition: transform 0.2s var(--ease-smooth), background 0.2s var(--ease-smooth);
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease;
   }}
   .switch-input:checked {{
     background: #8ED4FA;
@@ -3480,9 +3504,8 @@ def render_page(
     margin-bottom: 8px;
     text-decoration: none;
     color: var(--text-main);
-    transition: all 0.18s var(--ease-smooth);
   }}
-  .list-row:hover {{ border-color: var(--border-strong); }}
+  .list-row:hover {{ border-color: var(--border-strong); transform: translateY(-1px); }}
   .row-main {{ display: flex; align-items: center; gap: 12px; min-width: 0; }}
   .row-copy {{ min-width: 0; }}
   .row-title {{ font-weight: 800; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
@@ -3491,12 +3514,14 @@ def render_page(
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 13px 15px;
+    padding: 14px 16px;
     border-radius: 18px;
     background: var(--surface-input);
     border: 1px solid var(--border);
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+    transition: border-color 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
   }}
+  .prem-member-card:hover {{ border-color: var(--border-strong); transform: translateY(-2px); }}
   .prem-member-top {{
     display: flex;
     justify-content: space-between;
@@ -3510,13 +3535,13 @@ def render_page(
     flex-wrap: wrap;
     gap: 8px;
     align-items: center;
-    padding-top: 8px;
+    padding-top: 10px;
     border-top: 1px solid var(--border);
   }}
   .guild-icon-wrap {{
     width: 38px;
     height: 38px;
-    border-radius: 12px;
+    border-radius: 999px;
     overflow: hidden;
     display: inline-flex;
     align-items: center;
@@ -3538,7 +3563,7 @@ def render_page(
   }}
   .mini-btn {{
     padding: 8px 14px;
-    border-radius: 12px;
+    border-radius: 999px;
     border: 1px solid var(--border);
     background: var(--surface-raised);
     color: var(--text-main);
@@ -3546,12 +3571,13 @@ def render_page(
     font-weight: 700;
     cursor: pointer;
     text-align: center;
-    transition: all 0.18s var(--ease-smooth);
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
   }}
-  .mini-btn:hover {{ border-color: var(--border-strong); transform: translateY(-1px); }}
+  .mini-btn:hover {{ border-color: var(--border-strong); background: rgba(26, 70, 122, 0.85); transform: translateY(-1px); }}
+  .mini-btn:active {{ transform: scale(0.97); }}
   .mini-btn.gold {{
-    background: linear-gradient(135deg, #D4EFFF 0%, #6CC2F5 100%);
-    border-color: rgba(186, 230, 253, 0.85);
+    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.75);
     color: #05182E;
     font-weight: 800;
   }}
@@ -3564,9 +3590,11 @@ def render_page(
     padding: 14px 16px;
     border-radius: 18px;
     background: var(--surface-input);
-    border: 1px dashed var(--border-strong);
+    border: 1px dashed var(--border);
     margin-bottom: 10px;
+    transition: border-color 0.2s ease;
   }}
+  .album-box:hover {{ border-color: var(--border-strong); }}
   .album-head {{
     display: flex;
     justify-content: space-between;
@@ -3590,6 +3618,238 @@ def render_page(
     border: 1px solid var(--border);
     margin-top: 8px;
   }}
+  .studio-grid {{
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(260px, 0.95fr);
+    gap: 16px;
+    align-items: start;
+  }}
+  @media (max-width: 780px) {{ .studio-grid {{ grid-template-columns: 1fr; }} }}
+  .studio-col {{
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }}
+  .studio-card {{
+    background: var(--surface-input);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 14px 16px;
+  }}
+  .studio-card-head {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text-main);
+  }}
+  .studio-badge {{
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 700;
+  }}
+  .avatar-row {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }}
+  .avatar-actions {{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }}
+  .avatar-btns {{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }}
+  .bot-ava-circle {{
+    width: 72px;
+    height: 72px;
+    border-radius: 999px;
+    border: 2px solid var(--border-strong);
+    background: linear-gradient(135deg, #2563EB 0%, #38BDF8 100%);
+    color: #F4FAFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: 800;
+    overflow: hidden;
+    flex-shrink: 0;
+  }}
+  .bot-ava-circle img {{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }}
+  .choice-grid-2 {{
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }}
+  .choice-grid-4 {{
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }}
+  @media (max-width: 520px) {{ .choice-grid-4 {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
+  .choice-tile {{
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 8px;
+    border-radius: 12px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 800;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  }}
+  .choice-tile input {{
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }}
+  .choice-tile:hover {{
+    border-color: var(--border-strong);
+    color: var(--text-main);
+    transform: translateY(-1px);
+  }}
+  .choice-tile.active {{
+    background: rgba(79, 70, 229, 0.34);
+    border-color: #818CF8;
+    color: #F4FAFF;
+    box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.35);
+  }}
+  .st-dot {{
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    display: inline-block;
+    flex-shrink: 0;
+  }}
+  .st-dot.online {{ background: #22C55E; }}
+  .st-dot.idle {{ background: #EAB308; }}
+  .st-dot.dnd {{ background: #EF4444; }}
+  .st-dot.invisible {{ background: #64748B; border: 1px solid #94A3B8; }}
+  .live-preview-card {{
+    background: rgba(14, 24, 44, 0.92);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 14px;
+    position: sticky;
+    top: 16px;
+  }}
+  .live-preview-head {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }}
+  .live-discord-box {{
+    background: #11141C;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 14px;
+    color: #F2F3F5;
+  }}
+  .live-top-row {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }}
+  .live-ava-wrap {{
+    position: relative;
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+  }}
+  .live-ava-circle {{
+    width: 52px;
+    height: 52px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #2563EB 0%, #38BDF8 100%);
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 800;
+    overflow: hidden;
+  }}
+  .live-ava-circle img {{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }}
+  .live-status-badge {{
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: #11141C;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }}
+  .live-name-txt {{
+    font-size: 16px;
+    font-weight: 800;
+    color: #FFFFFF;
+    line-height: 1.25;
+  }}
+  .live-sub-txt {{
+    font-size: 11.5px;
+    color: #B5BAC1;
+    margin-top: 2px;
+  }}
+  .live-act-txt {{
+    font-size: 12px;
+    color: #C4C9D4;
+    margin-top: 3px;
+  }}
+  .live-divider {{
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 10px 0;
+  }}
+  .live-about-lbl {{
+    font-size: 10.5px;
+    font-weight: 800;
+    color: #949BA4;
+    margin-bottom: 4px;
+  }}
+  .live-bio-txt {{
+    font-size: 12.5px;
+    color: #DBDEE1;
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 18px;
+  }}
   .muted {{ color: var(--text-muted); font-size: 13px; }}
   code {{
     background: var(--surface-input);
@@ -3607,7 +3867,7 @@ def render_page(
 <aside id="drawer" class="sidebar" aria-label="{esc(L['menu'])}">
   <div class="drawer-head">
     <div class="drawer-title">{esc(L['menu'])}</div>
-    <button class="drawer-close-btn" type="button" onclick="toggleDrawer(false)" aria-label="Close">✕</button>
+    <button class="drawer-close-btn" type="button" onclick="toggleDrawer(false)" aria-label="Close">X</button>
   </div>
   {account_block}
   <button class="drawer-lang-btn" type="button" onclick="switchLang('{next_lang}')">
@@ -3623,7 +3883,7 @@ def render_page(
 </aside>
 
 <div class="page-container">
-  <header class="top-bar">
+  <header class="top-bar anim-card">
     <div class="top-left">
       <button class="icon-btn" type="button" onclick="toggleDrawer(true)" aria-label="{esc(L['menu'])}">&#9776;</button>
     </div>
@@ -3637,12 +3897,14 @@ def render_page(
     </div>
   </header>
 
-  <nav class="dock-bar" aria-label="{esc(L['menu'])}">
+  <nav class="dock-bar anim-card" aria-label="{esc(L['menu'])}">
     {quick_dock_html}
   </nav>
 
-  {flash_banner}
-  {final_content}
+  <div class="page-transition-wrap">
+    {flash_banner}
+    {final_content}
+  </div>
 </div>
 
 <script>
@@ -3655,13 +3917,109 @@ function switchCat(catKey, btn) {{
   document.querySelectorAll(".cat-pane").forEach(function(p) {{ p.classList.remove("active"); }});
   if (btn) btn.classList.add("active");
   var pane = document.getElementById("cat-" + catKey);
-  if (pane) pane.classList.add("active");
+  if (pane) {{
+    pane.classList.remove("active");
+    void pane.offsetWidth;
+    pane.classList.add("active");
+  }}
 }}
 function updateBioCounter(taId, cntId) {{
   var ta = document.getElementById(taId);
   var cnt = document.getElementById(cntId);
   if (ta && cnt) {{
     cnt.textContent = (ta.value || "").length + " / {MAX_BIO_CHARS}";
+  }}
+  refreshBotStudioPreview();
+}}
+function updateBotNameCounter(inpId, cntId) {{
+  var inp = document.getElementById(inpId);
+  var cnt = document.getElementById(cntId);
+  if (inp && cnt) {{
+    var len = (inp.value || "").length;
+    cnt.textContent = len + " / 48";
+  }}
+  refreshBotStudioPreview();
+}}
+function selectTileGroup(groupName, val) {{
+  document.querySelectorAll('label[data-tile-group="' + groupName + '"]').forEach(function(lbl) {{
+    var isMatch = (lbl.getAttribute("data-tile-val") === val);
+    lbl.classList.toggle("active", isMatch);
+    var inp = lbl.querySelector("input[type='radio']");
+    if (inp) inp.checked = isMatch;
+  }});
+  var streamWrap = document.getElementById("stream_url_wrap");
+  if (groupName === "activity_type" && streamWrap) {{
+    streamWrap.style.display = (val === "streaming") ? "block" : "none";
+  }}
+  refreshBotStudioPreview();
+}}
+function refreshBotStudioPreview() {{
+  var nameInp = document.getElementById("studio_bot_name");
+  var bioTa = document.getElementById("studio_bot_bio");
+  var actInp = document.getElementById("studio_activity_text");
+  var avaHidden = document.getElementById("avatar_data_url");
+
+  var nameVal = (nameInp && nameInp.value.trim()) ? nameInp.value.trim() : "{esc(SITE_NAME)}";
+  var bioVal = (bioTa && bioTa.value.trim()) ? bioTa.value.trim() : "";
+  var actText = (actInp && actInp.value.trim()) ? actInp.value.trim() : "";
+  var avaUrl = avaHidden ? avaHidden.value.trim() : "";
+
+  var stInp = document.querySelector('input[name="bot_status"]:checked');
+  var stVal = stInp ? stInp.value : "online";
+  var stLabels = {{
+    "online": "{('Online' if is_en else 'متصل')}",
+    "idle": "{('Idle' if is_en else 'خامل')}",
+    "dnd": "{('Do Not Disturb' if is_en else 'عدم الإزعاج')}",
+    "invisible": "{('Invisible' if is_en else 'مخفي')}"
+  }};
+  var stDotColors = {{
+    "online": "#22C55E",
+    "idle": "#EAB308",
+    "dnd": "#EF4444",
+    "invisible": "#64748B"
+  }};
+
+  var actInpRadio = document.querySelector('input[name="activity_type"]:checked');
+  var actType = actInpRadio ? actInpRadio.value : "playing";
+  var actPrefixes = {{
+    "playing": "{('Playing' if is_en else 'يلعب')}",
+    "listening": "{('Listening to' if is_en else 'يستمع إلى')}",
+    "watching": "{('Watching' if is_en else 'يشاهد')}",
+    "streaming": "{('Streaming' if is_en else 'يبث')}"
+  }};
+
+  var pName = document.getElementById("preview_bot_name");
+  var pStatus = document.getElementById("preview_bot_status");
+  var pAct = document.getElementById("preview_bot_activity");
+  var pBio = document.getElementById("preview_bot_bio");
+  var pDot = document.getElementById("preview_status_dot");
+  var pInitial = document.getElementById("preview_ava_initial");
+  var pImg = document.getElementById("preview_ava_img");
+
+  if (pName) pName.textContent = nameVal;
+  if (pStatus) pStatus.textContent = stLabels[stVal] || stLabels.online;
+  if (pDot) pDot.style.background = stDotColors[stVal] || "#22C55E";
+  if (pAct) {{
+    if (actText) {{
+      pAct.style.display = "block";
+      pAct.textContent = (actPrefixes[actType] || "") + " " + actText;
+    }} else {{
+      pAct.style.display = "none";
+      pAct.textContent = "";
+    }}
+  }}
+  if (pBio) pBio.textContent = bioVal;
+  if (pInitial) pInitial.textContent = (nameVal.charAt(0) || "B").toUpperCase();
+  if (pImg) {{
+    if (avaUrl) {{
+      pImg.src = avaUrl;
+      pImg.style.display = "block";
+      if (pInitial) pInitial.style.display = "none";
+    }} else {{
+      pImg.src = "";
+      pImg.style.display = "none";
+      if (pInitial) pInitial.style.display = "inline";
+    }}
   }}
 }}
 function filterGuildsList(queryVal) {{
@@ -3671,11 +4029,11 @@ function filterGuildsList(queryVal) {{
     el.style.display = (!q || hay.indexOf(q) !== -1) ? "flex" : "none";
   }});
 }}
-function filterLogsList(queryVal) {{
+function filterPremiumList(queryVal) {{
   var q = (queryVal || "").trim().toLowerCase();
-  document.querySelectorAll(".log-filter-item").forEach(function(el) {{
-    var hay = (el.getAttribute("data-log") || "").toLowerCase();
-    el.style.display = (!q || hay.indexOf(q) !== -1) ? "flex" : "none";
+  document.querySelectorAll(".prem-search-item").forEach(function(el) {{
+    var hay = (el.getAttribute("data-search") || "").toLowerCase();
+    el.style.display = (!q || hay.indexOf(q) !== -1) ? "block" : "none";
   }});
 }}
 function switchLang(targetLang) {{
@@ -3698,6 +4056,11 @@ function clearMediaField(hiddenId, previewId, nameId, fileInputId) {{
     pEl.src = "";
     pEl.style.display = "none";
   }}
+  if (hiddenId === "avatar_data_url") {{
+    var sInit = document.getElementById("studio_ava_initial");
+    if (sInit) sInit.style.display = "inline";
+  }}
+  refreshBotStudioPreview();
 }}
 function readAlbumFile(inputEl, hiddenId, previewId, nameId) {{
   var file = inputEl && inputEl.files && inputEl.files[0];
@@ -3719,9 +4082,17 @@ function readAlbumFile(inputEl, hiddenId, previewId, nameId) {{
       pEl.src = dataUrl;
       pEl.style.display = "block";
     }}
+    if (hiddenId === "avatar_data_url") {{
+      var sInit = document.getElementById("studio_ava_initial");
+      if (sInit && dataUrl) sInit.style.display = "none";
+    }}
+    refreshBotStudioPreview();
   }};
   reader.readAsDataURL(file);
 }}
+document.addEventListener("DOMContentLoaded", function() {{
+  refreshBotStudioPreview();
+}});
 </script>
 </body>
 </html>"""
@@ -3742,14 +4113,6 @@ async def home_handler(request: web.Request) -> web.Response:
 
     bot_servers_count = len(get_all_guilds())
     total_visits = get_total_visits()
-
-    user_connected_guild: dict | None = None
-    if is_logged_in:
-        visible_guilds, _ = get_user_visible_guilds(user)
-        connected_list = [g for g in visible_guilds if not g.get("bot_missing")]
-        if connected_list:
-            user_connected_guild = connected_list[0]
-
     if is_logged_in:
         primary_href = "/guild"
         primary_txt = "Open Security Panel" if is_en else "الدخول إلى لوحة الحماية"
@@ -3769,6 +4132,7 @@ async def home_handler(request: web.Request) -> web.Response:
 
     body = _render_intro_hero_html(
         is_en=is_en,
+        user=user,
         bot_servers_count=bot_servers_count,
         total_visits=total_visits,
         primary_href=primary_href,
@@ -3776,7 +4140,6 @@ async def home_handler(request: web.Request) -> web.Response:
         secondary_href=secondary_href,
         secondary_txt=secondary_txt,
         prem_badge_html=prem_badge_html,
-        user_connected_guild=user_connected_guild,
     )
     return web.Response(
         text=render_page(
@@ -3805,9 +4168,28 @@ def _build_toggle_items(keys: tuple[str, ...], cfg: dict, is_en: bool) -> str:
 
 
 def _process_premium_profile_and_perks(form: dict, cur_prof: dict, cur_perks: dict) -> tuple[dict, dict, bool, bool, bool, bool]:
+    old_bname = str(cur_prof.get("bot_name") or SITE_NAME).strip()[:48]
+    old_bstatus = str(cur_prof.get("bot_status") or "online").strip().lower()
+    old_act_type = str(cur_prof.get("activity_type") or "playing").strip().lower()
+    old_act_text = "".join(ch for ch in str(cur_prof.get("activity_text") or "") if ch.isprintable()).strip()[:120]
+    old_stream_url = sanitize_http_url(cur_prof.get("stream_url", ""))
     old_bio = sanitize_bio_text(cur_prof.get("bio", ""))
     old_ava = sanitize_image_data_url(cur_prof.get("avatar_data_url", ""))
     old_ban = sanitize_image_data_url(cur_prof.get("banner_data_url", ""))
+
+    raw_bname = "".join(ch for ch in str(form.get("bot_name", old_bname)) if ch.isprintable()).strip()[:48]
+    bname_clean = raw_bname or old_bname
+    raw_bstatus = str(form.get("bot_status", old_bstatus)).strip().lower()
+    bstatus_clean = raw_bstatus if raw_bstatus in ("online", "idle", "dnd", "invisible") else old_bstatus
+
+    raw_act_type = str(form.get("activity_type", old_act_type)).strip().lower()
+    act_type_clean = raw_act_type if raw_act_type in ("playing", "listening", "watching", "streaming") else old_act_type
+    act_text_clean = (
+        "".join(ch for ch in str(form.get("activity_text", old_act_text)) if ch.isprintable()).strip()[:120]
+        if "activity_text" in form
+        else old_act_text
+    )
+    stream_url_clean = sanitize_http_url(form.get("stream_url", old_stream_url)) if "stream_url" in form else old_stream_url
 
     bio_clean = sanitize_bio_text(form.get("bio", old_bio)) if "bio" in form else old_bio
     ava_data = sanitize_image_data_url(form.get("avatar_data_url", "")) if "avatar_data_url" in form else old_ava
@@ -3816,9 +4198,21 @@ def _process_premium_profile_and_perks(form: dict, cur_prof: dict, cur_perks: di
     bio_changed = ("bio" in form) and (bio_clean != old_bio or bool(bio_clean))
     avatar_changed = ("avatar_data_url" in form) and (ava_data != old_ava)
     banner_changed = ("banner_data_url" in form) and (ban_data != old_ban)
-    profile_changed = ("bio" in form) or avatar_changed or banner_changed
+    bot_meta_changed = (
+        (bname_clean != old_bname)
+        or (bstatus_clean != old_bstatus)
+        or (act_type_clean != old_act_type)
+        or (act_text_clean != old_act_text)
+        or (stream_url_clean != old_stream_url)
+    )
+    profile_changed = ("bio" in form) or avatar_changed or banner_changed or bot_meta_changed
 
     prof_data = {
+        "bot_name": bname_clean,
+        "bot_status": bstatus_clean,
+        "activity_type": act_type_clean,
+        "activity_text": act_text_clean,
+        "stream_url": stream_url_clean,
         "bio": bio_clean,
         "avatar_data_url": ava_data,
         "avatar_name": str(form.get("avatar_name", "" if not ava_data else cur_prof.get("avatar_name", ""))).strip()[:80],
@@ -3841,25 +4235,57 @@ def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_pr
     ava_src = str(prof.get("avatar_data_url", "") or "")
     ban_src = str(prof.get("banner_data_url", "") or "")
     bio_val = sanitize_bio_text(prof.get("bio", "") or "")
-    ava_img_tag = (
-        f"<img id='ava_preview' class='preview-thumb' src='{esc(ava_src)}' alt=''>"
-        if ava_src
-        else "<img id='ava_preview' class='preview-thumb' src='' alt='' style='display:none;'>"
+    bname_val = str(prof.get("bot_name") or SITE_NAME).strip()[:48]
+    bstatus_val = str(prof.get("bot_status") or "online").strip().lower()
+    act_type_val = str(prof.get("activity_type") or "playing").strip().lower()
+    act_text_val = str(prof.get("activity_text") or "").strip()[:120]
+    stream_url_val = str(prof.get("stream_url") or "").strip()[:350]
+    initial_ch = esc((bname_val[:1] or "B").upper())
+
+    uf_name = "pr_ultra_fortress" if use_pr_prefix else "ultra_fortress_mode"
+    ir_name = "pr_instant_rollback" if use_pr_prefix else "instant_rollback_enabled"
+    ps_name = "pr_priority_shield" if use_pr_prefix else "priority_shield_response"
+    bio_id = "studio_bot_bio"
+    cnt_id = "studio_bio_cnt"
+
+    status_tiles = [
+        ("online", "Online" if is_en else "متصل", "online"),
+        ("idle", "Idle" if is_en else "خامل", "idle"),
+        ("dnd", "Do Not Disturb" if is_en else "عدم الإزعاج", "dnd"),
+        ("invisible", "Invisible" if is_en else "مخفي", "invisible"),
+    ]
+    status_tiles_html = "".join(
+        f"<label class='choice-tile {'active' if bstatus_val == s_key else ''}' data-tile-group='bot_status' data-tile-val='{s_key}' onclick=\"selectTileGroup('bot_status', '{s_key}')\">"
+        f"<input type='radio' name='bot_status' value='{s_key}' {'checked' if bstatus_val == s_key else ''}>"
+        f"<span class='st-dot {dot_cls}'></span><span>{esc(s_lbl)}</span></label>"
+        for s_key, s_lbl, dot_cls in status_tiles
     )
+
+    activity_tiles = [
+        ("playing", "Playing" if is_en else "يلعب"),
+        ("listening", "Listening" if is_en else "يستمع"),
+        ("watching", "Watching" if is_en else "يشاهد"),
+        ("streaming", "Streaming" if is_en else "يبث"),
+    ]
+    activity_tiles_html = "".join(
+        f"<label class='choice-tile {'active' if act_type_val == a_key else ''}' data-tile-group='activity_type' data-tile-val='{a_key}' onclick=\"selectTileGroup('activity_type', '{a_key}')\">"
+        f"<input type='radio' name='activity_type' value='{a_key}' {'checked' if act_type_val == a_key else ''}>"
+        f"<span>{esc(a_lbl)}</span></label>"
+        for a_key, a_lbl in activity_tiles
+    )
+
+    ava_img_tag = (
+        f"<img id='studio_ava_img' src='{esc(ava_src)}' alt=''>"
+        if ava_src
+        else "<img id='studio_ava_img' src='' alt='' style='display:none;'>"
+    )
+    ava_init_style = " style='display:none;'" if ava_src else ""
+
     ban_img_tag = (
         f"<img id='ban_preview' class='preview-thumb preview-banner' src='{esc(ban_src)}' alt=''>"
         if ban_src
         else "<img id='ban_preview' class='preview-thumb preview-banner' src='' alt='' style='display:none;'>"
     )
-    uf_name = "pr_ultra_fortress" if use_pr_prefix else "ultra_fortress_mode"
-    ir_name = "pr_instant_rollback" if use_pr_prefix else "instant_rollback_enabled"
-    ps_name = "pr_priority_shield" if use_pr_prefix else "priority_shield_response"
-    bio_id = "bio_area_guild" if use_pr_prefix else "bio_area_prem"
-    cnt_id = "bio_cnt_guild" if use_pr_prefix else "bio_cnt_prem"
-
-    lbl_fortress = "High Shield Mode" if is_en else "حماية فائقة"
-    lbl_rollback = "Instant Rollback" if is_en else "الاسترجاع الفوري"
-    lbl_priority = "Priority Shield Response" if is_en else "استجابة الحماية الفورية"
 
     return f"""
     <input type="hidden" id="avatar_data_url" name="avatar_data_url" value="{esc(ava_src)}">
@@ -3867,45 +4293,119 @@ def _render_premium_media_fields(prof: dict, perks: dict, is_en: bool, use_pr_pr
     <input type="hidden" id="banner_data_url" name="banner_data_url" value="{esc(ban_src)}">
     <input type="hidden" id="banner_name" name="banner_name" value="{esc(prof.get('banner_name', ''))}">
 
+    <div class="studio-grid" style="margin-bottom:14px;">
+      <div class="studio-col">
+        <div class="studio-card">
+          <div class="studio-card-head">
+            <span>{('Bot Name' if is_en else 'اسم البوت')}</span>
+            <span id="studio_name_cnt" class="studio-badge">{len(bname_val)} / 48</span>
+          </div>
+          <input id="studio_bot_name" class="inp" style="margin-bottom:0;" type="text" maxlength="48" name="bot_name" value="{esc(bname_val)}" oninput="updateBotNameCounter('studio_bot_name', 'studio_name_cnt')" placeholder="{('Bot name...' if is_en else 'اسم البوت...')}">
+        </div>
+
+        <div class="studio-card">
+          <div class="avatar-row">
+            <div class="avatar-actions">
+              <div class="avatar-btns">
+                <label class="mini-btn gold" style="margin:0;cursor:pointer;">
+                  <span>{('Change Avatar' if is_en else 'تغيير الصورة')}</span>
+                  <input id="ava_file_inp" type="file" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;" onchange="readAlbumFile(this, 'avatar_data_url', 'studio_ava_img', 'avatar_name')">
+                </label>
+                <button type="button" class="mini-btn red" onclick="clearMediaField('avatar_data_url', 'studio_ava_img', 'avatar_name', 'ava_file_inp')">{('Remove Avatar' if is_en else 'إزالة الصورة')}</button>
+              </div>
+              <span class="muted" style="font-size:11.5px;">{('Max 10MB • JPG, PNG, GIF, WEBP' if is_en else 'حد أقصى 10MB • JPG, PNG, GIF, WEBP')}</span>
+            </div>
+            <div class="bot-ava-circle">
+              <span id="studio_ava_initial"{ava_init_style}>{initial_ch}</span>
+              {ava_img_tag}
+            </div>
+          </div>
+        </div>
+
+        <div class="studio-card">
+          <div class="studio-card-head">
+            <span>{('Bot Status' if is_en else 'حالة البوت')}</span>
+          </div>
+          <div class="choice-grid-2" style="margin-bottom:0;">
+            {status_tiles_html}
+          </div>
+        </div>
+
+        <div class="studio-card">
+          <div class="studio-card-head">
+            <span>{('Bot Activity' if is_en else 'نشاط البوت')}</span>
+          </div>
+          <div class="choice-grid-4">
+            {activity_tiles_html}
+          </div>
+          <label class="lbl" style="margin-top:6px;">{('Activity Text' if is_en else 'نص النشاط')}</label>
+          <input id="studio_activity_text" class="inp" style="margin-bottom:6px;" type="text" maxlength="120" name="activity_text" value="{esc(act_text_val)}" oninput="refreshBotStudioPreview()" placeholder="{('Enter activity text...' if is_en else 'اكتب نص النشاط...')}">
+          <div id="stream_url_wrap" style="display:{('block' if act_type_val == 'streaming' else 'none')};">
+            <label class="lbl">{('Streaming URL' if is_en else 'رابط البث')}</label>
+            <input class="inp" style="margin-bottom:0;" type="url" name="stream_url" value="{esc(stream_url_val)}" placeholder="https://twitch.tv/...">
+          </div>
+        </div>
+
+        <div class="studio-card">
+          <div class="studio-card-head">
+            <span>{('Bot Bio' if is_en else 'نبذة البوت')}</span>
+            <span id="{cnt_id}" class="studio-badge">{len(bio_val)} / {MAX_BIO_CHARS}</span>
+          </div>
+          <textarea id="{bio_id}" class="bio-textarea" style="margin-top:0;" rows="4" maxlength="{MAX_BIO_CHARS}" name="bio" oninput="updateBioCounter('{bio_id}', '{cnt_id}')" placeholder="{('Enter bot bio...' if is_en else 'اكتب نبذة البوت هنا...')}">{esc(bio_val)}</textarea>
+        </div>
+      </div>
+
+      <div class="studio-col">
+        <div class="live-preview-card">
+          <div class="live-preview-head">
+            <span>{('Live Preview' if is_en else 'معاينة مباشرة')}</span>
+            <span class="prem-pill">PRO</span>
+          </div>
+          <div class="live-discord-box">
+            <div class="live-top-row">
+              <div class="live-ava-wrap">
+                <div class="live-ava-circle">
+                  <span id="preview_ava_initial"{ava_init_style}>{initial_ch}</span>
+                  <img id="preview_ava_img" src="{esc(ava_src)}" alt="" style="display:{('block' if ava_src else 'none')};">
+                </div>
+                <span class="live-status-badge"><span id="preview_status_dot" class="st-dot" style="width:10px;height:10px;"></span></span>
+              </div>
+              <div style="min-width:0;flex:1;">
+                <div id="preview_bot_name" class="live-name-txt">{esc(bname_val)}</div>
+                <div id="preview_bot_status" class="live-sub-txt"></div>
+                <div id="preview_bot_activity" class="live-act-txt" style="display:none;"></div>
+              </div>
+            </div>
+            <div class="live-divider"></div>
+            <div class="live-about-lbl">{('About Me' if is_en else 'نبذة عن البوت')}</div>
+            <div id="preview_bot_bio" class="live-bio-txt">{esc(bio_val)}</div>
+          </div>
+        </div>
+
+        <div class="album-box" style="margin-bottom:0;">
+          <div class="album-head">
+            <label class="lbl" style="margin:0;">{('Bot Banner' if is_en else 'بنر البوت')}</label>
+            <button type="button" class="mini-btn red" onclick="clearMediaField('banner_data_url', 'ban_preview', 'banner_name', 'ban_file_inp')">{('Remove' if is_en else 'إزالة')}</button>
+          </div>
+          <input id="ban_file_inp" class="inp" style="margin-top:6px;margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'banner_data_url', 'ban_preview', 'banner_name')">
+          <span class="muted">{esc(prof.get('banner_name') or ('No file chosen' if is_en else 'لم يتم اختيار ملف'))}</span>
+          {ban_img_tag}
+        </div>
+      </div>
+    </div>
+
     <label class="switch-row">
-      <span>{esc(lbl_fortress)}</span>
+      <span>{esc('High Shield Mode' if is_en else 'حماية فائقة')}</span>
       <input class="switch-input" type="checkbox" name="{uf_name}" {'checked' if perks.get('ultra_fortress_mode') else ''}>
     </label>
     <label class="switch-row">
-      <span>{esc(lbl_rollback)}</span>
+      <span>{esc('Instant Rollback' if is_en else 'الاسترجاع الفوري')}</span>
       <input class="switch-input" type="checkbox" name="{ir_name}" {'checked' if perks.get('instant_rollback_enabled', True) else ''}>
     </label>
     <label class="switch-row">
-      <span>{esc(lbl_priority)}</span>
+      <span>{esc('Priority Shield Response' if is_en else 'استجابة الحماية الفورية')}</span>
       <input class="switch-input" type="checkbox" name="{ps_name}" {'checked' if perks.get('priority_shield_response', True) else ''}>
     </label>
-
-    <label class="lbl" for="{bio_id}">{('Custom Bot Bio (Up to 270 chars)' if is_en else 'نبذة البوت (حتى 270 حرفاً)')}</label>
-    <textarea id="{bio_id}" class="bio-textarea" rows="5" maxlength="{MAX_BIO_CHARS}" name="bio" oninput="updateBioCounter('{bio_id}', '{cnt_id}')" placeholder="{('Enter bot bio...' if is_en else 'اكتب نبذة البوت هنا...')}">{esc(bio_val)}</textarea>
-    <div class="bio-meta">
-      <span>{('Max 270 characters' if is_en else 'الحد الأقصى 270 حرفاً')}</span>
-      <span id="{cnt_id}">{len(bio_val)} / {MAX_BIO_CHARS}</span>
-    </div>
-
-    <div class="album-box">
-      <div class="album-head">
-        <label class="lbl" style="margin:0;">{('Bot Avatar' if is_en else 'صورة البوت')}</label>
-        <button type="button" class="mini-btn red" onclick="clearMediaField('avatar_data_url', 'ava_preview', 'avatar_name', 'ava_file_inp')">{('Remove' if is_en else 'إزالة')}</button>
-      </div>
-      <input id="ava_file_inp" class="inp" style="margin-top:6px;margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'avatar_data_url', 'ava_preview', 'avatar_name')">
-      <span class="muted">{esc(prof.get('avatar_name') or ('No file chosen' if is_en else 'لم يتم اختيار ملف'))}</span>
-      {ava_img_tag}
-    </div>
-
-    <div class="album-box">
-      <div class="album-head">
-        <label class="lbl" style="margin:0;">{('Bot Banner' if is_en else 'بنر البوت')}</label>
-        <button type="button" class="mini-btn red" onclick="clearMediaField('banner_data_url', 'ban_preview', 'banner_name', 'ban_file_inp')">{('Remove' if is_en else 'إزالة')}</button>
-      </div>
-      <input id="ban_file_inp" class="inp" style="margin-top:6px;margin-bottom:4px;" type="file" accept="image/*" onchange="readAlbumFile(this, 'banner_data_url', 'ban_preview', 'banner_name')">
-      <span class="muted">{esc(prof.get('banner_name') or ('No file chosen' if is_en else 'لم يتم اختيار ملف'))}</span>
-      {ban_img_tag}
-    </div>
 
     <div class="grid-2" style="margin-bottom:0;">
       <div>
@@ -3944,31 +4444,26 @@ async def handle_guild(request: web.Request) -> web.Response:
     session_id, user = sess_pair
     actor_uid = str(user.get("id", "")).strip()
     is_prem = is_premium_user(user)
-    guilds, _ = get_user_visible_guilds(user)
-    active_guilds = [g for g in guilds if not g.get("bot_missing")]
+    active_guilds = get_user_connected_guilds(user)
 
     if not active_guilds:
         _invalidate_guilds_cache()
-        guilds, _ = get_user_visible_guilds(user)
-        active_guilds = [g for g in guilds if not g.get("bot_missing")]
+        active_guilds = get_user_connected_guilds(user)
 
     if not active_guilds:
-        cards_html = "".join(_render_guild_card(g, is_en, show_admin_meta=False) for g in guilds[:12])
-        extra_list = f"<div style='margin-top:14px;'>{cards_html}</div>" if cards_html else ""
         msg = (
-            "No connected server found yet. Invite the bot to your server or refresh after syncing."
+            "No server with the bot was found on your account. Add the bot to your server first."
             if is_en
-            else "لا يوجد سيرفر متصل بالبوت حالياً. أضف البوت إلى سيرفرك أو حدّث الصفحة بعد المزامنة."
+            else "لم يتم العثور على سيرفر يحتوي على البوت ضمن حسابك. أضف البوت إلى سيرفرك أولاً."
         )
         empty_body = f"""
-        <div class='page-card'>
+        <div class='page-card anim-card'>
           <h2 class='section-head-title'>{('Security Panel' if is_en else 'لوحة الحماية')}</h2>
           <p class='muted' style='margin:0 0 14px;'>{esc(msg)}</p>
           <div class='action-pair'>
             <a class='btn-gold' href='/invite'>{('Invite Bot' if is_en else 'إضافة بوت الحماية')}</a>
             <a class='btn-dark' href='/guild'>{('Refresh' if is_en else 'تحديث السيرفرات')}</a>
           </div>
-          {extra_list}
         </div>
         """
         return web.Response(
@@ -4084,6 +4579,11 @@ async def handle_guild(request: web.Request) -> web.Response:
                             "guild_id": gid,
                             "user_id": actor_uid,
                             "actor_id": actor_uid,
+                            "bot_name": updates["guild_profile"]["bot_name"],
+                            "bot_status": updates["guild_profile"]["bot_status"],
+                            "activity_type": updates["guild_profile"]["activity_type"],
+                            "activity_text": updates["guild_profile"]["activity_text"],
+                            "stream_url": updates["guild_profile"]["stream_url"],
                             "bio": updates["guild_profile"]["bio"],
                             "bio_changed": bio_changed,
                             "avatar_changed": avatar_changed,
@@ -4143,7 +4643,7 @@ async def handle_guild(request: web.Request) -> web.Response:
         rem_btn = (
             ""
             if u == ADMIN_USER_ID
-            else f"<button class='mini-btn red' type='submit' name='form_action' value='remove_trusted' onclick=\"this.form.target_uid.value='{safe_u}'\">✕</button>"
+            else f"<button class='mini-btn red' type='submit' name='form_action' value='remove_trusted' onclick=\"this.form.target_uid.value='{safe_u}'\">x</button>"
         )
         tr_rows += f"<div class='list-row'><code>{safe_u}</code>{rem_btn}</div>"
 
@@ -4157,7 +4657,7 @@ async def handle_guild(request: web.Request) -> web.Response:
                 f"<div><strong>#{sid_esc}</strong> <span class='muted'>({esc(s.get('saved_at'))})</span> <code>{esc(s.get('snapshot_hash'))}</code></div>"
                 f"<div style='display:flex;gap:6px;'>"
                 f"<button class='mini-btn gold' type='submit' name='form_action' value='restore_snapshot' onclick=\"this.form.target_snapshot_id.value='{sid_esc}'\">{('Restore' if is_en else 'استعادة')}</button>"
-                f"<button class='mini-btn red' type='submit' name='form_action' value='delete_snapshot' onclick=\"this.form.target_snapshot_id.value='{sid_esc}'\">✕</button>"
+                f"<button class='mini-btn red' type='submit' name='form_action' value='delete_snapshot' onclick=\"this.form.target_snapshot_id.value='{sid_esc}'\">x</button>"
                 f"</div></div>"
             )
     else:
@@ -4176,7 +4676,7 @@ async def handle_guild(request: web.Request) -> web.Response:
         prem_section_html = f"""
         <div class="panel-section">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">{('PREMIUM PROTECTIONS & PERKS' if is_en else 'حمايات ومزايا البريميوم')}</h3>
+            <h3 class="panel-section-title">{('PREMIUM PROTECTIONS & BOT CUSTOMIZATION' if is_en else 'حمايات وتخصيص البوت (بريميوم)')}</h3>
             <span class="prem-pill">PRO</span>
           </div>
           {prem_prot_toggles}
@@ -4205,7 +4705,7 @@ async def handle_guild(request: web.Request) -> web.Response:
         prem_section_html = ""
 
     body = f"""
-    <form method="post" class="page-card">
+    <form method="post" class="page-card anim-card">
       <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
       <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
       <input type="hidden" name="target_uid" value="">
@@ -4214,62 +4714,67 @@ async def handle_guild(request: web.Request) -> web.Response:
       <div class="section-head-bar">
         <div>
           <h2 class="section-head-title">{('Security Panel' if is_en else 'لوحة الحماية')}</h2>
-          <div class="muted">{('Manage guards, limits, punishments, whitelist, and snapshots' if is_en else 'إدارة الحمايات والحدود والعقوبات والموثوقين واللقطات')}</div>
+          <div class="muted">{('Score' if is_en else 'نسبة الحماية')}: <strong>{score}/100</strong> ({esc(grade)})</div>
         </div>
-        <span class="ok-pill">{score}/100 — {esc(grade)}</span>
+        <select class="sel" style="width:auto;min-width:220px;margin:0;" name="guild_id" onchange="location.href='/guild?id='+encodeURIComponent(this.value)">
+          {options_html}
+        </select>
       </div>
 
-      <label class="lbl">{('Select Server' if is_en else 'اختر السيرفر')}</label>
-      <select class="inp" name="guild_id" onchange="window.location='/guild?id='+encodeURIComponent(this.value)">{options_html}</select>
-
-      <div class="cat-tabs" role="tablist">
-        <button type="button" class="cat-tab-btn active" onclick="switchCat('general', this)">General</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('antinuke', this)">{('Anti-Sabotage' if is_en else 'حماية التخريب')}</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('antiraid', this)">Anti Raid</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('moderation', this)">Moderation</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('whitelist', this)">Whitelist</button>
-        <button type="button" class="cat-tab-btn" onclick="switchCat('logs', this)">Logs</button>
+      <div class="cat-tabs">
+        <button class="cat-tab-btn active" type="button" onclick="switchCat('general', this)">{('General' if is_en else 'عام')}</button>
+        <button class="cat-tab-btn" type="button" onclick="switchCat('antinuke', this)">{('Anti-Nuke' if is_en else 'الحماية من التخريب')}</button>
+        <button class="cat-tab-btn" type="button" onclick="switchCat('antiraid', this)">{('Anti-Raid' if is_en else 'حماية الدخول والرايد')}</button>
+        <button class="cat-tab-btn" type="button" onclick="switchCat('mod', this)">{('Moderation' if is_en else 'الإشراف والرسائل')}</button>
+        <button class="cat-tab-btn" type="button" onclick="switchCat('trusted', this)">{('Trusted & Snapshots' if is_en else 'الموثوقين واللقطات')}</button>
       </div>
 
       <div id="cat-general" class="cat-pane active">
         <div class="panel-section">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">GENERAL</h3>
-            <span class="ok-pill">{('SERVER' if is_en else 'السيرفر')}</span>
+            <h3 class="panel-section-title">{('General Configuration' if is_en else 'الإعدادات العامة')}</h3>
+            <span class="admin-pill">CORE</span>
           </div>
           <div class="grid-2">
             <div>
-              <label class="lbl">{('Prefix' if is_en else 'البادئة')}</label>
-              <input class="inp" type="text" name="prefix" value="{esc(cfg.get('prefix', '!'))}">
+              <label class="lbl">{('Prefix' if is_en else 'بادئة الأوامر')}</label>
+              <input class="inp" type="text" maxlength="6" name="prefix" value="{esc(cfg.get('prefix', '!'))}">
             </div>
             <div>
-              <label class="lbl">{('Min Account Age (days)' if is_en else 'أقل عمر للحساب (أيام)')}</label>
-              <input class="inp" type="number" min="1" max="365" name="min_account_age_days" value="{int(cfg.get('min_account_age_days', 7) or 7)}">
+              <label class="lbl">{('Mod Log Channel ID' if is_en else 'آيدي روم السجلات')}</label>
+              <input class="inp" type="text" name="mod_log_channel" value="{esc(cfg.get('mod_log_channel', ''))}">
             </div>
           </div>
           {general_html}
+          {prem_section_html}
         </div>
       </div>
 
       <div id="cat-antinuke" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">{('ANTI-SABOTAGE & GENERAL GUARDS' if is_en else 'حمايات التخريب العامة')}</h3>
-            <span class="admin-pill">{('ROLES & APPS' if is_en else 'الرتب والتطبيقات')}</span>
+            <h3 class="panel-section-title">{('Anti-Nuke Guards' if is_en else 'حمايات التخريب')}</h3>
+            <span class="admin-pill">SHIELD</span>
           </div>
           {antinuke_html}
-          <div class="grid-2" style="margin-top:10px;">
+        </div>
+        <div class="panel-section">
+          <div class="panel-section-head">
+            <h3 class="panel-section-title">{('Punishments & Thresholds' if is_en else 'العقوبات والحدود')}</h3>
+            <span class="admin-pill">LIMITS</span>
+          </div>
+          <div class="grid-2">
             <div>
-              <label class="lbl">{('Dangerous Perms Extra Punishment' if is_en else 'عقوبة إضافية للصلاحيات الخطيرة (بعد إزالة الصلاحية)')}</label>
+              <label class="lbl">{('Dangerous Perms Punishment' if is_en else 'عقاب الصلاحيات الخطيرة')}</label>
               <select class="sel" name="dangerous_perms_punishment">
-                <option value="None" {'selected' if dang_pun == 'None' else ''}>{('Remove Permission Only' if is_en else 'إزالة الصلاحية فقط')}</option>
+                <option value="None" {'selected' if dang_pun == 'None' else ''}>None</option>
                 <option value="Remove Roles" {'selected' if dang_pun == 'Remove Roles' else ''}>Remove Roles</option>
                 <option value="Kick" {'selected' if dang_pun == 'Kick' else ''}>Kick</option>
                 <option value="Ban" {'selected' if dang_pun == 'Ban' else ''}>Ban</option>
               </select>
             </div>
             <div>
-              <label class="lbl">{('OAuth App Abuse Punishment' if is_en else 'عقاب حماية تطبيقات الربط')}</label>
+              <label class="lbl">{('OAuth App Abuse Punishment' if is_en else 'عقاب تطبيقات الربط')}</label>
               <select class="sel" name="app_abuse_punishment">
                 <option value="Remove Roles" {'selected' if app_pun == 'Remove Roles' else ''}>Remove Roles</option>
                 <option value="Kick" {'selected' if app_pun == 'Kick' else ''}>Kick</option>
@@ -4277,32 +4782,32 @@ async def handle_guild(request: web.Request) -> web.Response:
               </select>
             </div>
           </div>
-          <p class="muted" style="margin:0 0 10px;">{('OAuth App Abuse protects the server from abusive linked apps/bots, while Role Delete and Role Edit are separated below.' if is_en else 'حماية تطبيقات الربط تحمي السيرفر من التطبيقات المرتبطة الضارة، وتم فصل حماية حذف الرتب عن تعديل الرتب.')}</p>
-          <div style="margin-top:12px;">{rules_html}</div>
+          {rules_html}
         </div>
-        {prem_section_html}
       </div>
 
       <div id="cat-antiraid" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">ANTI RAID</h3>
-            <span class="admin-pill">{('SURGE' if is_en else 'الغارات')}</span>
+            <h3 class="panel-section-title">{('Anti-Raid & Join Protection' if is_en else 'حماية الدخول والرايد')}</h3>
+            <span class="admin-pill">ENTRY</span>
           </div>
           {antiraid_html}
+          <label class="lbl">{('Minimum Account Age (Days)' if is_en else 'الحد الأدنى لعمر الحساب (بالأيام)')}</label>
+          <input class="inp" type="number" min="1" max="365" name="min_account_age_days" value="{int(cfg.get('min_account_age_days', 7) or 7)}">
         </div>
       </div>
 
-      <div id="cat-moderation" class="cat-pane">
+      <div id="cat-mod" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">MODERATION</h3>
-            <span class="admin-pill">{('FILTERS' if is_en else 'الفلاتر')}</span>
+            <h3 class="panel-section-title">{('Chat & Moderation' if is_en else 'الإشراف والرسائل')}</h3>
+            <span class="admin-pill">CHAT</span>
           </div>
           {moderation_html}
           <div class="grid-2">
             <div>
-              <label class="lbl">{('Spam Punishment' if is_en else 'إجراء السبام')}</label>
+              <label class="lbl">{('Spam Punishment' if is_en else 'عقاب السبام')}</label>
               <select class="sel" name="spam_punishment">
                 <option value="Delete Only" {'selected' if spam_pun == 'Delete Only' else ''}>Delete Only</option>
                 <option value="Timeout" {'selected' if spam_pun == 'Timeout' else ''}>Timeout</option>
@@ -4311,13 +4816,13 @@ async def handle_guild(request: web.Request) -> web.Response:
               </select>
             </div>
             <div>
-              <label class="lbl">{('Spam Timeout (sec)' if is_en else 'مدة التايم أوت (ثانية)')}</label>
+              <label class="lbl">{('Spam Timeout (Seconds)' if is_en else 'مدة التايم أوت للسبام (ثانية)')}</label>
               <input class="inp" type="number" min="10" max="2419200" name="spam_timeout_seconds" value="{int(cfg.get('spam_timeout_seconds', 600) or 600)}">
             </div>
           </div>
           <div class="grid-2">
             <div>
-              <label class="lbl">{('Link Punishment' if is_en else 'إجراء الروابط')}</label>
+              <label class="lbl">{('Link Punishment' if is_en else 'عقاب الروابط')}</label>
               <select class="sel" name="link_punishment">
                 <option value="Delete Only" {'selected' if link_pun == 'Delete Only' else ''}>Delete Only</option>
                 <option value="Delete & Timeout" {'selected' if link_pun == 'Delete & Timeout' else ''}>Delete & Timeout</option>
@@ -4326,47 +4831,44 @@ async def handle_guild(request: web.Request) -> web.Response:
               </select>
             </div>
             <div>
-              <label class="lbl">{('Link Timeout (sec)' if is_en else 'مدة التايم أوت للروابط')}</label>
+              <label class="lbl">{('Link Timeout (Seconds)' if is_en else 'مدة التايم أوت للروابط (ثانية)')}</label>
               <input class="inp" type="number" min="10" max="2419200" name="link_timeout_seconds" value="{int(cfg.get('link_timeout_seconds', 300) or 300)}">
             </div>
           </div>
         </div>
       </div>
 
-      <div id="cat-whitelist" class="cat-pane">
+      <div id="cat-trusted" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">WHITELIST & SNAPSHOTS</h3>
-            <span class="tag">ACCESS</span>
+            <h3 class="panel-section-title">{('Trusted Admins' if is_en else 'المشرفين الموثوقين')}</h3>
+            <span class="admin-pill">WHITELIST</span>
           </div>
-          <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <div style="display:flex;gap:8px;margin-bottom:10px;">
             <input class="inp" style="margin:0;" type="text" name="trusted_uid" placeholder="User ID">
-            <button class="mini-btn gold" type="submit" name="form_action" value="add_trusted">+</button>
+            <button class="mini-btn gold" type="submit" name="form_action" value="add_trusted">{('Add' if is_en else 'إضافة')}</button>
           </div>
           {tr_rows}
-          <button class="btn-dark" type="submit" name="form_action" value="save_snapshot">{('Save Snapshot' if is_en else 'حفظ لقطة جديدة')}</button>
-          <div style="margin-top:10px;">{snaps_rows}</div>
         </div>
-      </div>
-
-      <div id="cat-logs" class="cat-pane">
         <div class="panel-section">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">LOGS</h3>
-            <span class="tag">CHANNEL</span>
+            <h3 class="panel-section-title">{('Permissions Snapshots' if is_en else 'لقطات الصلاحيات')}</h3>
+            <button class="mini-btn gold" type="submit" name="form_action" value="save_snapshot">{('Save Snapshot' if is_en else 'حفظ لقطة')}</button>
           </div>
-          <label class="lbl">{('Mod Log Channel ID' if is_en else 'آيدي روم السجل')}</label>
-          <input class="inp" type="text" name="mod_log_channel" value="{esc(cfg.get('mod_log_channel', ''))}">
+          {snaps_rows}
         </div>
       </div>
 
-      <div class="action-pair">
-        <button class="btn-gold" type="submit" name="form_action" value="save">{('Save Settings' if is_en else 'حفظ الإعدادات')}</button>
-        <button class="btn-dark" type="submit" name="form_action" value="reset_defaults">{('Reset Defaults' if is_en else 'استعادة الافتراضي')}</button>
+      <div class="action-pair" style="margin-top:16px;">
+        <button class="btn-gold" type="submit" name="form_action" value="save">{('Save & Sync' if is_en else 'حفظ ومزامنة')}</button>
+        <button class="btn-danger" type="submit" name="form_action" value="reset_defaults">{('Reset Defaults' if is_en else 'إعادة للافتراضي')}</button>
       </div>
     </form>
     """
-    return web.Response(text=render_page("Security Panel" if is_en else "لوحة الحماية", "guild", body, request, flash=flash, next_after_login="/guild"), content_type="text/html")
+    return web.Response(
+        text=render_page("Security Panel" if is_en else "لوحة الحماية", "guild", body, request, flash=flash),
+        content_type="text/html",
+    )
 
 
 async def handle_premium(request: web.Request) -> web.Response:
@@ -4381,46 +4883,35 @@ async def handle_premium(request: web.Request) -> web.Response:
                 request,
                 require_auth_view=True,
                 next_after_login="/premium",
-                auth_title="Premium Access Locked" if is_en else "صفحة البريميوم مقفلة",
+                auth_title="Premium Access" if is_en else "وصول البريميوم",
                 auth_desc=(
-                    "Sign in with Discord first to verify your active Premium subscription."
+                    "Sign in with Discord to access premium customization, bot profile tools, and alerts."
                     if is_en
-                    else "سجّل دخولك بحساب ديسكورد أولاً للتحقق من اشتراك البريميوم."
+                    else "سجّل دخولك بحساب ديسكورد للوصول إلى تخصيص البوت والتنبيهات ومزايا البريميوم."
                 ),
             ),
             content_type="text/html",
         )
     session_id, user = sess_pair
+    actor_uid = str(user.get("id", "")).strip()
     if not is_premium_user(user):
         return web.Response(
             text=render_page(
                 "Premium" if is_en else "البريميوم",
                 "premium",
-                f"<div class='page-card'><h2>{('Premium Membership' if is_en else 'اشتراك البريميوم')}</h2><p class='muted'>{('Active Premium subscription or server boost is required.' if is_en else 'يلزم تفعيل اشتراك البريميوم أو دعم البوت بالبوست لاستخدام هذه الصفحة.')}</p><a class='btn-gold' href='/services'>{('View Services' if is_en else 'عرض الخدمات')}</a></div>",
+                "",
                 request,
+                flash="Premium membership required." if is_en else "هذا القسم مخصص لمشتركي البريميوم.",
             ),
             content_type="text/html",
         )
 
-    uid = str(user.get("id", "")).strip()
-    prem_rec = _get_premium_record(uid) or {}
-    rem_txt = format_remaining_time(prem_rec, is_en=is_en)
-
-    guilds, _ = get_user_visible_guilds(user)
-    active_guilds = [g for g in guilds if not g.get("bot_missing")]
-    if not active_guilds:
-        return web.Response(
-            text=render_page(
-                "Premium" if is_en else "البريميوم",
-                "premium",
-                f"<div class='page-card'><p class='muted'>{('Bot must be inside your server first.' if is_en else 'يجب أن يكون البوت داخل سيرفرك أولاً.')}</p><a class='btn-gold' href='/invite'>{('Invite Bot' if is_en else 'إضافة بوت الحماية')}</a></div>",
-                request,
-            ),
-            content_type="text/html",
-        )
-
+    prem_rec = _get_premium_record(actor_uid) or {}
+    active_guilds = get_user_connected_guilds(user)
     gid = str(request.query.get("id", "")).strip()
-    if not user_can_manage_guild(gid, user, require_bot_present=True):
+    if not active_guilds:
+        gid = "global_premium"
+    elif not user_can_manage_guild(gid, user, require_bot_present=True):
         gid = active_guilds[0]["id"]
 
     flash = ""
@@ -4433,21 +4924,39 @@ async def handle_premium(request: web.Request) -> web.Response:
         elif is_replay_request(str(form.get("req_nonce", ""))):
             flash = "Duplicate request blocked." if is_en else "تم منع طلب مكرر."
         else:
-            posted_gid = resolve_guild_id_from_input(str(form.get("guild_id", gid)), user, require_bot_present=True)
-            if posted_gid and user_can_manage_guild(posted_gid, user, require_bot_present=True):
-                gid = posted_gid
-                cur_cfg = get_guild_cfg(gid)
-                cur_prof = cur_cfg.get("guild_profile") or {}
-                cur_perks = cur_cfg.get("premium_perks") or {}
+            posted_gid = str(form.get("guild_id", gid)).strip()
+            if active_guilds:
+                resolved = resolve_guild_id_from_input(posted_gid, user, require_bot_present=True)
+                if resolved and user_can_manage_guild(resolved, user, require_bot_present=True):
+                    gid = resolved
 
-                prof_data, perks_data, profile_changed, bio_changed, avatar_changed, banner_changed = (
-                    _process_premium_profile_and_perks(form, cur_prof, cur_perks)
-                )
-                save_guild_cfg(gid, {"guild_profile": prof_data, "premium_perks": perks_data}, is_premium=True)
+            cur_cfg = get_guild_cfg(gid)
+            cur_prof = cur_cfg.get("guild_profile") or {}
+            cur_perks = cur_cfg.get("premium_perks") or {}
+
+            prof_data, perks_data, profile_changed, bio_changed, avatar_changed, banner_changed = (
+                _process_premium_profile_and_perks(form, cur_prof, cur_perks)
+            )
+            updates: dict = {
+                "guild_profile": prof_data,
+                "premium_perks": perks_data,
+            }
+            for pk in PREMIUM_PROTECTION_TOGGLE_KEYS:
+                if f"sh_{pk}" in form:
+                    updates[pk] = form.get(f"sh_{pk}") == "on"
+
+            save_guild_cfg(gid, updates, is_premium=True)
+            enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "user_id": actor_uid}, actor_user_id=actor_uid)
+            if profile_changed:
                 prof_extra = {
                     "guild_id": gid,
-                    "user_id": uid,
-                    "actor_id": uid,
+                    "user_id": actor_uid,
+                    "actor_id": actor_uid,
+                    "bot_name": prof_data["bot_name"],
+                    "bot_status": prof_data["bot_status"],
+                    "activity_type": prof_data["activity_type"],
+                    "activity_text": prof_data["activity_text"],
+                    "stream_url": prof_data["stream_url"],
                     "bio": prof_data["bio"],
                     "bio_changed": bio_changed,
                     "avatar_changed": avatar_changed,
@@ -4459,52 +4968,60 @@ async def handle_premium(request: web.Request) -> web.Response:
                     prof_extra["avatar_data_url"] = prof_data["avatar_data_url"]
                 if banner_changed:
                     prof_extra["banner_data_url"] = prof_data["banner_data_url"]
-                enqueue_remote_action(gid, "update_bot_profile", gid, extra=prof_extra, actor_user_id=uid)
-                if profile_changed:
-                    enqueue_remote_action(gid, "sync_guild_cfg", gid, extra={"guild_id": gid, "user_id": uid}, actor_user_id=uid)
-                log_event(f"Updated server bot profile for {gid}", guild_id=gid, level="ADMIN")
-                flash = "Premium settings, bio, avatar, and banner saved." if is_en else "تم حفظ إعدادات البريميوم والبايو والأفتار والبنر."
+                enqueue_remote_action(gid, "update_bot_profile", gid, extra=prof_extra, actor_user_id=actor_uid)
+            log_event(f"Updated premium customization for {gid}", guild_id=gid, level="SEC")
+            flash = "Premium settings saved and synced." if is_en else "تم حفظ إعدادات البريميوم ومزامنتها."
 
     cfg = get_guild_cfg(gid)
     prof = cfg.get("guild_profile") or {}
     perks = cfg.get("premium_perks") or {}
     csrf_tok = issue_csrf_token(session_id)
     req_nonce = secrets.token_hex(12)
-    options_html = "".join(f"<option value='{esc(g['id'])}' {'selected' if g['id'] == gid else ''}>{esc(g['name'])} ({esc(g['id'])})</option>" for g in active_guilds)
 
+    if active_guilds:
+        guild_selector_html = "".join(
+            f"<option value='{esc(g['id'])}' {'selected' if g['id'] == gid else ''}>{esc(g['name'])} ({esc(g['id'])})</option>"
+            for g in active_guilds
+        )
+        guild_bar = (
+            f"<select class='sel' style='width:auto;min-width:220px;margin:0;' name='guild_id' "
+            f"onchange=\"location.href='/premium?id='+encodeURIComponent(this.value)\">{guild_selector_html}</select>"
+        )
+    else:
+        guild_bar = "<input type='hidden' name='guild_id' value='global_premium'>"
+
+    prem_prot_toggles = _build_toggle_items(PREMIUM_PROTECTION_TOGGLE_KEYS, cfg, is_en)
     media_fields_html = _render_premium_media_fields(prof, perks, is_en=is_en, use_pr_prefix=False)
 
     body = f"""
-    <form method="post" class="page-card">
+    <form method="post" class="page-card anim-card">
       <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
       <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
 
       <div class="section-head-bar">
         <div>
-          <h2 class="section-head-title">{('Premium Studio' if is_en else 'استوديو البريميوم')}</h2>
-          <div class="muted">{('Manage bot bio, avatar, banner, and alert channels' if is_en else 'إدارة نبذة البوت والصورة والبنر وقنوات التنبيه')}</div>
+          <h2 class="section-head-title">{('Premium Hub' if is_en else 'لوحة البريميوم')}</h2>
+          <div class="muted">{esc(format_remaining_time(prem_rec, is_en=is_en))}</div>
         </div>
-        <span class="prem-pill">{esc(rem_txt)}</span>
+        {guild_bar}
       </div>
-
-      <label class="lbl">{('Select Server' if is_en else 'اختر السيرفر')}</label>
-      <select class="inp" name="guild_id" onchange="window.location='/premium?id='+encodeURIComponent(this.value)">{options_html}</select>
 
       <div class="panel-section">
         <div class="panel-section-head">
-          <h3 class="panel-section-title">{('Profile & Shield Options' if is_en else 'ملف البوت وخيارات الحماية')}</h3>
+          <h3 class="panel-section-title">{('Bot Customization & Alerts' if is_en else 'تخصيص البوت والتنبيهات')}</h3>
           <span class="prem-pill">PRO</span>
         </div>
+        {prem_prot_toggles}
         {media_fields_html}
       </div>
 
-      <div class="action-pair">
-        <button class="btn-gold" type="submit">{('Save Premium Settings' if is_en else 'حفظ إعدادات البريميوم')}</button>
-        <a class="btn-dark" href="/guild?id={esc(gid)}">{('Back to Security Panel' if is_en else 'العودة للوحة الحماية')}</a>
-      </div>
+      <button class="btn-gold" type="submit">{('Save Premium Settings' if is_en else 'حفظ إعدادات البريميوم')}</button>
     </form>
     """
-    return web.Response(text=render_page("Premium" if is_en else "البريميوم", "premium", body, request, flash=flash, next_after_login="/premium"), content_type="text/html")
+    return web.Response(
+        text=render_page("Premium" if is_en else "البريميوم", "premium", body, request, flash=flash),
+        content_type="text/html",
+    )
 
 
 async def handle_admin(request: web.Request) -> web.Response:
@@ -4513,37 +5030,50 @@ async def handle_admin(request: web.Request) -> web.Response:
     if not sess_pair:
         return web.Response(
             text=render_page(
-                "Admin" if is_en else "الإدارة",
+                "Admin Panel" if is_en else "لوحة الإدارة",
                 "admin",
                 "",
                 request,
                 require_auth_view=True,
                 next_after_login="/admin",
-                auth_title="Admin Access Required" if is_en else "الدخول للإدارة مطلوب",
+                auth_title="Admin Access Required" if is_en else "دخول الإدارة مطلوب",
                 auth_desc=(
-                    "Sign in with Discord to access administrative controls."
+                    "Sign in with Discord using an authorized administrator account."
                     if is_en
-                    else "سجّل دخولك بحساب ديسكورد للوصول إلى لوحة الإدارة."
+                    else "سجّل دخولك بحساب ديسكورد المصرح له للوصول إلى لوحة الإدارة."
                 ),
             ),
             content_type="text/html",
         )
     session_id, user = sess_pair
+    actor_uid = str(user.get("id", "")).strip()
+    is_owner = actor_uid == ADMIN_USER_ID
     if not is_site_admin(user):
         return web.Response(
             text=render_page(
-                "Admin" if is_en else "الإدارة",
+                "Admin Panel" if is_en else "لوحة الإدارة",
                 "admin",
-                f"<div class='page-card'><h2>{('Access Denied' if is_en else 'غير مصرح بالدخول')}</h2><p class='muted'>{('This account does not have admin privileges.' if is_en else 'هذا الحساب لا يمتلك صلاحيات إدارية.')}</p><a class='btn-dark' href='/'>{('Back to Home' if is_en else 'العودة للرئيسية')}</a></div>",
+                "",
                 request,
+                flash="Admin permissions required." if is_en else "هذا القسم مخصص للمشرفين فقط.",
             ),
             content_type="text/html",
         )
 
-    is_owner = str(user.get("id", "")).strip() == ADMIN_USER_ID
-    actor_uid = str(user.get("id", "")).strip()
+    can_grant_prem = has_admin_perm(user, "manage_premium")
+    can_extend_prem = has_admin_perm(user, "extend_premium") or can_grant_prem
+    can_revoke_prem = has_admin_perm(user, "revoke_premium") or can_grant_prem
+    can_any_prem = can_grant_prem or can_extend_prem or can_revoke_prem
+    can_admins = has_admin_perm(user, "manage_admins")
+    can_remote = has_admin_perm(user, "remote_actions")
+    can_sim = has_admin_perm(user, "simulations")
+    can_bak = has_admin_perm(user, "backups")
+    can_logs = has_admin_perm(user, "view_logs")
+
+    active_guilds = get_all_guilds()
+    default_gid = active_guilds[0]["id"] if active_guilds else "global"
     flash = ""
-    active_adm_tab = "adm_prem"
+
     if request.method == "POST":
         form = await read_post_safe(request)
         if not form:
@@ -4553,415 +5083,412 @@ async def handle_admin(request: web.Request) -> web.Response:
         elif is_replay_request(str(form.get("req_nonce", ""))):
             flash = "Duplicate request blocked." if is_en else "تم منع طلب مكرر."
         else:
-            act = str(form.get("admin_action", "")).strip()
-            gid = str(form.get("cmd_guild_id", "")).strip()
-            target_id = str(form.get("cmd_target", "")).strip()
+            act = str(form.get("action", "")).strip()
 
-            if act in ("grant_premium", "extend_premium", "revoke_premium"):
-                active_adm_tab = "adm_prem"
-            elif act in ("grant_admin", "revoke_admin"):
-                active_adm_tab = "adm_staff"
-            elif act in ("kick", "ban", "unban", "timeout", "broadcast", "sync_all_guilds", "global_emergency"):
-                active_adm_tab = "adm_remote"
-            elif act in ("simulate", "create_backup", "test_restore", "clear_logs"):
-                active_adm_tab = "adm_sys"
-
-            if act in ("grant_premium", "extend_premium"):
-                if not has_admin_perm(user, "manage_premium"):
-                    flash = "Missing permission: Manage Premium" if is_en else "ينقصك صلاحية: إدارة البريميوم"
+            if act == "grant_premium":
+                if not can_grant_prem:
+                    flash = "No permission to grant premium." if is_en else "لا تملك صلاحية منح البريميوم."
                 else:
-                    p_uid = str(form.get("prem_user_id", "")).strip()
-                    p_name = str(form.get("prem_username", "")).strip()
-                    p_handle = str(form.get("prem_handle", "")).strip()
-                    p_avatar = str(form.get("prem_avatar", "")).strip()
+                    uid = str(form.get("prem_uid", "")).strip()
+                    uname = str(form.get("prem_username", "")).strip()[:40]
+                    handle_in = str(form.get("prem_handle", "")).strip()[:44]
                     try:
-                        p_days = max(0, min(3650, int(form.get("prem_days", 0) or 0)))
+                        days = max(0, min(3650, int(form.get("prem_days", 30) or 0)))
                     except Exception:
-                        p_days = 0
+                        days = 30
                     try:
-                        p_hours = max(0, min(87600, int(form.get("prem_hours", 0) or 0)))
+                        hours = max(0, min(8760, int(form.get("prem_hours", 0) or 0)))
                     except Exception:
-                        p_hours = 0
-
-                    if not p_uid.isdigit():
-                        flash = "Enter a valid User ID." if is_en else "أدخل آيدي مستخدم رقمي صحيح."
-                    elif (p_days * 24 + p_hours) <= 0:
-                        flash = "Specify a duration greater than 0." if is_en else "حدد مدة أكبر من صفر (أيام أو ساعات)."
-                    else:
-                        is_ext = act == "extend_premium"
+                        hours = 0
+                    if uid.isdigit():
                         set_premium_user(
-                            p_uid,
+                            uid,
                             True,
-                            days=p_days,
-                            hours=p_hours,
+                            days=days,
+                            hours=hours,
                             granted_by=actor_uid,
-                            username=p_name,
-                            handle=p_handle,
-                            avatar=p_avatar,
-                            source="manual",
-                            extend_existing=is_ext,
+                            username=uname,
+                            handle=handle_in,
+                            source="admin",
+                            extend_existing=False,
                         )
-                        verb_en = "Extended Premium" if is_ext else "Granted Premium"
-                        verb_ar = "تمت زيادة مدة البريميوم" if is_ext else "تم منح بريميوم"
-                        log_event(f"{verb_en} (+{p_days}d {p_hours}h) for {p_uid}", level="ADMIN")
-                        flash = (
-                            f"{verb_en} (+{p_days}d {p_hours}h) for {p_uid}"
-                            if is_en
-                            else f"{verb_ar} (+{p_days} يوم و {p_hours} ساعة) للحساب {p_uid}"
+                        log_event(f"Granted premium ({days}d {hours}h) to {uid}", level="ADMIN")
+                        flash = f"Premium granted to {uid}." if is_en else f"تم منح البريميوم للمستخدم {uid}."
+                    else:
+                        flash = "Invalid user ID." if is_en else "آيدي المستخدم غير صحيح."
+
+            elif act == "extend_premium":
+                if not can_extend_prem:
+                    flash = "No permission to extend premium." if is_en else "لا تملك صلاحية زيادة مدة البريميوم."
+                else:
+                    uid = str(form.get("target_prem_uid") or form.get("prem_uid") or "").strip()
+                    try:
+                        add_d = max(0, min(3650, int(form.get("extend_days", form.get("prem_days", 7)) or 0)))
+                    except Exception:
+                        add_d = 7
+                    try:
+                        add_h = max(0, min(8760, int(form.get("extend_hours", form.get("prem_hours", 0)) or 0)))
+                    except Exception:
+                        add_h = 0
+                    if uid.isdigit():
+                        set_premium_user(
+                            uid,
+                            True,
+                            days=add_d,
+                            hours=add_h,
+                            granted_by=actor_uid,
+                            extend_existing=True,
                         )
+                        log_event(f"Extended premium (+{add_d}d +{add_h}h) for {uid}", level="ADMIN")
+                        flash = f"Extended premium for {uid}." if is_en else f"تمت زيادة مدة البريميوم للمستخدم {uid}."
+                    else:
+                        flash = "Invalid user ID." if is_en else "آيدي المستخدم غير صحيح."
+
             elif act == "revoke_premium":
-                if not has_admin_perm(user, "manage_premium"):
-                    flash = "Missing permission: Manage Premium" if is_en else "ينقصك صلاحية: إدارة البريميوم"
+                if not can_revoke_prem:
+                    flash = "No permission to revoke premium." if is_en else "لا تملك صلاحية سحب البريميوم."
                 else:
-                    p_uid = str(form.get("prem_user_id", "")).strip()
-                    if p_uid.isdigit() and set_premium_user(p_uid, False):
-                        log_event(f"Revoked Premium from {p_uid}", level="ADMIN")
-                        flash = f"Revoked Premium from {p_uid}" if is_en else f"تم سحب البريميوم من الحساب {p_uid}"
+                    uid = str(form.get("target_prem_uid", "")).strip()
+                    if uid == ADMIN_USER_ID:
+                        flash = "Owner premium cannot be revoked." if is_en else "لا يمكن سحب بريميوم المالك."
+                    elif uid.isdigit():
+                        set_premium_user(uid, False)
+                        log_event(f"Revoked premium for {uid}", level="ADMIN")
+                        flash = f"Premium revoked for {uid}." if is_en else f"تم سحب البريميوم عن {uid}."
+
+            elif act == "add_admin":
+                if not can_admins:
+                    flash = "No permission to manage admins." if is_en else "لا تملك صلاحية إدارة الأدمن."
+                else:
+                    uid = str(form.get("admin_uid", "")).strip()
+                    role_tag_in = _sanitize_staff_role(str(form.get("admin_role_tag", "Moderator")), uid=uid)
+                    perms_in = {pk: (form.get(f"perm_{pk}") == "on") for pk in ADMIN_PERMISSION_KEYS}
+                    if uid.isdigit():
+                        set_admin_user(uid, True, granted_by=actor_uid, permissions=perms_in, role_tag=role_tag_in)
+                        log_event(f"Saved admin ({uid}) with role [{role_tag_in}]", level="ADMIN")
+                        flash = f"Saved admin {uid} ({role_tag_in})." if is_en else f"تم حفظ المشرف {uid} برتبة ({role_tag_in})."
                     else:
-                        flash = "Cannot revoke owner or invalid User ID." if is_en else "لا يمكن سحب البريميوم من المالك أو الآيدي غير صحيح."
-            elif act == "grant_admin":
-                if not has_admin_perm(user, "manage_admins"):
-                    flash = "Missing permission: Manage Admins" if is_en else "ينقصك صلاحية: إدارة الأدمن والصلاحيات"
+                        flash = "Invalid user ID." if is_en else "آيدي المستخدم غير صحيح."
+
+            elif act == "remove_admin":
+                if not can_admins:
+                    flash = "No permission to manage admins." if is_en else "لا تملك صلاحية إدارة الأدمن."
                 else:
-                    a_uid = str(form.get("admin_user_id", "")).strip()
-                    chosen_role = _sanitize_staff_role(form.get("admin_role_tag", "Staff"), uid=a_uid)
-                    if a_uid.isdigit():
-                        selected_perms = {pk: (form.get(f"perm_{pk}") == "on") for pk in ADMIN_PERMISSION_KEYS}
-                        set_admin_user(a_uid, True, granted_by=actor_uid, permissions=selected_perms, role_tag=chosen_role)
-                        log_event(f"Updated Admin [{chosen_role}] & permissions for {a_uid}", level="ADMIN")
-                        flash = (
-                            f"Saved Admin ({chosen_role}) & permissions for {a_uid}"
-                            if is_en
-                            else f"تم حفظ الأدمن ({chosen_role}) وصلاحياته للحساب {a_uid} وتفعيله فوراً"
+                    uid = str(form.get("target_admin_uid", "")).strip()
+                    if uid == ADMIN_USER_ID or (uid in MEM_ADMINS and not is_owner and uid != actor_uid):
+                        flash = "Cannot remove this admin." if is_en else "لا يمكن إزالة هذا المشرف."
+                    elif uid.isdigit():
+                        set_admin_user(uid, False)
+                        log_event(f"Removed admin {uid}", level="ADMIN")
+                        flash = f"Removed admin {uid}." if is_en else f"تمت إزالة المشرف {uid}."
+
+            elif act == "remote_cmd":
+                if not can_remote:
+                    flash = "No permission for remote actions." if is_en else "لا تملك صلاحية الأوامر عن بُعد."
+                else:
+                    cmd = str(form.get("cmd_action", "")).strip()
+                    target = str(form.get("cmd_target", "")).strip()
+                    target_gid = str(form.get("cmd_guild", default_gid)).strip() or default_gid
+                    allowed_cmds = ("lock_guild", "unlock_guild", "sync_guild_cfg", "announce", "kick_user", "ban_user", "unban_user")
+                    if cmd in allowed_cmds:
+                        enqueue_remote_action(
+                            target_gid,
+                            cmd,
+                            target,
+                            extra={"guild_id": target_gid, "user_id": actor_uid, "actor_id": actor_uid, "message": target},
+                            actor_user_id=actor_uid,
                         )
+                        log_event(f"Queued remote action [{cmd}] -> {target_gid}", guild_id=target_gid, level="ADMIN")
+                        flash = f"Action [{cmd}] queued." if is_en else f"تم إرسال الأمر [{cmd}] للمزامنة."
                     else:
-                        flash = "Enter a valid Admin User ID." if is_en else "أدخل آيدي أدمن رقمي صحيح."
-            elif act == "revoke_admin":
-                if not has_admin_perm(user, "manage_admins"):
-                    flash = "Missing permission: Manage Admins" if is_en else "ينقصك صلاحية: إدارة الأدمن والصلاحيات"
+                        flash = "Invalid remote action." if is_en else "أمر غير معروف."
+
+            elif act == "run_sim":
+                if not can_sim:
+                    flash = "No permission for safety checks." if is_en else "لا تملك صلاحية فحص الجاهزية."
                 else:
-                    a_uid = str(form.get("admin_user_id", "")).strip()
-                    if a_uid.isdigit() and set_admin_user(a_uid, False):
-                        log_event(f"Revoked Admin from {a_uid}", level="ADMIN")
-                        flash = f"Revoked Admin from {a_uid}" if is_en else f"تم سحب صلاحية الأدمن من الحساب {a_uid}"
-                    else:
-                        flash = "Cannot revoke owner admin." if is_en else "لا يمكن سحب صلاحية المالك."
-            elif act in ("kick", "ban", "unban", "timeout") and gid.isdigit() and target_id.isdigit():
-                if not has_admin_perm(user, "remote_actions"):
-                    flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
-                else:
-                    enqueue_remote_action(gid, act, target_id, extra={"user_id": actor_uid}, actor_user_id=actor_uid)
-                    log_event(f"Remote action [{act}] on {target_id} in {gid}", guild_id=gid, level="ADMIN")
-                    flash = f"Queued [{act}] for {target_id} in {gid}" if is_en else f"تم إرسال أمر [{act}] للعضو {target_id} في السيرفر {gid}"
-            elif act == "broadcast" and target_id:
-                if not has_admin_perm(user, "remote_actions"):
-                    flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
-                else:
-                    enqueue_remote_action(gid or "0", "broadcast", target_id[:400], extra={"user_id": actor_uid}, actor_user_id=actor_uid)
-                    log_event("Queued broadcast message", level="ADMIN")
-                    flash = "Broadcast queued." if is_en else "تم إرسال البث للقائمة."
-            elif act == "sync_all_guilds":
-                if not has_admin_perm(user, "remote_actions"):
-                    flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
-                else:
-                    all_g = get_all_guilds()
-                    for g_item in all_g[:30]:
-                        enqueue_remote_action(g_item["id"], "sync_guild_cfg", g_item["id"], extra={"guild_id": g_item["id"], "user_id": actor_uid}, actor_user_id=actor_uid)
-                    log_event(f"Triggered force sync across {len(all_g)} guilds", level="ADMIN")
-                    flash = f"Force sync queued for {len(all_g)} servers." if is_en else f"تمت جدولة مزامنة فورية لـ {len(all_g)} سيرفر."
-            elif act == "global_emergency":
-                if not has_admin_perm(user, "remote_actions"):
-                    flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
-                else:
-                    all_g = get_all_guilds()
-                    for g_item in all_g[:30]:
-                        save_guild_cfg(g_item["id"], {"emergency_mode": True}, is_premium=True)
-                        enqueue_remote_action(g_item["id"], "sync_guild_cfg", g_item["id"], extra={"guild_id": g_item["id"], "user_id": actor_uid, "emergency": True}, actor_user_id=actor_uid)
-                    log_event(f"Enabled emergency mode on {len(all_g)} guilds", level="ALERT")
-                    flash = "Emergency mode activated across servers." if is_en else "تم تفعيل وضع الطوارئ على السيرفرات."
-            elif act == "simulate" and gid.isdigit():
-                if not has_admin_perm(user, "simulations"):
-                    flash = "Missing permission: Safety Checks" if is_en else "ينقصك صلاحية: فحص الجاهزية"
-                else:
-                    flash = run_attack_simulation(gid, str(form.get("sim_scenario", "Permissions & Roles Check")), is_en=is_en)
+                    sim_gid = str(form.get("sim_guild", default_gid)).strip() or default_gid
+                    scen = str(form.get("sim_scenario", "sabotage_check")).strip()
+                    flash = run_attack_simulation(sim_gid, scen, is_en=is_en)
+
             elif act == "create_backup":
-                if not has_admin_perm(user, "backups"):
-                    flash = "Missing permission: Backups" if is_en else "ينقصك صلاحية: النسخ الاحتياطي"
+                if not can_bak:
+                    flash = "No permission for backups." if is_en else "لا تملك صلاحية النسخ الاحتياطي."
                 else:
-                    b = create_db_backup()
-                    flash = f"Backup created: {b.get('backup_id')}" if is_en else f"تم إنشاء نسخة احتياطية: {b.get('backup_id')}"
+                    snap = create_db_backup()
+                    flash = (
+                        f"Backup created: #{snap['backup_id']}."
+                        if is_en
+                        else f"تم إنشاء نسخة احتياطية برقم #{snap['backup_id']}."
+                    )
+
             elif act == "test_restore":
-                if not has_admin_perm(user, "backups"):
-                    flash = "Missing permission: Backups" if is_en else "ينقصك صلاحية: النسخ الاحتياطي"
+                if not can_bak:
+                    flash = "No permission for restore checks." if is_en else "لا تملك صلاحية فحص الاستعادة."
                 else:
-                    _, msg = test_backup_restore(str(form.get("backup_id", "")), is_en=is_en)
+                    bk_id = str(form.get("backup_id", "")).strip()
+                    _, msg = test_backup_restore(bk_id, is_en=is_en)
                     flash = msg
-            elif act == "clear_logs":
-                if not has_admin_perm(user, "view_logs"):
-                    flash = "Missing permission: Logs" if is_en else "ينقصك صلاحية: السجلات"
-                else:
-                    clear_logs_and_incidents()
-                    flash = "Logs and incidents cleared to free DB space." if is_en else "تم تنظيف السجلات والتنبيهات لتوفير مساحة القاعدة."
-            else:
-                flash = "Check required IDs or fields." if is_en else "تأكد من إدخال الآيدي أو الحقول المطلوبة بشكل صحيح."
 
-    def _new_form_sec() -> str:
-        return (
-            f"<input type='hidden' name='csrf_token' value='{esc(issue_csrf_token(session_id))}'>"
-            f"<input type='hidden' name='req_nonce' value='{esc(secrets.token_hex(12))}'>"
-        )
+    prem_list = get_premium_list()
+    admin_list = get_admin_list()
+    logs_list = get_recent_logs(25) if can_logs else []
+    backups_list = get_db_backups() if can_bak else []
+    csrf_tok = issue_csrf_token(session_id)
+    req_nonce = secrets.token_hex(12)
 
-    guilds = get_all_guilds()
-    backups = get_db_backups()
-    admins = get_admin_list()
-    prems = get_premium_list()
+    guild_opts = "".join(
+        f"<option value='{esc(g['id'])}'>{esc(g['name'])} ({esc(g['id'])})</option>" for g in active_guilds
+    ) or "<option value='global'>Global</option>"
 
-    perm_checkboxes_html = ""
-    default_p = _default_sub_admin_perms()
-    for pk in ADMIN_PERMISSION_KEYS:
-        lbl_en, lbl_ar = ADMIN_PERMISSION_LABELS.get(pk, (pk, pk))
-        perm_checkboxes_html += (
-            f"<label class='switch-row'>"
-            f"<span>{esc(lbl_en if is_en else lbl_ar)}</span>"
-            f"<input class='switch-input' type='checkbox' name='perm_{pk}' {'checked' if default_p.get(pk) else ''}></label>"
-        )
-
-    g_rows = "".join(_render_guild_card(g, is_en, show_admin_meta=True) for g in guilds) or "<p class='muted'>0</p>"
-    b_rows = "".join(f"<div class='list-row'><code>{esc(b.get('backup_id'))}</code><span class='muted'>{esc(b.get('created_at'))}</span></div>" for b in backups[:5]) or "<p class='muted'>-</p>"
-
-    a_rows = ""
-    for a in admins:
-        a_uid = str(a.get("user_id", ""))
-        a_tag = _sanitize_staff_role(a.get("role_tag"), uid=a_uid)
-        a_perms = a.get("permissions") or {}
-        active_perms = [k for k, v in a_perms.items() if v]
-        perms_badge = "ALL PERMS" if a_uid == ADMIN_USER_ID else f"{len(active_perms)}/{len(ADMIN_PERMISSION_KEYS)} perms"
-        a_rows += (
-            f"<div class='list-row' style='flex-wrap:wrap;'>"
-            f"<div><span class='tag'>{esc(a_tag)}</span> <code>{esc(a_uid)}</code> <span class='muted'>({esc(a.get('granted_by'))})</span></div>"
-            f"<span class='admin-pill'>{esc(perms_badge)}</span></div>"
-        )
-
-    p_cards = ""
-    for p in prems:
-        p_uid_raw = str(p.get("user_id", ""))
-        p_uid_esc = esc(p_uid_raw)
-        p_name_raw = str(p.get("username") or f"User {p_uid_raw}")
-        p_handle_raw = str(p.get("handle") or f"@{p_name_raw}")
-        p_ava_badge = _render_avatar_badge(p_uid_raw, str(p.get("avatar") or ""), p_name_raw, size=42, cls_prefix="prem-ava")
-        is_owner_row = p_uid_raw == ADMIN_USER_ID or bool(p.get("permanent"))
-        if is_owner_row:
-            quick_btns = f"<span class='tag'>{('OWNER LIFETIME' if is_en else 'دائم للمالك')}</span>"
+    prem_rows = ""
+    for p in prem_list:
+        p_uid = esc(p.get("user_id"))
+        p_uname = esc(p.get("username") or f"User {p.get('user_id')}")
+        p_handle = esc(p.get("handle") or f"@{p.get('user_id')}")
+        p_ava_url = user_avatar_url(str(p.get("user_id") or ""), p.get("avatar"))
+        p_init = esc(((p.get("username") or "U")[:1]).upper())
+        if p_ava_url:
+            ava_badge = (
+                f"<span class='guild-icon-wrap'>"
+                f"<img class='guild-icon' src='{esc(p_ava_url)}' alt='{p_uname}' loading='lazy' referrerpolicy='no-referrer' "
+                f"onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex';\">"
+                f"<span class='guild-icon-ph' style='display:none;'>{p_init}</span>"
+                f"</span>"
+            )
         else:
-            quick_btns = f"""
-            <form method="post" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0;">
-              {_new_form_sec()}
-              <input type="hidden" name="prem_user_id" value="{p_uid_esc}">
-              <input class="inp" style="width:74px;margin:0;padding:7px 10px;font-size:12px;" type="number" min="1" max="3650" name="prem_days" value="7">
-              <button class="mini-btn" type="submit" name="admin_action" value="extend_premium">{('+ Add Duration' if is_en else 'زيادة المدة')}</button>
-              <button class="mini-btn red" type="submit" name="admin_action" value="revoke_premium">{('Revoke' if is_en else 'سحب')}</button>
-            </form>
-            """
-        p_cards += f"""
-        <div class="prem-member-card">
-          <div class="prem-member-top">
-            <div class="prem-member-identity">
-              {p_ava_badge}
-              <div style="min-width:0;">
-                <div style="font-weight:800;font-size:14px;">{esc(p_name_raw)}</div>
-                <div class="muted" style="font-size:12px;">{esc(p_handle_raw)} / <code>{p_uid_esc}</code></div>
+            ava_badge = f"<span class='guild-icon-wrap'><span class='guild-icon-ph'>{p_init}</span></span>"
+
+        rem_txt = esc(format_remaining_time(p, is_en=is_en))
+        src_txt = esc(p.get("source", "manual"))
+        extend_btn = (
+            f"<button class='mini-btn gold' type='button' onclick=\"quickExtendPremium('{p_uid}', 7, 0)\">+7d</button>"
+            f"<button class='mini-btn' type='button' onclick=\"quickExtendPremium('{p_uid}', 30, 0)\">+30d</button>"
+            if can_extend_prem
+            else ""
+        )
+        revoke_btn = (
+            ""
+            if (p.get("user_id") == ADMIN_USER_ID or not can_revoke_prem)
+            else f"<button class='mini-btn red' type='button' onclick=\"quickRevokePremium('{p_uid}')\">{('Revoke' if is_en else 'سحب')}</button>"
+        )
+        prem_rows += f"""
+        <div class='prem-member-card prem-search-item anim-item' data-search='{esc((str(p.get("user_id","")) + " " + str(p.get("username","")) + " " + str(p.get("handle",""))).lower())}'>
+          <div class='prem-member-top'>
+            <div class='prem-member-identity'>
+              {ava_badge}
+              <div class='row-copy'>
+                <div class='row-title'>{p_uname} <span class='muted'>({p_handle})</span></div>
+                <div class='muted row-sub'>ID: <code>{p_uid}</code> / {src_txt}</div>
               </div>
             </div>
-            <span class="prem-pill">{esc(format_remaining_time(p, is_en=is_en))}</span>
+            <span class='prem-pill'>{rem_txt}</span>
           </div>
-          <div class="prem-member-actions">
-            {quick_btns}
+          <div class='prem-member-actions'>
+            {extend_btn}
+            {revoke_btn}
           </div>
         </div>
         """
 
-    actor_rec = _get_admin_record(actor_uid) or {}
-    actor_tag = _sanitize_staff_role(actor_rec.get("role_tag"), uid=actor_uid)
-    role_label = "OWNER" if is_owner else actor_tag
-    hb_last = esc(MEM_BOT_HEARTBEAT.get("last_seen") or "-")
+    admin_rows = ""
+    for a in admin_list:
+        a_uid = esc(a.get("user_id"))
+        a_role = esc(_sanitize_staff_role(a.get("role_tag"), uid=str(a.get("user_id"))))
+        perms_d = a.get("permissions") or {}
+        active_perms_badges = "".join(
+            f"<span class='admin-pill'>{esc(ADMIN_PERMISSION_LABELS[k][0] if is_en else ADMIN_PERMISSION_LABELS[k][1])}</span>"
+            for k in ADMIN_PERMISSION_KEYS
+            if perms_d.get(k)
+        ) or f"<span class='muted'>{('No extra permissions' if is_en else 'بدون صلاحيات إضافية')}</span>"
+        rem_btn = (
+            ""
+            if (a.get("user_id") == ADMIN_USER_ID or not can_admins or (not is_owner and a.get("user_id") != actor_uid))
+            else f"<button class='mini-btn red' type='button' onclick=\"quickRemoveAdmin('{a_uid}')\">{('Remove' if is_en else 'إزالة')}</button>"
+        )
+        admin_rows += f"""
+        <div class='prem-member-card anim-item'>
+          <div class='prem-member-top'>
+            <div>
+              <strong><code>{a_uid}</code></strong>
+              <span class='tag' style='margin:0 6px;'>{a_role}</span>
+            </div>
+            {rem_btn}
+          </div>
+          <div style='display:flex;flex-wrap:wrap;gap:6px;'>{active_perms_badges}</div>
+        </div>
+        """
 
-    tabs_meta = [
-        ("adm_prem", "Premium" if is_en else "البريميوم"),
-        ("adm_staff", "Admins" if is_en else "الأدمن"),
-        ("adm_remote", "Remote" if is_en else "عن بُعد"),
-        ("adm_sys", "System" if is_en else "النظام"),
-    ]
-    tabs_html = "".join(
-        f"<button type='button' class='cat-tab-btn {'active' if t_key == active_adm_tab else ''}' onclick=\"switchCat('{t_key}', this)\">{esc(t_lbl)}</button>"
-        for t_key, t_lbl in tabs_meta
+    perm_checkboxes_html = "".join(
+        f"<label class='switch-row'><span>{esc(ADMIN_PERMISSION_LABELS[k][0] if is_en else ADMIN_PERMISSION_LABELS[k][1])}</span>"
+        f"<input class='switch-input' type='checkbox' name='perm_{k}' {'checked' if k in ('manage_premium','extend_premium','view_logs') else ''}></label>"
+        for k in ADMIN_PERMISSION_KEYS
     )
 
+    staff_role_opts = "".join(
+        f"<option value='{esc(r)}'>{esc(r)}</option>" for r in STAFF_ROLE_OPTIONS
+    )
+
+    logs_html = "".join(
+        f"<div class='log-entry-row anim-item'>"
+        f"<div class='log-entry-msg'><code>{esc(l.get('level'))}</code> {esc(l.get('message'))}</div>"
+        f"<span class='log-entry-time'>{esc(l.get('time'))}</span></div>"
+        for l in logs_list
+    ) or f"<p class='muted'>{('No logs recorded yet.' if is_en else 'لا توجد سجلات بعد.')}</p>"
+
+    backups_html = "".join(
+        f"<div class='list-row anim-item'><div><strong>#{esc(b.get('backup_id'))}</strong> <span class='muted'>({esc(b.get('created_at'))})</span></div>"
+        f"<span class='muted'>{int(b.get('guilds_count',0))}G / {int(b.get('admins_count',0))}A / {int(b.get('premium_count',0))}P</span></div>"
+        for b in backups_list
+    ) or f"<p class='muted'>{('No backups created yet.' if is_en else 'لا توجد نسخ احتياطية بعد.')}</p>"
+
     body = f"""
-    <div class="page-card">
+    <form id="adminMainForm" method="post" class="page-card anim-card">
+      <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+      <input type="hidden" name="req_nonce" value="{esc(req_nonce)}">
+      <input type="hidden" id="adm_action" name="action" value="">
+      <input type="hidden" id="adm_target_prem_uid" name="target_prem_uid" value="">
+      <input type="hidden" id="adm_extend_days" name="extend_days" value="7">
+      <input type="hidden" id="adm_extend_hours" name="extend_hours" value="0">
+      <input type="hidden" id="adm_target_admin_uid" name="target_admin_uid" value="">
+
       <div class="section-head-bar">
         <div>
           <h2 class="section-head-title">{('Admin Panel' if is_en else 'لوحة الإدارة')}</h2>
-          <div class="muted">{('Subscriptions, staff permissions, remote actions, and backups' if is_en else 'الاشتراكات والصلاحيات والأوامر عن بُعد والنسخ الاحتياطي')} / Sync: <code>{hb_last}</code></div>
+          <div class="muted">{('Bot status' if is_en else 'حالة البوت')}: <strong>{esc(MEM_BOT_HEARTBEAT.get('status','ONLINE'))}</strong></div>
         </div>
-        <span class="tag">{esc(role_label)}</span>
+        <span class="tag">{('OWNER' if is_owner else esc(_sanitize_staff_role('', uid=actor_uid)))}</span>
       </div>
 
       <div class="admin-kpis">
-        <div class="kpi-box">
-          <div class="kpi-num">{len(guilds)}</div>
-          <div class="kpi-lbl">{('Servers' if is_en else 'السيرفرات')}</div>
-        </div>
-        <div class="kpi-box">
-          <div class="kpi-num">{len(prems)}</div>
-          <div class="kpi-lbl">{('Premium Users' if is_en else 'مشتركي البريميوم')}</div>
-        </div>
-        <div class="kpi-box">
-          <div class="kpi-num">{len(admins)}</div>
-          <div class="kpi-lbl">{('Staff Admins' if is_en else 'طاقم الإدارة')}</div>
-        </div>
+        <div class="kpi-box"><div class="kpi-num">{len(active_guilds)}</div><div class="kpi-lbl">{('Servers' if is_en else 'السيرفرات')}</div></div>
+        <div class="kpi-box"><div class="kpi-num">{len(prem_list)}</div><div class="kpi-lbl">{('Premium' if is_en else 'البريميوم')}</div></div>
+        <div class="kpi-box"><div class="kpi-num">{len(admin_list)}</div><div class="kpi-lbl">{('Admins' if is_en else 'المشرفين')}</div></div>
       </div>
 
-      <div class="cat-tabs" role="tablist">
-        {tabs_html}
+      <div class="cat-tabs">
+        <button class="cat-tab-btn active" type="button" onclick="switchCat('prem', this)">{('Premium' if is_en else 'البريميوم')}</button>
+        <button class="cat-tab-btn" type="button" onclick="switchCat('admins', this)">{('Admins' if is_en else 'المشرفين')}</button>
+        <button class="cat-tab-btn" type="button" onclick="switchCat('remote', this)">{('Remote & Checks' if is_en else 'الأوامر والفحص')}</button>
+        <button class="cat-tab-btn" type="button" onclick="switchCat('sys', this)">{('Backups & Logs' if is_en else 'النسخ والسجلات')}</button>
       </div>
 
-      <div id="cat-adm_prem" class="cat-pane {'active' if active_adm_tab == 'adm_prem' else ''}">
+      <div id="cat-prem" class="cat-pane active">
         <div class="panel-section">
-          <div class="panel-section-head">
-            <h3 class="panel-section-title">{('Premium Subscriptions' if is_en else 'إدارة اشتراكات البريميوم')}</h3>
-            <span class="prem-pill">PRO</span>
+          <div class="panel-section-head"><h3 class="panel-section-title">{('Grant or Extend Premium' if is_en else 'منح أو تمديد البريميوم')}</h3></div>
+          <div class="grid-2">
+            <div><label class="lbl">User ID</label><input class="inp" type="text" name="prem_uid" placeholder="123456789012345678"></div>
+            <div><label class="lbl">{('Username (Optional)' if is_en else 'اسم المستخدم (اختياري)')}</label><input class="inp" type="text" name="prem_username" placeholder="Username"></div>
           </div>
-          <form method="post">
-            {_new_form_sec()}
-            <div class="grid-2">
-              <div>
-                <label class="lbl">{('Discord User ID' if is_en else 'آيدي العضو')}</label>
-                <input class="inp" type="text" name="prem_user_id" placeholder="User ID">
-              </div>
-              <div>
-                <label class="lbl">{('Display Name (Optional)' if is_en else 'الاسم (اختياري)')}</label>
-                <input class="inp" type="text" name="prem_username" placeholder="{('Name' if is_en else 'اسم العضو')}">
-              </div>
-            </div>
-            <div class="grid-2">
-              <div>
-                <label class="lbl">{('Days' if is_en else 'الأيام')}</label>
-                <input class="inp" type="number" min="0" max="3650" name="prem_days" value="30">
-              </div>
-              <div>
-                <label class="lbl">{('Hours' if is_en else 'الساعات')}</label>
-                <input class="inp" type="number" min="0" max="87600" name="prem_hours" value="0">
-              </div>
-            </div>
-            <div class="action-pair">
-              <button class="btn-gold" type="submit" name="admin_action" value="grant_premium">{('Grant Premium' if is_en else 'منح البريميوم')}</button>
-              <button class="btn-dark" type="submit" name="admin_action" value="extend_premium">{('Extend Duration' if is_en else 'تمديد المدة')}</button>
-            </div>
-            <button class="btn-danger" style="margin-top:8px;" type="submit" name="admin_action" value="revoke_premium">{('Revoke Premium' if is_en else 'سحب البريميوم')}</button>
-          </form>
-          <div style="margin-top:14px;">{p_cards}</div>
+          <div class="grid-2">
+            <div><label class="lbl">{('Days' if is_en else 'الأيام')}</label><input class="inp" type="number" min="0" max="3650" name="prem_days" value="30"></div>
+            <div><label class="lbl">{('Hours' if is_en else 'الساعات')}</label><input class="inp" type="number" min="0" max="8760" name="prem_hours" value="0"></div>
+          </div>
+          <div class="action-pair">
+            <button class="btn-gold" type="button" onclick="submitAdminAction('grant_premium')">{('Grant Premium' if is_en else 'منح البريميوم')}</button>
+            <button class="btn-dark" type="button" onclick="submitAdminAction('extend_premium')">{('Extend Duration' if is_en else 'زيادة المدة')}</button>
+          </div>
         </div>
-      </div>
-
-      <div id="cat-adm_staff" class="cat-pane {'active' if active_adm_tab == 'adm_staff' else ''}">
         <div class="panel-section">
-          <div class="panel-section-head">
-            <h3 class="panel-section-title">{('Admins & Permissions' if is_en else 'إدارة الأدمن والصلاحيات')}</h3>
-            <span class="admin-pill">RBAC</span>
-          </div>
-          <form method="post">
-            {_new_form_sec()}
-            <div class="grid-2">
-              <div>
-                <label class="lbl">{('Admin User ID' if is_en else 'آيدي الأدمن')}</label>
-                <input class="inp" type="text" name="admin_user_id" placeholder="Admin User ID">
-              </div>
-              <div>
-                <label class="lbl">{('Role Tag' if is_en else 'المنصب')}</label>
-                <select class="sel" name="admin_role_tag">
-                  <option value="Co owner">Co owner</option>
-                  <option value="Staff" selected>Staff</option>
-                </select>
-              </div>
-            </div>
-            <div class="lbl">{('Permissions' if is_en else 'الصلاحيات')}</div>
-            {perm_checkboxes_html}
-            <div class="action-pair">
-              <button class="btn-gold" type="submit" name="admin_action" value="grant_admin">{('Save Admin' if is_en else 'حفظ الأدمن')}</button>
-              <button class="btn-danger" type="submit" name="admin_action" value="revoke_admin">{('Revoke Admin' if is_en else 'سحب الصلاحية')}</button>
-            </div>
-          </form>
-          <div style="margin-top:14px;">{a_rows}</div>
+          <div class="panel-section-head"><h3 class="panel-section-title">{('Active Premium Members' if is_en else 'مشتركي البريميوم النشطين')}</h3></div>
+          <input class="inp" type="text" placeholder="{('Search by ID or username...' if is_en else 'بحث بالآيدي أو الاسم...')}" oninput="filterPremiumList(this.value)">
+          {prem_rows or f"<p class='muted'>{('No active premium users.' if is_en else 'لا يوجد مشتركين نشطين.')}</p>"}
         </div>
       </div>
 
-      <div id="cat-adm_remote" class="cat-pane {'active' if active_adm_tab == 'adm_remote' else ''}">
+      <div id="cat-admins" class="cat-pane">
         <div class="panel-section">
-          <div class="panel-section-head">
-            <h3 class="panel-section-title">{('Remote Actions' if is_en else 'الأوامر عن بُعد')}</h3>
-            <span class="tag">QUEUE</span>
+          <div class="panel-section-head"><h3 class="panel-section-title">{('Add or Update Admin' if is_en else 'إضافة أو تعديل مشرف')}</h3></div>
+          <div class="grid-2">
+            <div><label class="lbl">User ID</label><input class="inp" type="text" name="admin_uid" placeholder="123456789012345678"></div>
+            <div><label class="lbl">{('Staff Role' if is_en else 'رتبة المشرف')}</label><select class="sel" name="admin_role_tag">{staff_role_opts}</select></div>
           </div>
-          <form method="post">
-            {_new_form_sec()}
-            <label class="lbl">{('Guild ID' if is_en else 'آيدي السيرفر')}</label>
-            <input class="inp" type="text" name="cmd_guild_id" placeholder="Guild ID">
-            <label class="lbl">{('Target User ID / Broadcast Text' if is_en else 'آيدي العضو أو نص البث')}</label>
-            <input class="inp" type="text" name="cmd_target" placeholder="User ID or Text">
-            <div class="grid-2">
-              <button class="mini-btn red" type="submit" name="admin_action" value="kick">Kick</button>
-              <button class="mini-btn red" type="submit" name="admin_action" value="ban">Ban</button>
-            </div>
-            <div class="grid-2">
-              <button class="mini-btn" type="submit" name="admin_action" value="unban">Unban</button>
-              <button class="mini-btn" type="submit" name="admin_action" value="timeout">Timeout</button>
-            </div>
-            <button class="btn-gold" type="submit" name="admin_action" value="broadcast">{('Send Broadcast' if is_en else 'إرسال بث')}</button>
-            <div class="grid-2" style="margin-top:10px;margin-bottom:0;">
-              <button class="btn-dark" style="margin:0;" type="submit" name="admin_action" value="sync_all_guilds">{('Force Sync All Servers' if is_en else 'مزامنة كل السيرفرات')}</button>
-              <button class="btn-danger" style="margin:0;" type="submit" name="admin_action" value="global_emergency">{('Emergency Lock All' if is_en else 'طوارئ شاملة للسيرفرات')}</button>
-            </div>
-          </form>
+          {perm_checkboxes_html}
+          <button class="btn-gold" type="button" onclick="submitAdminAction('add_admin')">{('Save Admin' if is_en else 'حفظ المشرف')}</button>
         </div>
-      </div>
-
-      <div id="cat-adm_sys" class="cat-pane {'active' if active_adm_tab == 'adm_sys' else ''}">
         <div class="panel-section">
-          <div class="panel-section-head">
-            <h3 class="panel-section-title">{('Checks & Backups' if is_en else 'الفحص والنسخ الاحتياطي')}</h3>
-            <span class="ok-pill">DB</span>
-          </div>
-          <form method="post" style="margin-bottom:14px;">
-            {_new_form_sec()}
-            <label class="lbl">{('Guild ID' if is_en else 'آيدي السيرفر')}</label>
-            <input class="inp" type="text" name="cmd_guild_id" placeholder="Guild ID">
-            <label class="lbl">{('Scope' if is_en else 'النطاق')}</label>
-            <input class="inp" type="text" name="sim_scenario" value="Permissions & Roles Check">
-            <button class="btn-dark" type="submit" name="admin_action" value="simulate">{('Run Safety Check' if is_en else 'تشغيل الفحص')}</button>
-          </form>
-
-          <form method="post">
-            {_new_form_sec()}
-            <div class="action-pair">
-              <button class="btn-gold" type="submit" name="admin_action" value="create_backup">{('Create Backup' if is_en else 'إنشاء نسخة احتياطية')}</button>
-              <button class="btn-dark" type="submit" name="admin_action" value="test_restore">{('Test Restore' if is_en else 'اختبار الاستعادة')}</button>
-            </div>
-            <button class="btn-danger" style="margin-top:8px;" type="submit" name="admin_action" value="clear_logs">{('Clear Old Logs & Incidents' if is_en else 'تنظيف السجلات لتوفير المساحة')}</button>
-          </form>
-          <div style="margin-top:12px;">{b_rows}</div>
-        </div>
-
-        <div class="panel-section" style="margin-bottom:0;">
-          <div class="panel-section-head">
-            <h3 class="panel-section-title">{('Synced Servers' if is_en else 'السيرفرات المتصلة')}</h3>
-            <span class="ok-pill">{len(guilds)}</span>
-          </div>
-          <input class="inp" type="text" placeholder="{('Search server name or ID...' if is_en else 'ابحث باسم السيرفر أو الآيدي...')}" oninput="filterGuildsList(this.value)">
-          {g_rows}
+          <div class="panel-section-head"><h3 class="panel-section-title">{('Current Admins' if is_en else 'المشرفين الحاليين')}</h3></div>
+          {admin_rows}
         </div>
       </div>
-    </div>
+
+      <div id="cat-remote" class="cat-pane">
+        <div class="panel-section">
+          <div class="panel-section-head"><h3 class="panel-section-title">{('Remote Actions' if is_en else 'الأوامر عن بُعد')}</h3></div>
+          <label class="lbl">{('Server' if is_en else 'السيرفر')}</label>
+          <select class="sel" name="cmd_guild">{guild_opts}</select>
+          <div class="grid-2">
+            <div>
+              <label class="lbl">{('Action' if is_en else 'الأمر')}</label>
+              <select class="sel" name="cmd_action">
+                <option value="sync_guild_cfg">sync_guild_cfg</option>
+                <option value="lock_guild">lock_guild</option>
+                <option value="unlock_guild">unlock_guild</option>
+                <option value="announce">announce</option>
+                <option value="kick_user">kick_user</option>
+                <option value="ban_user">ban_user</option>
+                <option value="unban_user">unban_user</option>
+              </select>
+            </div>
+            <div><label class="lbl">{('Target / Message' if is_en else 'الهدف أو الرسالة')}</label><input class="inp" type="text" name="cmd_target" placeholder="User ID or text"></div>
+          </div>
+          <button class="btn-gold" type="button" onclick="submitAdminAction('remote_cmd')">{('Send Action' if is_en else 'إرسال الأمر')}</button>
+        </div>
+        <div class="panel-section">
+          <div class="panel-section-head"><h3 class="panel-section-title">{('Safety Readiness Check' if is_en else 'فحص جاهزية الحماية')}</h3></div>
+          <label class="lbl">{('Server' if is_en else 'السيرفر')}</label>
+          <select class="sel" name="sim_guild">{guild_opts}</select>
+          <label class="lbl">{('Check Scenario' if is_en else 'نوع الفحص')}</label>
+          <select class="sel" name="sim_scenario">
+            <option value="sabotage_check">{('Sabotage & Rollback Check' if is_en else 'فحص جاهزية الحماية والاسترجاع')}</option>
+            <option value="raid_check">{('Join Surge Check' if is_en else 'فحص جاهزية الدخول المفاجئ')}</option>
+            <option value="perms_check">{('Permissions Guard Check' if is_en else 'فحص جاهزية الصلاحيات')}</option>
+          </select>
+          <button class="btn-dark" type="button" onclick="submitAdminAction('run_sim')">{('Run Check' if is_en else 'تشغيل الفحص')}</button>
+        </div>
+      </div>
+
+      <div id="cat-sys" class="cat-pane">
+        <div class="panel-section">
+          <div class="panel-section-head"><h3 class="panel-section-title">{('Backups & Restore Check' if is_en else 'النسخ الاحتياطي وفحص الاستعادة')}</h3></div>
+          <div class="action-pair" style="margin-bottom:10px;">
+            <button class="btn-gold" type="button" onclick="submitAdminAction('create_backup')">{('Create Backup' if is_en else 'إنشاء نسخة احتياطية')}</button>
+            <button class="btn-dark" type="button" onclick="submitAdminAction('test_restore')">{('Verify Restore' if is_en else 'فحص سلامة الاستعادة')}</button>
+          </div>
+          {backups_html}
+        </div>
+        <div class="panel-section">
+          <div class="panel-section-head"><h3 class="panel-section-title">{('Recent Logs' if is_en else 'السجلات الحديثة')}</h3></div>
+          {logs_html}
+        </div>
+      </div>
+    </form>
+    <script>
+    function submitAdminAction(actName) {{
+      var f = document.getElementById("adminMainForm");
+      var a = document.getElementById("adm_action");
+      if (f && a) {{ a.value = actName; f.submit(); }}
+    }}
+    function quickExtendPremium(uid, dVal, hVal) {{
+      document.getElementById("adm_target_prem_uid").value = uid;
+      document.getElementById("adm_extend_days").value = dVal;
+      document.getElementById("adm_extend_hours").value = hVal;
+      submitAdminAction("extend_premium");
+    }}
+    function quickRevokePremium(uid) {{
+      document.getElementById("adm_target_prem_uid").value = uid;
+      submitAdminAction("revoke_premium");
+    }}
+    function quickRemoveAdmin(uid) {{
+      document.getElementById("adm_target_admin_uid").value = uid;
+      submitAdminAction("remove_admin");
+    }}
+    </script>
     """
-    return web.Response(text=render_page("Admin" if is_en else "الإدارة", "admin", body, request, flash=flash, next_after_login="/admin"), content_type="text/html")
+    return web.Response(
+        text=render_page("Admin Panel" if is_en else "لوحة الإدارة", "admin", body, request, flash=flash),
+        content_type="text/html",
+    )
 
 
 async def handle_services(request: web.Request) -> web.Response:
@@ -4969,131 +5496,190 @@ async def handle_services(request: web.Request) -> web.Response:
     user = get_discord_session(request)
     is_prem = is_premium_user(user)
     prem_rec = _get_premium_record(str(user.get("id", "")).strip()) if user else None
-    rem_txt = format_remaining_time(prem_rec, is_en=is_en) if (is_prem and prem_rec) else ""
-
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
-    cta_href = "/premium" if is_prem else safe_support
-    cta_target = "" if is_prem else " target='_blank' rel='noopener noreferrer'"
-    cta_lbl = (
-        f"{('Open Premium Studio' if is_en else 'فتح استوديو البريميوم')} ({esc(rem_txt)})"
-        if is_prem
-        else ("Subscribe via Support Server" if is_en else "الاشتراك عبر سيرفر الدعم")
-    )
 
-    perks_list_en = [
-        "Server Icon Protection & Anti-Selfbot Guard",
-        "Custom Bot Bio (up to 270 chars), Avatar & Banner per server",
-        "Alert Channel & Webhook notifications",
-        "High Shield Mode & Instant Rollback",
+    if is_prem and prem_rec:
+        status_banner = (
+            f"<div class='prem-pill' style='display:inline-block;margin-bottom:12px;'>"
+            f"{esc('Premium Active' if is_en else 'البريميوم مفعل')} — {esc(format_remaining_time(prem_rec, is_en=is_en))}"
+            f"</div>"
+        )
+    else:
+        status_banner = ""
+
+    free_items = [
+        ("Real-time Anti-Nuke & sabotage guards", "حماية فورية ضد التخريب وسحب الصلاحيات"),
+        ("Anti-Raid, new account & invite filters", "حماية الدخول المفاجئ والحسابات الحديثة والروابط"),
+        ("Permissions snapshots & rollback", "حفظ لقطات الصلاحيات واسترجاعها"),
+        ("Security panel & bot invite support", "لوحة تحكم شاملة ودعم فني"),
     ]
-    perks_list_ar = [
-        "حماية صورة السيرفر ومنع الحسابات الآلية",
-        "تخصيص نبذة البوت (حتى 270 حرفاً) وصورة البوت والبنر لكل سيرفر",
-        "تنبيهات فورية عبر روم مخصص أو ويبهوك",
-        "وضع الحماية الفائقة والاسترجاع الفوري",
+    prem_items = [
+        ("Custom bot name, status, bio, avatar & banner", "تخصيص اسم البوت وحالته ونبذته وصورته وبنره"),
+        ("Server icon protection & automated account guard", "حماية صورة السيرفر والحماية من الحسابات الآلية"),
+        ("Priority protection response & instant rollback", "أولوية الاستجابة الحمائية والاسترجاع الفوري"),
+        ("Custom alert channel & webhook notifications", "توجيه التنبيهات إلى روم مخصص أو ويبهوك"),
     ]
-    items_html = "".join(
-        f"<div class='list-row'><span>{esc(txt)}</span><span class='prem-pill'>PRO</span></div>"
-        for txt in (perks_list_en if is_en else perks_list_ar)
+
+    free_html = "".join(
+        f"<div class='list-row anim-item'><span>{esc(en_t if is_en else ar_t)}</span><span class='ok-pill'>{('INCLUDED' if is_en else 'متاح')}</span></div>"
+        for en_t, ar_t in free_items
+    )
+    prem_html = "".join(
+        f"<div class='list-row anim-item'><span>{esc(en_t if is_en else ar_t)}</span><span class='prem-pill'>PRO</span></div>"
+        for en_t, ar_t in prem_items
     )
 
     body = f"""
-    <div class='page-card'>
-      <div class='section-head-bar'>
+    <div class="page-card anim-card">
+      <div class="section-head-bar">
         <div>
-          <h2 class='section-head-title'>{('Services & Premium' if is_en else 'الخدمات والبريميوم')}</h2>
-          <div class='muted'>{('Server protection and subscription perks' if is_en else 'أنظمة الحماية ومزايا اشتراك البريميوم')}</div>
+          <h2 class="section-head-title">{('Services & Plans' if is_en else 'الخدمات والباقات')}</h2>
+          <div class="muted">{('Core protection and premium features.' if is_en else 'الحماية الأساسية ومزايا البريميوم.')}</div>
         </div>
-        <span class='prem-pill'>{('ACTIVE PRO' if is_prem else 'STANDARD')}</span>
       </div>
-      {items_html}
-      <div class='action-pair' style='margin-top:14px;'>
-        <a class='btn-gold' href='{cta_href}'{cta_target}>{cta_lbl}</a>
-        <a class='btn-dark' href='/guild'>{('Open Security Panel' if is_en else 'لوحة الحماية')}</a>
+      {status_banner}
+      <div class="panel-section">
+        <div class="panel-section-head"><h3 class="panel-section-title">{('Standard Protection' if is_en else 'الحماية الأساسية')}</h3></div>
+        {free_html}
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-head"><h3 class="panel-section-title">{('Premium Features' if is_en else 'مزايا البريميوم')}</h3><span class="prem-pill">PRO</span></div>
+        {prem_html}
+      </div>
+      <div class="action-pair">
+        <a class="btn-gold" href="{safe_support}" target="_blank" rel="noopener noreferrer">{('Request Premium / Support' if is_en else 'طلب البريميوم / الدعم')}</a>
+        <a class="btn-dark" href="/guild">{('Open Security Panel' if is_en else 'فتح لوحة الحماية')}</a>
       </div>
     </div>
     """
-    return web.Response(text=render_page("Services" if is_en else "الخدمات", "services", body, request), content_type="text/html")
+    return web.Response(
+        text=render_page("Services" if is_en else "الخدمات", "services", body, request),
+        content_type="text/html",
+    )
 
 
 async def handle_updates(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
-    logs = get_recent_logs(40)
-    if logs:
-        rows = "".join(
-            f"<div class='log-entry-row log-filter-item' data-log='{esc((str(l.get('message', '')) + ' ' + str(l.get('level', '')) + ' ' + str(l.get('guild_id', ''))).lower())}'>"
-            f"<div><div class='log-entry-msg'>{esc(l.get('message', ''))}</div>"
-            f"<div class='muted row-sub'><code>{esc(l.get('level', 'WEB'))}</code> {('Guild:' if is_en else 'سيرفر:')} <code>{esc(l.get('guild_id') or '-')}</code></div></div>"
-            f"<div class='log-entry-time'>{esc(l.get('time', ''))}</div></div>"
-            for l in logs
-        )
-    else:
-        rows = f"<p class='muted'>{('No recent activity logs yet.' if is_en else 'لا توجد سجلات نشاط حالياً.')}</p>"
+    logs = get_recent_logs(25)
+    incidents = get_recent_incidents(20)
+
+    log_rows = "".join(
+        f"<div class='log-entry-row anim-item'>"
+        f"<div class='log-entry-msg'><code>{esc(l.get('level'))}</code> {esc(l.get('message'))}</div>"
+        f"<span class='log-entry-time'>{esc(l.get('time'))}</span></div>"
+        for l in logs
+    ) or f"<p class='muted'>{('No activity logs yet.' if is_en else 'لا توجد سجلات نشاط حالياً.')}</p>"
+
+    inc_rows = "".join(
+        f"<div class='log-entry-row anim-item'>"
+        f"<div class='log-entry-msg'><code>{esc(i.get('category'))}</code> {esc(i.get('summary'))}</div>"
+        f"<span class='log-entry-time'>{esc(i.get('time'))}</span></div>"
+        for i in incidents
+    ) or f"<p class='muted'>{('No recorded alerts.' if is_en else 'لا توجد تنبيهات مسجلة.')}</p>"
 
     body = f"""
-    <div class='page-card'>
-      <div class='section-head-bar'>
+    <div class="page-card anim-card">
+      <div class="section-head-bar">
         <div>
-          <h2 class='section-head-title'>{('Updates & Activity Logs' if is_en else 'التحديثات وسجل النشاط')}</h2>
-          <div class='muted'>{('Recent platform and security activity' if is_en else 'آخر الأنشطة والتنبيهات في المنصة')}</div>
+          <h2 class="section-head-title">{('Updates & Logs' if is_en else 'التحديثات والسجلات')}</h2>
+          <div class="muted">{('Recent system activity and alerts.' if is_en else 'آخر الأنشطة والتنبيهات المسجلة.')}</div>
         </div>
-        <span class='ok-pill'>{len(logs)}</span>
+        <span class="new-badge">{('LIVE' if is_en else 'مباشر')}</span>
       </div>
-      <input class='inp' type='text' placeholder="{('Filter logs...' if is_en else 'ابحث في السجلات...')}" oninput="filterLogsList(this.value)">
-      {rows}
+
+      <div class="cat-tabs">
+        <button class="cat-tab-btn active" type="button" onclick="switchCat('activity', this)">{('Activity Log' if is_en else 'سجل النشاط')}</button>
+        <button class="cat-tab-btn" type="button" onclick="switchCat('alerts', this)">{('Alerts' if is_en else 'التنبيهات')}</button>
+      </div>
+
+      <div id="cat-activity" class="cat-pane active">
+        {log_rows}
+      </div>
+      <div id="cat-alerts" class="cat-pane">
+        {inc_rows}
+      </div>
     </div>
     """
-    return web.Response(text=render_page("Updates & Logs" if is_en else "التحديثات والسجلات", "updates", body, request), content_type="text/html")
+    return web.Response(
+        text=render_page("Updates & Logs" if is_en else "التحديثات والسجلات", "updates", body, request),
+        content_type="text/html",
+    )
 
 
 async def handle_links(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
+    user = get_discord_session(request)
+    is_prem = is_premium_user(user)
+    is_admin = is_site_admin(user)
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
-    arrow_sym = "→" if is_en else "←"
+    safe_invite = esc(sanitize_http_url(BOT_INVITE_URL) or "/invite")
+
+    extra_links = ""
+    if user and is_prem:
+        extra_links += (
+            f"<a class='link-banner-card anim-item' href='/premium'>"
+            f"<div><div class='link-card-title'>{('Premium Hub' if is_en else 'لوحة البريميوم')}</div>"
+            f"<div class='link-card-sub'>{('Customize bot profile and alert channels.' if is_en else 'تخصيص هوية البوت وقنوات التنبيه.')}</div></div>"
+            f"<span class='link-arrow'>→</span></a>"
+        )
+    if user and is_admin:
+        extra_links += (
+            f"<a class='link-banner-card anim-item' href='/admin'>"
+            f"<div><div class='link-card-title'>{('Admin Panel' if is_en else 'لوحة الإدارة')}</div>"
+            f"<div class='link-card-sub'>{('Manage premium users, staff, backups, and logs.' if is_en else 'إدارة البريميوم والمشرفين والنسخ والسجلات.')}</div></div>"
+            f"<span class='link-arrow'>→</span></a>"
+        )
+
     body = f"""
-    <div class='page-card'>
-      <div class='section-head-bar'>
+    <div class="page-card anim-card">
+      <div class="section-head-bar">
         <div>
-          <h2 class='section-head-title'>{('Quick Links' if is_en else 'الروابط السريعة')}</h2>
-          <div class='muted'>{('Bot invitation, support server, and control panels' if is_en else 'إضافة البوت، سيرفر الدعم، ولوحات التحكم')}</div>
+          <h2 class="section-head-title">{('Quick Links' if is_en else 'الروابط السريعة')}</h2>
+          <div class="muted">{('Essential pages and bot links.' if is_en else 'روابط الوصول السريع والمنصة.')}</div>
         </div>
-        <span class='tag'>LINKS</span>
       </div>
-      <div class='link-hub-stack'>
-        <a class='link-banner-card' href='/invite'>
+
+      <div class="link-hub-stack">
+        <a class="link-banner-card anim-item" href="{safe_invite}" target="_blank" rel="noopener noreferrer">
           <div>
-            <div class='link-card-title'>{('Invite Bot' if is_en else 'إضافة بوت الحماية')}</div>
-            <div class='link-card-sub'>{('Add the bot to your Discord server' if is_en else 'إضافة البوت إلى سيرفر ديسكورد الخاص بك')}</div>
+            <div class="link-card-title">{('Invite Bot' if is_en else 'إضافة البوت إلى سيرفرك')}</div>
+            <div class="link-card-sub">{('Authorize the bot with administrator permissions.' if is_en else 'إضافة البوت بصلاحيات الإدارة الكاملة.')}</div>
           </div>
-          <span class='link-arrow'>{arrow_sym}</span>
+          <span class="link-arrow">→</span>
         </a>
-        <a class='link-banner-card' href='{safe_support}' target='_blank' rel='noopener noreferrer'>
+
+        <a class="link-banner-card anim-item" href="/guild">
           <div>
-            <div class='link-card-title'>{('Support Server' if is_en else 'سيرفر الدعم الفني')}</div>
-            <div class='link-card-sub'>{('Join our official Discord server for support and updates' if is_en else 'انضم إلى سيرفر الدعم للحصول على المساعدة والتحديثات')}</div>
+            <div class="link-card-title">{('Security Panel' if is_en else 'لوحة الحماية')}</div>
+            <div class="link-card-sub">{('Configure protection rules, whitelists, and snapshots.' if is_en else 'ضبط قواعد الحماية والموثوقين واللقطات.')}</div>
           </div>
-          <span class='link-arrow'>{arrow_sym}</span>
+          <span class="link-arrow">→</span>
         </a>
-        <a class='link-banner-card' href='/guild'>
+
+        {extra_links}
+
+        <a class="link-banner-card anim-item" href="{safe_support}" target="_blank" rel="noopener noreferrer">
           <div>
-            <div class='link-card-title'>{('Security Panel' if is_en else 'لوحة الحماية')}</div>
-            <div class='link-card-sub'>{('Configure server protection rules and snapshots' if is_en else 'إعداد قواعد الحماية ولقطات الصلاحيات')}</div>
+            <div class="link-card-title">{('Support Server' if is_en else 'سيرفر الدعم الفني')}</div>
+            <div class="link-card-sub">{('Get help, updates, and announcements.' if is_en else 'للتواصل مع الدعم الفني ومعرفة التحديثات.')}</div>
           </div>
-          <span class='link-arrow'>{arrow_sym}</span>
+          <span class="link-arrow">→</span>
         </a>
       </div>
     </div>
     """
-    return web.Response(text=render_page("Links" if is_en else "الروابط", "links", body, request), content_type="text/html")
+    return web.Response(
+        text=render_page("Links" if is_en else "الروابط", "links", body, request),
+        content_type="text/html",
+    )
 
 
-async def login_handler(request: web.Request) -> web.Response:
+async def handle_login(request: web.Request) -> web.Response:
     ip = get_client_ip(request)
     if is_rate_limited(ip, is_sensitive=True):
-        return web.Response(text="Too many login requests. Please wait a minute.", status=429)
-
+        return web.Response(text="Too many login attempts. Please wait a minute.", status=429)
     if not DISCORD_CLIENT_ID:
-        return web.Response(text="DISCORD_CLIENT_ID is missing in environment.", status=500)
+        return web.Response(text="DISCORD_CLIENT_ID is not configured.", status=500)
 
     next_url = sanitize_next_url(request.query.get("next", "/"))
     state = issue_oauth_state(next_url=next_url)
@@ -5105,24 +5691,24 @@ async def login_handler(request: web.Request) -> web.Response:
             "response_type": "code",
             "scope": "identify guilds",
             "state": state,
-            "prompt": "consent",
         }
     )
     raise web.HTTPFound(f"https://discord.com/api/oauth2/authorize?{params}")
 
 
-async def callback_handler(request: web.Request) -> web.Response:
+async def handle_callback(request: web.Request) -> web.Response:
     ip = get_client_ip(request)
     if is_rate_limited(ip, is_sensitive=True):
-        return web.Response(text="Too many auth callbacks. Please wait a minute.", status=429)
+        return web.Response(text="Too many callback requests. Please wait a minute.", status=429)
 
-    is_en = get_lang(request) == "en"
-    if request.query.get("error"):
-        return web.Response(text="Discord authorization was cancelled.", status=400)
-
-    state_ok, next_url = consume_oauth_state(request.query.get("state"))
-    if not state_ok:
-        return web.Response(text="Invalid or expired OAuth state. Please start login again.", status=400)
+    state_val = request.query.get("state")
+    valid_state, next_url = consume_oauth_state(state_val)
+    if not valid_state:
+        return web.Response(
+            text="Invalid or expired OAuth state. Please try <a href='/login'>signing in</a> again.",
+            content_type="text/html",
+            status=400,
+        )
 
     code = str(request.query.get("code", "")).strip()
     if not code:
@@ -5148,54 +5734,86 @@ async def callback_handler(request: web.Request) -> web.Response:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             ) as token_resp:
                 if token_resp.status != 200:
-                    return web.Response(text=f"Discord token error ({token_resp.status}).", status=400)
+                    return web.Response(text="Failed to exchange Discord OAuth token.", status=400)
                 token_data = await token_resp.json()
 
             access_token = str(token_data.get("access_token", "")).strip()
             if not access_token:
-                return web.Response(text="Failed to obtain Discord access token.", status=400)
+                return web.Response(text="Discord token missing access_token.", status=400)
 
-            auth_headers = {"Authorization": f"Bearer {access_token}"}
-            async with session.get("https://discord.com/api/users/@me", headers=auth_headers) as u_resp:
+            auth_hdr = {"Authorization": f"Bearer {access_token}"}
+            async with session.get("https://discord.com/api/users/@me", headers=auth_hdr) as u_resp:
                 if u_resp.status != 200:
                     return web.Response(text="Failed to fetch Discord user profile.", status=400)
-                user_data = await u_resp.json()
+                u_data = await u_resp.json()
 
             guilds_data: list[dict] = []
-            async with session.get("https://discord.com/api/users/@me/guilds", headers=auth_headers) as g_resp:
-                if g_resp.status == 200:
-                    raw_guilds = await g_resp.json()
-                    if isinstance(raw_guilds, list):
-                        for g in raw_guilds:
-                            if isinstance(g, dict) and str(g.get("id", "")).isdigit():
-                                guilds_data.append(
-                                    {
-                                        "id": str(g["id"]),
-                                        "name": str(g.get("name", ""))[:100],
-                                        "icon": str(g.get("icon", "") or ""),
-                                        "owner": bool(g.get("owner", False)),
-                                        "permissions": int(g.get("permissions", 0) or 0),
-                                    }
-                                )
-    except (ClientError, asyncio.TimeoutError, Exception):
-        return web.Response(text="Network timeout while contacting Discord API.", status=502)
+            try:
+                async with session.get("https://discord.com/api/users/@me/guilds", headers=auth_hdr) as g_resp:
+                    if g_resp.status == 200:
+                        raw_g = await g_resp.json()
+                        if isinstance(raw_g, list):
+                            guilds_data = raw_g
+            except ClientError:
+                guilds_data = []
 
-    uid = str(user_data.get("id", "")).strip()
+    except (ClientError, asyncio.TimeoutError, Exception):
+        return web.Response(text="Network error while communicating with Discord.", status=502)
+
+    uid = str(u_data.get("id", "")).strip()
     if not uid.isdigit():
         return web.Response(text="Invalid Discord user ID.", status=400)
 
-    username = str(user_data.get("global_name") or user_data.get("username") or "User").strip()[:40]
-    avatar = str(user_data.get("avatar") or "").strip()[:80]
+    username = str(u_data.get("global_name") or u_data.get("username") or "Member").strip()[:40]
+    avatar = str(u_data.get("avatar") or "").strip()[:80]
+    raw_uname = str(u_data.get("username") or username).strip()[:40]
 
     if uid == ADMIN_USER_ID:
-        owner_prem = _normalize_premium_doc(MEM_PREMIUM.get(ADMIN_USER_ID) or {"user_id": ADMIN_USER_ID})
-        owner_prem["username"] = username
-        owner_prem["handle"] = f"@{str(user_data.get('username') or username).strip()[:36]}"
-        owner_prem["avatar"] = avatar
-        owner_prem["permanent"] = True
-        MEM_PREMIUM[ADMIN_USER_ID] = owner_prem
+        existing_owner = MEM_PREMIUM.get(ADMIN_USER_ID) or {}
+        MEM_PREMIUM[ADMIN_USER_ID] = {
+            **existing_owner,
+            "user_id": ADMIN_USER_ID,
+            "username": username or OWNER_NAME,
+            "handle": f"@{raw_uname.lstrip('@')}" if raw_uname else f"@{OWNER_NAME.lower()}",
+            "avatar": avatar,
+            "granted_by": "owner",
+            "source": "owner",
+            "permanent": True,
+            "expires_at": 0.0,
+        }
+        if premium_col is not None:
+            try:
+                premium_col.update_one(
+                    {"user_id": ADMIN_USER_ID},
+                    {
+                        "$set": {
+                            "username": username or OWNER_NAME,
+                            "handle": f"@{raw_uname.lstrip('@')}" if raw_uname else f"@{OWNER_NAME.lower()}",
+                            "avatar": avatar,
+                            "updated_at": _now_str(),
+                        }
+                    },
+                    upsert=True,
+                )
+            except PyMongoError:
+                pass
+    elif uid in MEM_PREMIUM:
+        cur_p = dict(MEM_PREMIUM[uid])
+        cur_p["username"] = username
+        cur_p["handle"] = f"@{raw_uname.lstrip('@')}" if raw_uname else cur_p.get("handle", f"@{username}")
+        if avatar:
+            cur_p["avatar"] = avatar
+        MEM_PREMIUM[uid] = cur_p
+        if premium_col is not None:
+            try:
+                premium_col.update_one(
+                    {"user_id": uid},
+                    {"$set": {"username": cur_p["username"], "handle": cur_p["handle"], "avatar": cur_p.get("avatar", "")}},
+                )
+            except PyMongoError:
+                pass
 
-    token = sign_session(
+    session_token = sign_session(
         {
             "id": uid,
             "username": username,
@@ -5205,30 +5823,25 @@ async def callback_handler(request: web.Request) -> web.Response:
         }
     )
 
-    msg = f"Signed in as {username}" if is_en else f"تم تسجيل الدخول بحساب {username}"
-    sep = "&" if "?" in next_url else "?"
-    target_redirect = f"{next_url}{sep}msg={quote(msg)}"
-    resp = web.HTTPFound(target_redirect)
+    resp = web.HTTPFound(next_url)
     resp.set_cookie(
         "arab_sec_session",
-        token,
-        httponly=True,
-        secure=should_use_secure_cookie(request),
-        samesite="Lax",
+        session_token,
         max_age=86400 * 7,
+        httponly=True,
+        samesite="Lax",
+        secure=should_use_secure_cookie(request),
         path="/",
     )
-    log_event(f"User {username} ({uid}) signed in via Discord OAuth", level="AUTH")
+    log_event(f"User signed in ({username} / {uid})", level="AUTH")
     return resp
 
 
-async def logout_handler(request: web.Request) -> web.Response:
-    is_en = get_lang(request) == "en"
+async def handle_logout(request: web.Request) -> web.Response:
     pair = get_discord_session_with_id(request)
     if pair:
         _delete_session_record(pair[0])
-    msg = "Signed out." if is_en else "تم تسجيل الخروج."
-    resp = web.HTTPFound(f"/?msg={quote(msg)}")
+    resp = web.HTTPFound("/")
     resp.del_cookie("arab_sec_session", path="/")
     return resp
 
@@ -5238,32 +5851,51 @@ async def health_handler(request: web.Request) -> web.Response:
         {
             "ok": True,
             "service": SITE_NAME,
-            "db_connected": db is not None,
-            "bot_sync": MEM_BOT_HEARTBEAT.get("status", "ONLINE"),
+            "bot_status": MEM_BOT_HEARTBEAT.get("status", "ONLINE"),
+            "guilds_count": len(get_all_guilds()),
         }
     )
 
 
 @web.middleware
-async def security_and_metrics_middleware(request: web.Request, handler):
+async def security_headers_middleware(request: web.Request, handler):
     ip = get_client_ip(request)
-    is_sens = request.path in ("/login", "/callback", "/logout")
-    if is_rate_limited(ip, is_sensitive=is_sens):
-        return web.json_response({"ok": False, "error": "Rate limit exceeded"}, status=429)
+    is_auth_path = request.path in ("/login", "/callback")
+    if is_rate_limited(ip, is_sensitive=is_auth_path):
+        return web.Response(text="Rate limit exceeded. Try again shortly.", status=429)
 
     record_site_visit(request)
-    response = await handler(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+
+    try:
+        response = await handler(request)
+    except web.HTTPException as ex:
+        response = ex
+
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self' https: data: blob:; "
+        "script-src 'self' 'unsafe-inline' https:; "
+        "style-src 'self' 'unsafe-inline' https:; "
+        "img-src 'self' https: data: blob:; "
+        "font-src 'self' https: data:; "
+        "connect-src 'self' https:; "
+        "frame-ancestors 'self';"
+    )
     return response
 
 
 def create_app() -> web.Application:
-    app = web.Application(middlewares=[security_and_metrics_middleware], client_max_size=16 * 1024 * 1024)
+    app = web.Application(
+        middlewares=[security_headers_middleware],
+        client_max_size=16_000_000,
+    )
     app.router.add_get("/", home_handler)
-    app.router.add_get("/index.html", home_handler)
+    app.router.add_get("/health", health_handler)
+    app.router.add_get("/invite", handle_invite_redirect)
     app.router.add_get("/guild", handle_guild)
     app.router.add_post("/guild", handle_guild)
     app.router.add_get("/premium", handle_premium)
@@ -5273,14 +5905,19 @@ def create_app() -> web.Application:
     app.router.add_get("/services", handle_services)
     app.router.add_get("/updates", handle_updates)
     app.router.add_get("/links", handle_links)
-    app.router.add_get("/invite", handle_invite_redirect)
-    app.router.add_get("/login", login_handler)
-    app.router.add_get("/callback", callback_handler)
-    app.router.add_get("/logout", logout_handler)
-    app.router.add_get("/health", health_handler)
+    app.router.add_get("/login", handle_login)
+    app.router.add_get("/callback", handle_callback)
+    app.router.add_get("/logout", handle_logout)
+
     app.router.add_post("/api/bot/sync-guilds", api_bot_sync_guilds)
     app.router.add_post("/api/bot/boost-sync", api_bot_boost_sync)
     app.router.add_get("/api/bot/pending-commands", api_bot_pending_commands)
+    app.router.add_post("/api/bot/pending-commands", api_bot_pending_commands)
+
+    async def _on_shutdown(_app: web.Application) -> None:
+        flush_visits_if_needed(force=True)
+
+    app.on_shutdown.append(_on_shutdown)
     return app
 
 
