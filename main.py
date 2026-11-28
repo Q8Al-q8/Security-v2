@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import time
+import zlib
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from urllib.parse import quote, urlencode, urlparse
@@ -51,7 +52,7 @@ MONGO_DB_NAME = (os.getenv("MONGO_DB", "arab_security") or "arab_security").stri
 DEFAULT_MONGO_URI = "mongodb+srv://soudfares02_db_user:QiADlkDohqCpFP6z@cluster0.hzhfdxt.mongodb.net/arab_security?retryWrites=true&w=majority"
 MONGO_URI = (os.getenv("MONGO_URI", DEFAULT_MONGO_URI) or DEFAULT_MONGO_URI).strip()
 
-DEFAULT_SYNC_SECRET = "m-nWqkTrbblON-FAfReNFvm_pPnuTGWD"
+DEFAULT_SYNC_SECRET = "zFF12Oc6tFhB3mhDzF80HYwY4Zyd7NyX"
 
 _env_secret = (os.environ.get("SESSION_SECRET") or "").strip()
 SESSION_SECRET = (
@@ -60,7 +61,7 @@ SESSION_SECRET = (
     else "ArabSecurity_Session_Secret_2026_x9K#mP2vL8qR5tW7zY3nB6jH4cF1gD0sA"
 )
 BOT_SYNC_SECRET = (
-    (os.environ.get("BOT_SYNC_SECRET") or "m-nWqkTrbblON-FAfReNFvm_pPnuTGWD").strip()
+    (os.environ.get("BOT_SYNC_SECRET") or "zFF12Oc6tFhB3mhDzF80HYwY4Zyd7NyX").strip()
     or (os.environ.get("SILENT_SECRET") or "").strip()
     or DEFAULT_SYNC_SECRET
 )
@@ -77,7 +78,7 @@ TRUSTED_PROXY_IPS = {
 COOKIE_SECURE_ENV = (os.getenv("COOKIE_SECURE", "") or "").strip().lower()
 
 DISCORD_CLIENT_ID = (os.getenv("DISCORD_CLIENT_ID", "1573635674551357550") or "").strip()
-DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "m-nWqkTrbblON-FAfReNFvm_pPnuTGWD") or "").strip()
+DISCORD_CLIENT_SECRET = (os.getenv("DISCORD_CLIENT_SECRET", "zFF12Oc6tFhB3mhDzF80HYwY4Zyd7NyX") or "").strip()
 
 MAX_IMAGE_BYTES = 10_000_000
 MAX_IMAGE_DATA_URL_LEN = 14_000_000
@@ -284,6 +285,35 @@ ANTINUKE_LABELS_AR = {
 }
 
 
+def _compress_payload(obj: dict) -> str:
+    raw = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.b64encode(zlib.compress(raw, level=9)).decode("ascii")
+
+
+def _decompress_payload(blob: str) -> dict | None:
+    if not blob or not isinstance(blob, str):
+        return None
+    try:
+        dec = zlib.decompress(base64.b64decode(blob.encode("ascii"))).decode("utf-8")
+        data = json.loads(dec)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _strip_heavy_media_for_db(cfg: dict) -> dict:
+    light = json.loads(json.dumps(cfg))
+    prof = light.get("guild_profile")
+    if isinstance(prof, dict):
+        ava = str(prof.get("avatar_data_url") or "")
+        ban = str(prof.get("banner_data_url") or "")
+        if ava.startswith("data:"):
+            prof["avatar_data_url"] = ""
+        if ban.startswith("data:"):
+            prof["banner_data_url"] = ""
+    return light
+
+
 def _full_admin_perms() -> dict[str, bool]:
     return {k: True for k in ADMIN_PERMISSION_KEYS}
 
@@ -404,11 +434,11 @@ def _fresh_default_guild_cfg() -> dict:
     }
 
 
-MEM_LOGS: deque[dict] = deque(maxlen=300)
-MEM_INCIDENTS: deque[dict] = deque(maxlen=200)
+MEM_LOGS: deque[dict] = deque(maxlen=150)
+MEM_INCIDENTS: deque[dict] = deque(maxlen=100)
 MEM_GUILDS: dict[str, dict] = {}
 MEM_GUILD_CFG: dict[str, dict] = defaultdict(_fresh_default_guild_cfg)
-MEM_QUEUE: deque[dict] = deque(maxlen=200)
+MEM_QUEUE: deque[dict] = deque(maxlen=150)
 MEM_PREMIUM: dict[str, dict] = {
     ADMIN_USER_ID: {
         "user_id": ADMIN_USER_ID,
@@ -433,23 +463,23 @@ MEM_ADMINS: dict[str, dict] = {
 }
 MEM_VISITORS: dict[str, object] = {
     "total_visits": 0,
-    "unique_hashes": deque(maxlen=5000),
+    "unique_hashes": deque(maxlen=3000),
     "unique_seen": set(),
 }
-MEM_BACKUPS: deque[dict] = deque(maxlen=25)
+MEM_BACKUPS: deque[dict] = deque(maxlen=15)
 MEM_BOT_HEARTBEAT: dict[str, str] = {
     "status": "ONLINE",
     "last_seen": "",
 }
 
 _CFG_CACHE: dict[str, tuple[float, dict]] = {}
-_CFG_TTL = 2.0
+_CFG_TTL = 4.0
 _PERM_CACHE: dict[str, tuple[float, object]] = {}
-_PERM_TTL = 1.0
+_PERM_TTL = 2.0
 _GUILDS_CACHE: tuple[float, list[dict]] = (0.0, [])
-_GUILDS_TTL = 1.0
+_GUILDS_TTL = 2.5
 _VISIT_STATS_CACHE: tuple[float, int, int] = (0.0, 0, 0)
-_VISIT_STATS_TTL = 8.0
+_VISIT_STATS_TTL = 15.0
 _PENDING_VISITS = 0
 _PENDING_UNIQUE: list[str] = []
 _LAST_VISIT_FLUSH = 0.0
@@ -457,8 +487,8 @@ _LAST_VISIT_FLUSH = 0.0
 CSRF_TOKENS: dict[str, dict] = {}
 OAUTH_STATES: dict[str, dict] = {}
 USED_NONCES: dict[str, float] = {}
-RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=500))
-AUTH_RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=150))
+RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=400))
+AUTH_RATE_BUCKETS: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=120))
 SESSIONS: dict[str, dict] = {}
 
 
@@ -627,13 +657,29 @@ backups_col = None
 sessions_col = None
 
 
+def _merge_guild_cfg_doc(doc: dict) -> dict:
+    base = _fresh_default_guild_cfg()
+    expanded = _decompress_payload(doc.get("cfg_z", "")) if isinstance(doc.get("cfg_z"), str) else None
+    src = expanded if isinstance(expanded, dict) else doc
+    for k in base:
+        if k == "antinuke" and isinstance(src.get("antinuke"), dict):
+            for ak, av in src["antinuke"].items():
+                if ak in base["antinuke"] and isinstance(av, dict):
+                    base["antinuke"][ak].update(av)
+        elif k in ("guild_profile", "premium_perks") and isinstance(src.get(k), dict):
+            base[k].update(src[k])
+        elif k in src:
+            base[k] = src[k]
+    return base
+
+
 def hydrate_from_db() -> None:
     if db is None:
         return
     now = time.time()
     try:
         if bot_guilds_col is not None:
-            for g in bot_guilds_col.find({}, {"_id": 0}).limit(1000):
+            for g in bot_guilds_col.find({}, {"_id": 0}).limit(500):
                 gid = str(g.get("id", "")).strip()
                 if gid.isdigit():
                     MEM_GUILDS[gid] = {
@@ -646,33 +692,27 @@ def hydrate_from_db() -> None:
                     }
 
         if guild_settings_col is not None:
-            for doc in guild_settings_col.find({}, {"_id": 0}).limit(1000):
+            for doc in guild_settings_col.find({}, {"_id": 0}).limit(500):
                 gid = str(doc.get("guild_id", "")).strip()
                 if gid.isdigit():
-                    base = _fresh_default_guild_cfg()
-                    for k in base:
-                        if k == "antinuke" and isinstance(doc.get("antinuke"), dict):
-                            for ak, av in doc["antinuke"].items():
-                                if ak in base["antinuke"] and isinstance(av, dict):
-                                    base["antinuke"][ak].update(av)
-                        elif k in ("guild_profile", "premium_perks") and isinstance(doc.get(k), dict):
-                            base[k].update(doc[k])
-                        elif k in doc:
-                            base[k] = doc[k]
-                    MEM_GUILD_CFG[gid] = base
+                    merged = _merge_guild_cfg_doc(doc)
+                    prev_prof = (MEM_GUILD_CFG.get(gid) or {}).get("guild_profile") or {}
+                    if prev_prof.get("avatar_data_url") and not merged["guild_profile"].get("avatar_data_url"):
+                        merged["guild_profile"]["avatar_data_url"] = prev_prof["avatar_data_url"]
+                    if prev_prof.get("banner_data_url") and not merged["guild_profile"].get("banner_data_url"):
+                        merged["guild_profile"]["banner_data_url"] = prev_prof["banner_data_url"]
+                    MEM_GUILD_CFG[gid] = merged
 
         if premium_col is not None:
-            for doc in premium_col.find({}, {"_id": 0}).limit(500):
+            for doc in premium_col.find({}, {"_id": 0}).limit(300):
                 norm = _normalize_premium_doc(doc)
                 uid = norm["user_id"]
-                if not uid.isdigit():
-                    continue
-                if not _is_premium_record_active(norm, now):
+                if not uid.isdigit() or not _is_premium_record_active(norm, now):
                     continue
                 MEM_PREMIUM[uid] = norm
 
         if admins_col is not None:
-            for doc in admins_col.find({}, {"_id": 0}).limit(200):
+            for doc in admins_col.find({}, {"_id": 0}).limit(150):
                 uid = str(doc.get("user_id", "")).strip()
                 if uid.isdigit():
                     MEM_ADMINS[uid] = {
@@ -686,15 +726,15 @@ def hydrate_from_db() -> None:
                     }
 
         if backups_col is not None:
-            for b in list(backups_col.find({}, {"_id": 0}).sort("_id", -1).limit(25)):
+            for b in list(backups_col.find({}, {"_id": 0}).sort("_id", -1).limit(15)):
                 MEM_BACKUPS.append(dict(b))
 
         if logs_col is not None:
-            for l in reversed(list(logs_col.find({}, {"_id": 0}).sort("_id", -1).limit(100))):
+            for l in reversed(list(logs_col.find({}, {"_id": 0}).sort("_id", -1).limit(60))):
                 MEM_LOGS.appendleft(dict(l))
 
         if incidents_col is not None:
-            for inc in reversed(list(incidents_col.find({}, {"_id": 0}).sort("_id", -1).limit(100))):
+            for inc in reversed(list(incidents_col.find({}, {"_id": 0}).sort("_id", -1).limit(50))):
                 MEM_INCIDENTS.appendleft(dict(inc))
 
         if stats_col is not None:
@@ -715,7 +755,8 @@ if MONGO_URI and MongoClient is not None:
             serverSelectionTimeoutMS=3000,
             connectTimeoutMS=3000,
             socketTimeoutMS=3000,
-            maxPoolSize=30,
+            maxPoolSize=15,
+            compressors="zlib",
         )
         client.admin.command("ping")
         db = client[MONGO_DB_NAME]
@@ -766,13 +807,21 @@ if MONGO_URI and MongoClient is not None:
 
 
 def _store_session_record(sid: str, record: dict) -> None:
-    if len(SESSIONS) >= 5000:
+    if len(SESSIONS) >= 3000:
         oldest_sid = next(iter(SESSIONS))
         SESSIONS.pop(oldest_sid, None)
     SESSIONS[sid] = dict(record)
     if sessions_col is not None:
         try:
-            sessions_col.update_one({"sid": sid}, {"$set": {**record, "sid": sid}}, upsert=True)
+            compact_sess = {
+                "sid": sid,
+                "id": record.get("id", ""),
+                "username": record.get("username", "User"),
+                "avatar": record.get("avatar", ""),
+                "exp": record.get("exp", 0.0),
+                "g_z": _compress_payload({"g": record.get("guilds") or []}),
+            }
+            sessions_col.update_one({"sid": sid}, {"$set": compact_sess}, upsert=True)
         except PyMongoError:
             pass
 
@@ -793,8 +842,20 @@ def _load_session_record(sid: str) -> dict | None:
                 if _safe_exp(doc.get("exp", 0)) <= now:
                     sessions_col.delete_one({"sid": sid})
                     return None
-                SESSIONS[sid] = dict(doc)
-                return dict(doc)
+                guilds_val = doc.get("guilds")
+                if not isinstance(guilds_val, list):
+                    unp = _decompress_payload(doc.get("g_z", ""))
+                    guilds_val = unp.get("g", []) if isinstance(unp, dict) else []
+                restored = {
+                    "sid": sid,
+                    "id": str(doc.get("id", "")),
+                    "username": str(doc.get("username", "User"))[:40],
+                    "avatar": str(doc.get("avatar", "") or "")[:80],
+                    "guilds": guilds_val,
+                    "exp": _safe_exp(doc.get("exp", 0)),
+                }
+                SESSIONS[sid] = dict(restored)
+                return restored
         except PyMongoError:
             pass
     return None
@@ -833,7 +894,7 @@ def _cleanup_expired() -> None:
 def issue_oauth_state(next_url: str = "/") -> str:
     _cleanup_expired()
     st = secrets.token_urlsafe(24)
-    if len(OAUTH_STATES) >= 2000:
+    if len(OAUTH_STATES) >= 1500:
         oldest = next(iter(OAUTH_STATES))
         OAUTH_STATES.pop(oldest, None)
     OAUTH_STATES[st] = {"exp": time.time() + 600.0, "next": sanitize_next_url(next_url)}
@@ -854,7 +915,7 @@ def consume_oauth_state(state_val: str | None) -> tuple[bool, str]:
 def issue_csrf_token(session_id: str) -> str:
     _cleanup_expired()
     tok = secrets.token_hex(24)
-    if len(CSRF_TOKENS) >= 5000:
+    if len(CSRF_TOKENS) >= 3000:
         oldest = next(iter(CSRF_TOKENS))
         CSRF_TOKENS.pop(oldest, None)
     CSRF_TOKENS[tok] = {"sid": str(session_id or ""), "exp": time.time() + 3600.0}
@@ -880,7 +941,7 @@ def is_replay_request(nonce: str | None) -> bool:
         return False
     if clean in USED_NONCES:
         return True
-    if len(USED_NONCES) >= 5000:
+    if len(USED_NONCES) >= 3000:
         oldest = next(iter(USED_NONCES))
         USED_NONCES.pop(oldest, None)
     USED_NONCES[clean] = time.time() + 300.0
@@ -932,7 +993,7 @@ def should_use_secure_cookie(request: web.Request) -> bool:
 def flush_visits_if_needed(force: bool = False) -> None:
     global _PENDING_VISITS, _PENDING_UNIQUE, _LAST_VISIT_FLUSH
     now = time.time()
-    if not force and (now - _LAST_VISIT_FLUSH) < 2.0 and _PENDING_VISITS < 10:
+    if not force and (now - _LAST_VISIT_FLUSH) < 12.0 and _PENDING_VISITS < 25:
         return
     if stats_col is None or (_PENDING_VISITS == 0 and not _PENDING_UNIQUE):
         _LAST_VISIT_FLUSH = now
@@ -949,12 +1010,12 @@ def flush_visits_if_needed(force: bool = False) -> None:
                 {"$inc": {"total_visits": inc_v}, "$set": {"updated_at": _now_str()}},
                 upsert=True,
             )
-        for vh in uniq_batch[:40]:
-            stats_col.update_one(
-                {"_id": f"uv_{vh}"},
-                {"$set": {"hash": vh, "seen_at": _now_str()}},
-                upsert=True,
-            )
+        if uniq_batch and UpdateOne is not None:
+            ops = [
+                UpdateOne({"_id": f"uv_{vh}"}, {"$set": {"hash": vh}}, upsert=True)
+                for vh in uniq_batch[:30]
+            ]
+            stats_col.bulk_write(ops, ordered=False)
     except PyMongoError:
         pass
 
@@ -965,7 +1026,7 @@ def record_site_visit(request: web.Request) -> None:
         return
     ip = get_client_ip(request)
     ua = request.headers.get("User-Agent", "")
-    v_hash = hashlib.sha256(f"{ip}|{ua}|{SESSION_SECRET}".encode("utf-8")).hexdigest()[:24]
+    v_hash = hashlib.sha256(f"{ip}|{ua}|{SESSION_SECRET}".encode("utf-8")).hexdigest()[:20]
 
     MEM_VISITORS["total_visits"] = int(MEM_VISITORS.get("total_visits", 0)) + 1
     _PENDING_VISITS += 1
@@ -1091,22 +1152,6 @@ def get_admin_list() -> list[dict]:
                 "updated_at": str(rec.get("updated_at", "-")),
                 "permissions": _default_sub_admin_perms(rec.get("permissions")),
             }
-    if admins_col is not None:
-        try:
-            for doc in admins_col.find({}, {"_id": 0}).limit(100):
-                uid = str(doc.get("user_id", "")).strip()
-                if uid.isdigit():
-                    items[uid] = {
-                        "user_id": uid,
-                        "role_tag": _sanitize_staff_role(doc.get("role_tag"), uid=uid),
-                        "granted_by": str(doc.get("granted_by", "owner")),
-                        "updated_at": str(doc.get("updated_at", "-")),
-                        "permissions": _full_admin_perms()
-                        if uid == ADMIN_USER_ID
-                        else _default_sub_admin_perms(doc.get("permissions")),
-                    }
-        except PyMongoError:
-            pass
     return list(items.values())
 
 
@@ -1229,27 +1274,7 @@ def format_remaining_time(rec: dict, is_en: bool = True) -> str:
 def get_premium_list() -> list[dict]:
     now = time.time()
     items: dict[str, dict] = {}
-    if premium_col is not None:
-        try:
-            for doc in premium_col.find({}, {"_id": 0}).limit(250):
-                norm = _normalize_premium_doc(doc)
-                uid = norm["user_id"]
-                if not uid.isdigit():
-                    continue
-                if not _is_premium_record_active(norm, now):
-                    try:
-                        premium_col.delete_one({"user_id": uid})
-                    except PyMongoError:
-                        pass
-                    MEM_PREMIUM.pop(uid, None)
-                    continue
-                items[uid] = dict(norm)
-                MEM_PREMIUM[uid] = dict(norm)
-        except PyMongoError:
-            pass
     for uid, rec in list(MEM_PREMIUM.items()):
-        if uid in items:
-            continue
         norm = _normalize_premium_doc(rec)
         if not _is_premium_record_active(norm, now):
             MEM_PREMIUM.pop(uid, None)
@@ -1370,17 +1395,10 @@ def sync_boosters_premium(boosters: list[dict]) -> tuple[int, int]:
 
     for uid, rec in active_map.items():
         existing_mem = MEM_PREMIUM.get(uid)
-        existing_db = None
-        if not existing_mem and premium_col is not None:
-            try:
-                existing_db = premium_col.find_one({"user_id": uid}, {"_id": 0})
-            except PyMongoError:
-                existing_db = None
-        current_src = (existing_mem or existing_db or {}).get("source")
+        current_src = (existing_mem or {}).get("source")
         if current_src in ("manual", "admin", "owner"):
             continue
-
-        preserved_granted = (existing_mem or existing_db or {}).get("granted_at") or stamp
+        preserved_granted = (existing_mem or {}).get("granted_at") or stamp
         record_to_save = {**rec, "granted_at": preserved_granted}
         MEM_PREMIUM[uid] = dict(record_to_save)
         _invalidate_perm_cache(uid)
@@ -1397,38 +1415,56 @@ def record_incident(guild_id: str, category: str, summary: str, severity: str = 
     inc = {
         "time": _now_str(),
         "guild_id": str(guild_id)[:22],
-        "category": str(category)[:40],
-        "severity": str(severity)[:12],
-        "summary": str(summary)[:260],
+        "category": str(category)[:30],
+        "severity": str(severity)[:10],
+        "summary": str(summary)[:200],
     }
     MEM_INCIDENTS.appendleft(dict(inc))
     if incidents_col is not None:
         try:
             incidents_col.insert_one(dict(inc))
+            if incidents_col.count_documents({}) > 120:
+                oldest = incidents_col.find_one({}, {"_id": 1}, sort=[("_id", 1)])
+                if oldest:
+                    incidents_col.delete_one({"_id": oldest["_id"]})
         except PyMongoError:
             pass
 
 
 def get_recent_incidents(limit: int = 30) -> list[dict]:
-    if incidents_col is not None:
+    return list(MEM_INCIDENTS)[:limit]
+
+
+def clear_logs_and_incidents() -> None:
+    MEM_LOGS.clear()
+    MEM_INCIDENTS.clear()
+    if logs_col is not None:
         try:
-            return list(incidents_col.find({}, {"_id": 0}).sort("_id", -1).limit(limit))
+            logs_col.delete_many({})
         except PyMongoError:
             pass
-    return list(MEM_INCIDENTS)[:limit]
+    if incidents_col is not None:
+        try:
+            incidents_col.delete_many({})
+        except PyMongoError:
+            pass
 
 
 def log_event(msg: str, guild_id: str = "", level: str = "WEB") -> None:
     entry = {
         "time": _now_str(),
-        "level": str(level)[:12],
+        "level": str(level)[:10],
         "guild_id": str(guild_id)[:22],
-        "message": str(msg)[:300],
+        "message": str(msg)[:220],
     }
     MEM_LOGS.appendleft(dict(entry))
     if logs_col is not None:
         try:
             logs_col.insert_one(dict(entry))
+            if logs_col.count_documents({}) > 150:
+                oldest = logs_col.find_one({}, {"_id": 1}, sort=[("_id", 1)])
+                if oldest:
+                    logs_col.delete_one({"_id": oldest["_id"]})
         except PyMongoError:
             pass
     if level in ("ALERT", "ADMIN", "SEC", "WARN", "ERROR"):
@@ -1436,11 +1472,6 @@ def log_event(msg: str, guild_id: str = "", level: str = "WEB") -> None:
 
 
 def get_recent_logs(limit: int = 50) -> list[dict]:
-    if logs_col is not None:
-        try:
-            return list(logs_col.find({}, {"_id": 0}).sort("_id", -1).limit(limit))
-        except PyMongoError:
-            pass
     return list(MEM_LOGS)[:limit]
 
 
@@ -1490,24 +1521,7 @@ def get_all_guilds() -> list[dict]:
     now = time.time()
     if (now - _GUILDS_CACHE[0]) < _GUILDS_TTL and (_GUILDS_CACHE[1] or not MEM_GUILDS):
         return [dict(x) for x in _GUILDS_CACHE[1]]
-
-    result: dict[str, dict] = {k: dict(v) for k, v in MEM_GUILDS.items()}
-    if bot_guilds_col is not None:
-        try:
-            for g in bot_guilds_col.find({}, {"_id": 0}).limit(1000):
-                gid = str(g.get("id", "")).strip()
-                if gid.isdigit():
-                    result[gid] = {
-                        "id": gid,
-                        "name": str(g.get("name", f"Server {gid}"))[:100],
-                        "icon": str(g.get("icon", "")).strip(),
-                        "member_count": int(g.get("member_count", 0) or 0),
-                        "owner_id": str(g.get("owner_id", "")).strip(),
-                        "updated_at": str(g.get("updated_at", "")).strip(),
-                    }
-        except PyMongoError:
-            pass
-    out = list(result.values())
+    out = [dict(v) for v in MEM_GUILDS.values()]
     _GUILDS_CACHE = (now, out)
     return [dict(x) for x in out]
 
@@ -1624,24 +1638,31 @@ def get_guild_cfg(guild_id: str) -> dict:
             cfg[k].update(v)
         else:
             cfg[k] = v
-    if guild_settings_col is not None:
-        try:
-            doc = guild_settings_col.find_one({"guild_id": gid}, {"_id": 0})
-            if doc:
-                for k in cfg:
-                    if k == "antinuke" and isinstance(doc.get("antinuke"), dict):
-                        for ak, av in doc["antinuke"].items():
-                            if ak in cfg["antinuke"] and isinstance(av, dict):
-                                cfg["antinuke"][ak].update(av)
-                    elif k in ("guild_profile", "premium_perks") and isinstance(doc.get(k), dict):
-                        cfg[k].update(doc[k])
-                    elif k in doc:
-                        cfg[k] = doc[k]
-        except PyMongoError:
-            pass
 
     _CFG_CACHE[gid] = (now, json.loads(json.dumps(cfg)))
     return cfg
+
+
+def _persist_guild_cfg_compressed(gid: str, cfg: dict, is_premium: bool) -> None:
+    if not gid.isdigit() or guild_settings_col is None:
+        return
+    light = _strip_heavy_media_for_db(cfg)
+    compact_blob = _compress_payload(light)
+    try:
+        guild_settings_col.update_one(
+            {"guild_id": gid},
+            {
+                "$set": {
+                    "guild_id": gid,
+                    "cfg_z": compact_blob,
+                    "p": bool(is_premium),
+                    "u": _now_str(),
+                }
+            },
+            upsert=True,
+        )
+    except PyMongoError:
+        pass
 
 
 def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> dict:
@@ -1651,15 +1672,7 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
         fresh = _fresh_default_guild_cfg()
         if gid.isdigit():
             MEM_GUILD_CFG[gid] = json.loads(json.dumps(fresh))
-            if guild_settings_col is not None:
-                try:
-                    guild_settings_col.update_one(
-                        {"guild_id": gid},
-                        {"$set": {"guild_id": gid, **fresh, "updated_at": _now_str()}},
-                        upsert=True,
-                    )
-                except PyMongoError:
-                    pass
+            _persist_guild_cfg_compressed(gid, fresh, is_premium)
         _CFG_CACHE[gid] = (time.time(), json.loads(json.dumps(fresh)))
         return fresh
 
@@ -1777,7 +1790,7 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
         }
         snaps = list(cfg.get("perms_snapshots", []))
         snaps.insert(0, snap)
-        cfg["perms_snapshots"] = snaps[:10]
+        cfg["perms_snapshots"] = snaps[:6]
     if "restore_snapshot_id" in updates and updates["restore_snapshot_id"]:
         target_id = str(updates["restore_snapshot_id"]).strip()
         snaps = list(cfg.get("perms_snapshots", []))
@@ -1799,15 +1812,7 @@ def save_guild_cfg(guild_id: str, updates: dict, is_premium: bool = False) -> di
 
     if gid.isdigit():
         MEM_GUILD_CFG[gid] = json.loads(json.dumps(cfg))
-        if guild_settings_col is not None:
-            try:
-                guild_settings_col.update_one(
-                    {"guild_id": gid},
-                    {"$set": {"guild_id": gid, **cfg, "is_premium": bool(is_premium), "updated_at": _now_str()}},
-                    upsert=True,
-                )
-            except PyMongoError:
-                pass
+        _persist_guild_cfg_compressed(gid, cfg, is_premium)
         _CFG_CACHE[gid] = (time.time(), json.loads(json.dumps(cfg)))
     return cfg
 
@@ -1864,6 +1869,10 @@ def create_db_backup() -> dict:
     if backups_col is not None:
         try:
             backups_col.insert_one(dict(snapshot))
+            if backups_col.count_documents({}) > 15:
+                oldest = backups_col.find_one({}, {"_id": 1}, sort=[("_id", 1)])
+                if oldest:
+                    backups_col.delete_one({"_id": oldest["_id"]})
         except PyMongoError:
             pass
     log_event(f"Backup created [{snapshot['backup_id']}]", level="ADMIN")
@@ -1871,11 +1880,6 @@ def create_db_backup() -> dict:
 
 
 def get_db_backups() -> list[dict]:
-    if backups_col is not None:
-        try:
-            return list(backups_col.find({}, {"_id": 0}).sort("_id", -1).limit(10))
-        except PyMongoError:
-            pass
     return list(MEM_BACKUPS)[:10]
 
 
@@ -2140,6 +2144,7 @@ async def api_bot_pending_commands(request: web.Request) -> web.Response:
                     cmd_item["user_id"] = uid_val
                     cmd_item["actor_id"] = uid_val
                 items.append(cmd_item)
+                queue_col.delete_one({"_id": d["_id"]})
         except PyMongoError:
             pass
 
@@ -2261,11 +2266,11 @@ def _render_discord_community_card(is_en: bool) -> str:
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
     title_txt = "Join Our Server" if is_en else "انضم لسيرفرنا"
     sub_txt = (
-        "Updates, live support, and instant alerts for new releases."
+        "Updates, live support, and instant alerts when a new update drops."
         if is_en
-        else "تحديثات، دعم مباشر، وتنبيه أول ما ينزل تحديث أو مهمة جديدة."
+        else "تحديثات، دعم مباشر، وتنبيه أول ما ينزل تحديث جديد."
     )
-    btn_txt = ("Enter Server ->" if is_en else "← دخول السيرفر") if not is_en else "Enter Server →"
+    btn_txt = "Enter Server →" if is_en else "← دخول السيرفر"
     return f"""
     <section class="discord-hub-card">
       <div class="discord-hub-icon">{_discord_svg_icon(26)}</div>
@@ -2337,6 +2342,7 @@ def _render_intro_hero_html(
     secondary_href: str,
     secondary_txt: str,
     prem_badge_html: str = "",
+    user_connected_guild: dict | None = None,
 ) -> str:
     hb_status = esc(MEM_BOT_HEARTBEAT.get("status", "ONLINE"))
     hero_heading = (
@@ -2364,16 +2370,35 @@ def _render_intro_hero_html(
         for ico_key, en_lbl, ar_lbl in pillars
     )
 
-    guilds = get_all_guilds()
-    featured = guilds[0] if guilds else None
-    feat_name = esc(featured.get("name")) if featured else esc(SITE_NAME)
-    feat_members = int(featured.get("member_count", 0) or 0) if featured else 0
-    members_lbl = f"{feat_members:,} {'members' if is_en else 'عضو'}" if featured else ("Ready" if is_en else "جاهز")
+    if user_connected_guild:
+        feat_gid = esc(user_connected_guild.get("id", ""))
+        feat_name = esc(user_connected_guild.get("name") or SITE_NAME)
+        feat_members = int(user_connected_guild.get("member_count", 0) or 0)
+        members_lbl = f"{feat_members:,} {'members' if is_en else 'عضو'}"
+        monitor_html = f"""
+        <a class="monitor-box monitor-link" href="/guild?id={feat_gid}">
+          <div class="monitor-top">
+            <span class="ok-pill">{('ACTIVE' if is_en else 'نشط')}</span>
+            <span class="muted">{('Your Server' if is_en else 'سيرفر مسجل')}</span>
+          </div>
+          <div class="monitor-main">
+            <div class="monitor-name">{feat_name}</div>
+            <div class="muted">{esc(members_lbl)}</div>
+          </div>
+          <div class="meter-track">
+            <div class="meter-bar"></div>
+          </div>
+        </a>
+        """
+    else:
+        monitor_html = ""
+
+    hero_grid_cls = "hero-split" if monitor_html else "hero-split hero-single"
 
     return f"""
     <div class="workspace-stack">
       <section class="surface-card">
-        <div class="hero-split">
+        <div class="{hero_grid_cls}">
           <div class="hero-main-col">
             <div class="meta-bar">
               <span class="status-tag"><span class="status-dot"></span>BOT {hb_status}</span>
@@ -2387,20 +2412,7 @@ def _render_intro_hero_html(
               <a class="btn-dark" href="{esc(secondary_href)}">{esc(secondary_txt)}</a>
             </div>
           </div>
-
-          <div class="monitor-box">
-            <div class="monitor-top">
-              <span class="ok-pill">{('ACTIVE' if is_en else 'نشط')}</span>
-              <span class="muted">{('Monitored Node' if is_en else 'سيرفر مسجل')}</span>
-            </div>
-            <div class="monitor-main">
-              <div class="monitor-name">{feat_name}</div>
-              <div class="muted">{esc(members_lbl)}</div>
-            </div>
-            <div class="meter-track">
-              <div class="meter-bar"></div>
-            </div>
-          </div>
+          {monitor_html}
         </div>
 
         <div class="pillars-grid">
@@ -2553,11 +2565,11 @@ def render_page(
       radial-gradient(circle at 82% 14%, rgba(62, 138, 196, 0.28), transparent 46%),
       radial-gradient(circle at 50% 85%, rgba(15, 62, 114, 0.42), transparent 58%),
       linear-gradient(180deg, #1E578A 0%, #0F355E 42%, #081E38 78%, #051222 100%);
-    --surface: rgba(10, 29, 54, 0.78);
-    --surface-raised: rgba(15, 42, 76, 0.76);
-    --surface-input: rgba(6, 19, 38, 0.84);
-    --border: rgba(168, 216, 244, 0.20);
-    --border-strong: rgba(158, 216, 248, 0.56);
+    --surface: rgba(10, 29, 54, 0.80);
+    --surface-raised: rgba(15, 42, 76, 0.78);
+    --surface-input: rgba(6, 19, 38, 0.86);
+    --border: rgba(168, 216, 244, 0.22);
+    --border-strong: rgba(158, 216, 248, 0.62);
     --text-main: #F4FAFF;
     --text-muted: #B6D3EA;
     --accent: #8ED4FA;
@@ -2568,6 +2580,7 @@ def render_page(
     --emerald-bg: rgba(74, 222, 128, 0.14);
     --rose: #FB7185;
     --rose-bg: rgba(251, 113, 133, 0.16);
+    --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
   }}
   * {{ box-sizing: border-box; }}
   body {{
@@ -2580,7 +2593,11 @@ def render_page(
     min-height: 100vh;
     line-height: 1.55;
   }}
-  @keyframes fadeIn {{
+  @keyframes pageEnter {{
+    from {{ opacity: 0; transform: translateY(12px) scale(0.992); }}
+    to {{ opacity: 1; transform: translateY(0) scale(1); }}
+  }}
+  @keyframes tabEnter {{
     from {{ opacity: 0; transform: translateY(8px); }}
     to {{ opacity: 1; transform: translateY(0); }}
   }}
@@ -2592,10 +2609,10 @@ def render_page(
     pointer-events: none;
     position: fixed;
     inset: 0;
-    background: rgba(4, 14, 28, 0.72);
-    backdrop-filter: blur(4px);
+    background: rgba(4, 14, 28, 0.74);
+    backdrop-filter: blur(5px);
     z-index: 60;
-    transition: opacity 0.18s ease;
+    transition: opacity 0.24s var(--ease-smooth);
   }}
   .overlay.open {{
     opacity: 1;
@@ -2605,11 +2622,11 @@ def render_page(
     position: fixed;
     top: 0;
     {('left' if is_en else 'right')}: 0;
-    width: 310px;
+    width: 312px;
     max-width: 86vw;
     height: 100vh;
-    background: linear-gradient(180deg, rgba(16, 46, 82, 0.96) 0%, rgba(7, 22, 42, 0.98) 100%);
-    backdrop-filter: blur(16px);
+    background: linear-gradient(180deg, rgba(16, 46, 82, 0.97) 0%, rgba(7, 22, 42, 0.99) 100%);
+    backdrop-filter: blur(18px);
     border-{('right' if is_en else 'left')}: 1px solid var(--border);
     padding: 18px 14px;
     display: flex;
@@ -2618,7 +2635,7 @@ def render_page(
     z-index: 70;
     overflow-y: auto;
     transform: translateX({('-100%' if is_en else '100%')});
-    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform 0.28s var(--ease-smooth);
   }}
   .sidebar.open {{ transform: translateX(0); }}
   .drawer-head {{
@@ -2633,27 +2650,28 @@ def render_page(
     color: var(--text-main);
   }}
   .drawer-close-btn {{
-    width: 32px;
-    height: 32px;
-    border-radius: 999px;
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 800;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .drawer-close-btn:hover {{ color: var(--text-main); border-color: var(--border-strong); }}
+  .drawer-close-btn:hover {{ color: var(--text-main); border-color: var(--border-strong); transform: scale(1.05); }}
   .drawer-lang-btn {{
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
     width: 100%;
-    padding: 10px 14px;
+    padding: 11px 15px;
     border-radius: 16px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
@@ -2661,29 +2679,31 @@ def render_page(
     font-weight: 800;
     font-size: 13px;
     cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .drawer-lang-btn:hover {{ border-color: var(--border-strong); background: rgba(29, 76, 132, 0.75); }}
+  .drawer-lang-btn:hover {{ border-color: var(--border-strong); background: rgba(29, 76, 132, 0.8); transform: translateY(-1px); }}
   .drawer-spacer {{ flex: 1; min-height: 12px; }}
   .drawer-logout-btn {{
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 11px 14px;
-    border-radius: 999px;
+    padding: 11px 15px;
+    border-radius: 16px;
     background: var(--rose-bg);
-    border: 1px solid rgba(251, 113, 133, 0.42);
+    border: 1px solid rgba(251, 113, 133, 0.45);
     color: #FECDD3;
     text-decoration: none;
-    font-weight: 700;
+    font-weight: 800;
     font-size: 13px;
+    transition: all 0.2s var(--ease-smooth);
   }}
+  .drawer-logout-btn:hover {{ filter: brightness(1.08); transform: translateY(-1px); }}
   .page-container {{
     width: 100%;
     max-width: 960px;
     margin: 0 auto;
     padding: 20px 16px 64px;
-    animation: fadeIn 0.24s ease both;
+    animation: pageEnter 0.32s var(--ease-smooth) both;
   }}
   .top-bar {{
     display: flex;
@@ -2714,11 +2734,12 @@ def render_page(
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: all 0.2s var(--ease-smooth);
   }}
   .icon-btn:hover {{
     border-color: var(--border-strong);
-    background: rgba(29, 76, 132, 0.75);
+    background: rgba(29, 76, 132, 0.8);
+    transform: translateY(-1px);
   }}
   .top-right {{
     display: flex;
@@ -2761,22 +2782,23 @@ def render_page(
   }}
   .dock-bar::-webkit-scrollbar {{ display: none; }}
   .dock-link {{
-    padding: 7px 14px;
-    border-radius: 999px;
+    padding: 8px 15px;
+    border-radius: 14px;
     font-size: 12.5px;
     font-weight: 700;
     color: var(--text-muted);
     text-decoration: none;
     white-space: nowrap;
     border: 1px solid transparent;
-    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .dock-link:hover {{ color: var(--text-main); background: var(--surface-raised); }}
+  .dock-link:hover {{ color: var(--text-main); background: var(--surface-raised); transform: translateY(-1px); }}
   .dock-link.active {{
     color: #05182E;
-    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
-    border-color: rgba(186, 230, 253, 0.75);
+    background: linear-gradient(135deg, #CBEBFF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.85);
     font-weight: 800;
+    box-shadow: 0 4px 14px rgba(108, 194, 245, 0.25);
   }}
   .mark-badge {{
     display: inline-flex;
@@ -2803,6 +2825,7 @@ def render_page(
     margin-bottom: 18px;
     font-size: 13.5px;
     font-weight: 700;
+    animation: tabEnter 0.25s var(--ease-smooth) both;
   }}
   .workspace-stack {{
     display: flex;
@@ -2824,6 +2847,9 @@ def render_page(
     align-items: stretch;
     margin-bottom: 20px;
   }}
+  .hero-split.hero-single {{
+    grid-template-columns: 1fr;
+  }}
   @media (max-width: 720px) {{ .hero-split {{ grid-template-columns: 1fr; }} }}
   .hero-main-col {{ display: flex; flex-direction: column; justify-content: center; }}
   .gate-card {{
@@ -2839,7 +2865,7 @@ def render_page(
     width: 56px;
     height: 56px;
     margin: 0 auto 14px;
-    border-radius: 999px;
+    border-radius: 18px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     color: var(--accent-bright);
@@ -2918,9 +2944,9 @@ def render_page(
     border: 1px solid var(--border);
     font-size: 12.5px;
     font-weight: 700;
-    transition: border-color 0.15s ease, transform 0.15s ease;
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .pillar-item:hover {{ border-color: var(--border-strong); transform: translateY(-1px); }}
+  .pillar-item:hover {{ border-color: var(--border-strong); transform: translateY(-2px); }}
   .pillar-text {{ color: var(--text-main); }}
   .action-pair {{
     display: grid;
@@ -2935,18 +2961,19 @@ def render_page(
     gap: 8px;
     width: 100%;
     padding: 12px 18px;
-    border-radius: 999px;
-    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
-    border: 1px solid rgba(186, 230, 253, 0.75);
+    border-radius: 16px;
+    background: linear-gradient(135deg, #D4EFFF 0%, #6CC2F5 100%);
+    border: 1px solid rgba(186, 230, 253, 0.85);
     color: #05182E;
     text-decoration: none;
     font-weight: 800;
     font-size: 14px;
     cursor: pointer;
-    box-shadow: 0 6px 18px rgba(72, 162, 224, 0.25);
-    transition: filter 0.15s ease, transform 0.15s ease;
+    box-shadow: 0 6px 18px rgba(72, 162, 224, 0.28);
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .btn-gold:hover {{ filter: brightness(1.06); transform: translateY(-1px); }}
+  .btn-gold:hover {{ filter: brightness(1.07); transform: translateY(-2px); }}
+  .btn-gold:active {{ transform: scale(0.985); }}
   .btn-dark {{
     display: inline-flex;
     align-items: center;
@@ -2954,7 +2981,7 @@ def render_page(
     gap: 8px;
     width: 100%;
     padding: 12px 18px;
-    border-radius: 999px;
+    border-radius: 16px;
     background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-main);
@@ -2962,14 +2989,15 @@ def render_page(
     font-weight: 700;
     font-size: 13.5px;
     cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .btn-dark:hover {{ border-color: var(--border-strong); background: rgba(26, 70, 122, 0.82); }}
+  .btn-dark:hover {{ border-color: var(--border-strong); background: rgba(26, 70, 122, 0.86); transform: translateY(-1px); }}
+  .btn-dark:active {{ transform: scale(0.985); }}
   .btn-danger {{
     display: block;
     width: 100%;
     padding: 11px 16px;
-    border-radius: 999px;
+    border-radius: 16px;
     background: var(--rose-bg);
     border: 1px solid rgba(251, 113, 133, 0.45);
     color: #FECDD3;
@@ -2978,7 +3006,9 @@ def render_page(
     font-size: 13px;
     text-align: center;
     cursor: pointer;
+    transition: all 0.2s var(--ease-smooth);
   }}
+  .btn-danger:hover {{ filter: brightness(1.1); transform: translateY(-1px); }}
   .monitor-box {{
     padding: 18px;
     border-radius: 20px;
@@ -2987,7 +3017,11 @@ def render_page(
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    text-decoration: none;
+    color: var(--text-main);
+    transition: all 0.22s var(--ease-smooth);
   }}
+  .monitor-link:hover {{ border-color: var(--border-strong); transform: translateY(-2px); }}
   .monitor-top {{
     display: flex;
     align-items: center;
@@ -3027,7 +3061,9 @@ def render_page(
     border-radius: 22px;
     padding: 18px 20px;
     box-shadow: 0 12px 28px rgba(3, 12, 26, 0.30);
+    transition: all 0.2s var(--ease-smooth);
   }}
+  .stat-box:hover {{ border-color: var(--border-strong); transform: translateY(-2px); }}
   .stat-top {{
     display: flex;
     align-items: center;
@@ -3085,9 +3121,9 @@ def render_page(
     font-weight: 800;
     font-size: 15px;
     box-shadow: 0 8px 22px rgba(72, 162, 224, 0.28);
-    transition: filter 0.15s ease, transform 0.15s ease;
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .discord-hub-btn:hover {{ filter: brightness(1.05); transform: translateY(-1px); }}
+  .discord-hub-btn:hover {{ filter: brightness(1.06); transform: translateY(-2px); }}
   .page-card {{
     background: var(--surface);
     backdrop-filter: blur(16px);
@@ -3134,23 +3170,24 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    border-radius: 999px;
-    padding: 8px 15px;
+    border-radius: 14px;
+    padding: 9px 15px;
     font-size: 12.5px;
     font-weight: 700;
     cursor: pointer;
     text-align: center;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .cat-tab-btn:hover {{ border-color: var(--border-strong); color: var(--text-main); }}
+  .cat-tab-btn:hover {{ border-color: var(--border-strong); color: var(--text-main); transform: translateY(-1px); }}
   .cat-tab-btn.active {{
-    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
-    border-color: rgba(186, 230, 253, 0.75);
+    background: linear-gradient(135deg, #D4EFFF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.85);
     color: #05182E;
     font-weight: 800;
+    box-shadow: 0 4px 12px rgba(108, 194, 245, 0.25);
   }}
   .cat-pane {{ display: none; }}
-  .cat-pane.active {{ display: block; }}
+  .cat-pane.active {{ display: block; animation: tabEnter 0.24s var(--ease-smooth) both; }}
   .link-hub-stack {{
     display: flex;
     flex-direction: column;
@@ -3167,14 +3204,14 @@ def render_page(
     border: 1px solid var(--border);
     text-decoration: none;
     color: var(--text-main);
-    transition: border-color 0.15s ease, background 0.15s ease;
+    transition: all 0.2s var(--ease-smooth);
   }}
-  .link-banner-card:hover {{ border-color: var(--border-strong); background: rgba(20, 56, 100, 0.85); }}
+  .link-banner-card:hover {{ border-color: var(--border-strong); background: rgba(20, 56, 100, 0.88); transform: translateY(-2px); }}
   .link-card-title {{ font-weight: 800; font-size: 15.5px; }}
   .link-card-sub {{ font-size: 12.5px; color: var(--text-muted); margin-top: 3px; }}
   .link-arrow {{
     padding: 6px 13px;
-    border-radius: 999px;
+    border-radius: 12px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-weight: 800;
@@ -3221,14 +3258,14 @@ def render_page(
     justify-content: space-between;
     gap: 8px;
     padding: 10px 14px;
-    border-radius: 999px;
+    border-radius: 14px;
     color: var(--text-main);
     text-decoration: none;
     font-size: 13.5px;
     font-weight: 700;
-    transition: background 0.15s ease;
+    transition: all 0.18s var(--ease-smooth);
   }}
-  .nav-item:hover {{ background: rgba(25, 68, 120, 0.55); }}
+  .nav-item:hover {{ background: rgba(25, 68, 120, 0.6); transform: translateX({('3px' if is_en else '-3px')}); }}
   .nav-item.active {{
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
@@ -3257,7 +3294,7 @@ def render_page(
   .guest-badge {{
     width: 38px;
     height: 38px;
-    border-radius: 999px;
+    border-radius: 12px;
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-muted);
@@ -3271,7 +3308,7 @@ def render_page(
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    border-radius: 999px;
+    border-radius: 14px;
     background: var(--accent-soft);
     border: 1px solid var(--border-strong);
     font-size: 11.5px;
@@ -3355,11 +3392,12 @@ def render_page(
     background: var(--surface-input);
     border: 1px solid var(--border);
     color: var(--text-main);
-    border-radius: 16px;
+    border-radius: 15px;
     padding: 10px 14px;
     font-size: 13.5px;
     margin-bottom: 10px;
     font-family: inherit;
+    transition: border-color 0.2s var(--ease-smooth);
   }}
   .bio-textarea {{
     min-height: 120px;
@@ -3386,7 +3424,7 @@ def render_page(
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 14px;
+    padding: 11px 14px;
     border-radius: 16px;
     background: var(--surface-input);
     border: 1px solid var(--border);
@@ -3395,7 +3433,9 @@ def render_page(
     font-weight: 700;
     cursor: pointer;
     user-select: none;
+    transition: border-color 0.18s var(--ease-smooth);
   }}
+  .switch-row:hover {{ border-color: var(--border-strong); }}
   .switch-input {{
     position: relative;
     appearance: none;
@@ -3407,7 +3447,7 @@ def render_page(
     background: rgba(18, 49, 88, 0.9);
     border: 1px solid var(--border);
     cursor: pointer;
-    transition: background 0.16s ease, border-color 0.16s ease;
+    transition: background 0.2s var(--ease-smooth), border-color 0.2s var(--ease-smooth);
   }}
   .switch-input::after {{
     content: "";
@@ -3418,7 +3458,7 @@ def render_page(
     height: 18px;
     border-radius: 999px;
     background: var(--text-muted);
-    transition: transform 0.16s ease, background 0.16s ease;
+    transition: transform 0.2s var(--ease-smooth), background 0.2s var(--ease-smooth);
   }}
   .switch-input:checked {{
     background: #8ED4FA;
@@ -3440,7 +3480,7 @@ def render_page(
     margin-bottom: 8px;
     text-decoration: none;
     color: var(--text-main);
-    transition: border-color 0.15s ease;
+    transition: all 0.18s var(--ease-smooth);
   }}
   .list-row:hover {{ border-color: var(--border-strong); }}
   .row-main {{ display: flex; align-items: center; gap: 12px; min-width: 0; }}
@@ -3476,7 +3516,7 @@ def render_page(
   .guild-icon-wrap {{
     width: 38px;
     height: 38px;
-    border-radius: 999px;
+    border-radius: 12px;
     overflow: hidden;
     display: inline-flex;
     align-items: center;
@@ -3498,7 +3538,7 @@ def render_page(
   }}
   .mini-btn {{
     padding: 8px 14px;
-    border-radius: 999px;
+    border-radius: 12px;
     border: 1px solid var(--border);
     background: var(--surface-raised);
     color: var(--text-main);
@@ -3506,11 +3546,12 @@ def render_page(
     font-weight: 700;
     cursor: pointer;
     text-align: center;
+    transition: all 0.18s var(--ease-smooth);
   }}
-  .mini-btn:hover {{ border-color: var(--border-strong); }}
+  .mini-btn:hover {{ border-color: var(--border-strong); transform: translateY(-1px); }}
   .mini-btn.gold {{
-    background: linear-gradient(135deg, #B8E6FF 0%, #6CC2F5 100%);
-    border-color: rgba(186, 230, 253, 0.75);
+    background: linear-gradient(135deg, #D4EFFF 0%, #6CC2F5 100%);
+    border-color: rgba(186, 230, 253, 0.85);
     color: #05182E;
     font-weight: 800;
   }}
@@ -3520,10 +3561,10 @@ def render_page(
     color: #FECDD3;
   }}
   .album-box {{
-    padding: 13px 15px;
+    padding: 14px 16px;
     border-radius: 18px;
     background: var(--surface-input);
-    border: 1px dashed var(--border);
+    border: 1px dashed var(--border-strong);
     margin-bottom: 10px;
   }}
   .album-head {{
@@ -3566,7 +3607,7 @@ def render_page(
 <aside id="drawer" class="sidebar" aria-label="{esc(L['menu'])}">
   <div class="drawer-head">
     <div class="drawer-title">{esc(L['menu'])}</div>
-    <button class="drawer-close-btn" type="button" onclick="toggleDrawer(false)" aria-label="Close">X</button>
+    <button class="drawer-close-btn" type="button" onclick="toggleDrawer(false)" aria-label="Close">✕</button>
   </div>
   {account_block}
   <button class="drawer-lang-btn" type="button" onclick="switchLang('{next_lang}')">
@@ -3627,6 +3668,13 @@ function filterGuildsList(queryVal) {{
   var q = (queryVal || "").trim().toLowerCase();
   document.querySelectorAll(".guild-search-item").forEach(function(el) {{
     var hay = (el.getAttribute("data-search") || "").toLowerCase();
+    el.style.display = (!q || hay.indexOf(q) !== -1) ? "flex" : "none";
+  }});
+}}
+function filterLogsList(queryVal) {{
+  var q = (queryVal || "").trim().toLowerCase();
+  document.querySelectorAll(".log-filter-item").forEach(function(el) {{
+    var hay = (el.getAttribute("data-log") || "").toLowerCase();
     el.style.display = (!q || hay.indexOf(q) !== -1) ? "flex" : "none";
   }});
 }}
@@ -3694,6 +3742,14 @@ async def home_handler(request: web.Request) -> web.Response:
 
     bot_servers_count = len(get_all_guilds())
     total_visits = get_total_visits()
+
+    user_connected_guild: dict | None = None
+    if is_logged_in:
+        visible_guilds, _ = get_user_visible_guilds(user)
+        connected_list = [g for g in visible_guilds if not g.get("bot_missing")]
+        if connected_list:
+            user_connected_guild = connected_list[0]
+
     if is_logged_in:
         primary_href = "/guild"
         primary_txt = "Open Security Panel" if is_en else "الدخول إلى لوحة الحماية"
@@ -3720,6 +3776,7 @@ async def home_handler(request: web.Request) -> web.Response:
         secondary_href=secondary_href,
         secondary_txt=secondary_txt,
         prem_badge_html=prem_badge_html,
+        user_connected_guild=user_connected_guild,
     )
     return web.Response(
         text=render_page(
@@ -4086,7 +4143,7 @@ async def handle_guild(request: web.Request) -> web.Response:
         rem_btn = (
             ""
             if u == ADMIN_USER_ID
-            else f"<button class='mini-btn red' type='submit' name='form_action' value='remove_trusted' onclick=\"this.form.target_uid.value='{safe_u}'\">x</button>"
+            else f"<button class='mini-btn red' type='submit' name='form_action' value='remove_trusted' onclick=\"this.form.target_uid.value='{safe_u}'\">✕</button>"
         )
         tr_rows += f"<div class='list-row'><code>{safe_u}</code>{rem_btn}</div>"
 
@@ -4100,7 +4157,7 @@ async def handle_guild(request: web.Request) -> web.Response:
                 f"<div><strong>#{sid_esc}</strong> <span class='muted'>({esc(s.get('saved_at'))})</span> <code>{esc(s.get('snapshot_hash'))}</code></div>"
                 f"<div style='display:flex;gap:6px;'>"
                 f"<button class='mini-btn gold' type='submit' name='form_action' value='restore_snapshot' onclick=\"this.form.target_snapshot_id.value='{sid_esc}'\">{('Restore' if is_en else 'استعادة')}</button>"
-                f"<button class='mini-btn red' type='submit' name='form_action' value='delete_snapshot' onclick=\"this.form.target_snapshot_id.value='{sid_esc}'\">x</button>"
+                f"<button class='mini-btn red' type='submit' name='form_action' value='delete_snapshot' onclick=\"this.form.target_snapshot_id.value='{sid_esc}'\">✕</button>"
                 f"</div></div>"
             )
     else:
@@ -4424,7 +4481,7 @@ async def handle_premium(request: web.Request) -> web.Response:
 
       <div class="section-head-bar">
         <div>
-          <h2 class="section-head-title">{('Premium Customization' if is_en else 'تخصيص البريميوم')}</h2>
+          <h2 class="section-head-title">{('Premium Studio' if is_en else 'استوديو البريميوم')}</h2>
           <div class="muted">{('Manage bot bio, avatar, banner, and alert channels' if is_en else 'إدارة نبذة البوت والصورة والبنر وقنوات التنبيه')}</div>
         </div>
         <span class="prem-pill">{esc(rem_txt)}</span>
@@ -4441,7 +4498,10 @@ async def handle_premium(request: web.Request) -> web.Response:
         {media_fields_html}
       </div>
 
-      <button class="btn-gold" type="submit">{('Save Premium Settings' if is_en else 'حفظ إعدادات البريميوم')}</button>
+      <div class="action-pair">
+        <button class="btn-gold" type="submit">{('Save Premium Settings' if is_en else 'حفظ إعدادات البريميوم')}</button>
+        <a class="btn-dark" href="/guild?id={esc(gid)}">{('Back to Security Panel' if is_en else 'العودة للوحة الحماية')}</a>
+      </div>
     </form>
     """
     return web.Response(text=render_page("Premium" if is_en else "البريميوم", "premium", body, request, flash=flash, next_after_login="/premium"), content_type="text/html")
@@ -4501,9 +4561,9 @@ async def handle_admin(request: web.Request) -> web.Response:
                 active_adm_tab = "adm_prem"
             elif act in ("grant_admin", "revoke_admin"):
                 active_adm_tab = "adm_staff"
-            elif act in ("kick", "ban", "unban", "timeout", "broadcast"):
+            elif act in ("kick", "ban", "unban", "timeout", "broadcast", "sync_all_guilds", "global_emergency"):
                 active_adm_tab = "adm_remote"
-            elif act in ("simulate", "create_backup", "test_restore"):
+            elif act in ("simulate", "create_backup", "test_restore", "clear_logs"):
                 active_adm_tab = "adm_sys"
 
             if act in ("grant_premium", "extend_premium"):
@@ -4600,6 +4660,25 @@ async def handle_admin(request: web.Request) -> web.Response:
                     enqueue_remote_action(gid or "0", "broadcast", target_id[:400], extra={"user_id": actor_uid}, actor_user_id=actor_uid)
                     log_event("Queued broadcast message", level="ADMIN")
                     flash = "Broadcast queued." if is_en else "تم إرسال البث للقائمة."
+            elif act == "sync_all_guilds":
+                if not has_admin_perm(user, "remote_actions"):
+                    flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
+                else:
+                    all_g = get_all_guilds()
+                    for g_item in all_g[:30]:
+                        enqueue_remote_action(g_item["id"], "sync_guild_cfg", g_item["id"], extra={"guild_id": g_item["id"], "user_id": actor_uid}, actor_user_id=actor_uid)
+                    log_event(f"Triggered force sync across {len(all_g)} guilds", level="ADMIN")
+                    flash = f"Force sync queued for {len(all_g)} servers." if is_en else f"تمت جدولة مزامنة فورية لـ {len(all_g)} سيرفر."
+            elif act == "global_emergency":
+                if not has_admin_perm(user, "remote_actions"):
+                    flash = "Missing permission: Remote Actions" if is_en else "ينقصك صلاحية: الأوامر عن بُعد"
+                else:
+                    all_g = get_all_guilds()
+                    for g_item in all_g[:30]:
+                        save_guild_cfg(g_item["id"], {"emergency_mode": True}, is_premium=True)
+                        enqueue_remote_action(g_item["id"], "sync_guild_cfg", g_item["id"], extra={"guild_id": g_item["id"], "user_id": actor_uid, "emergency": True}, actor_user_id=actor_uid)
+                    log_event(f"Enabled emergency mode on {len(all_g)} guilds", level="ALERT")
+                    flash = "Emergency mode activated across servers." if is_en else "تم تفعيل وضع الطوارئ على السيرفرات."
             elif act == "simulate" and gid.isdigit():
                 if not has_admin_perm(user, "simulations"):
                     flash = "Missing permission: Safety Checks" if is_en else "ينقصك صلاحية: فحص الجاهزية"
@@ -4617,6 +4696,12 @@ async def handle_admin(request: web.Request) -> web.Response:
                 else:
                     _, msg = test_backup_restore(str(form.get("backup_id", "")), is_en=is_en)
                     flash = msg
+            elif act == "clear_logs":
+                if not has_admin_perm(user, "view_logs"):
+                    flash = "Missing permission: Logs" if is_en else "ينقصك صلاحية: السجلات"
+                else:
+                    clear_logs_and_incidents()
+                    flash = "Logs and incidents cleared to free DB space." if is_en else "تم تنظيف السجلات والتنبيهات لتوفير مساحة القاعدة."
             else:
                 flash = "Check required IDs or fields." if is_en else "تأكد من إدخال الآيدي أو الحقول المطلوبة بشكل صحيح."
 
@@ -4831,6 +4916,10 @@ async def handle_admin(request: web.Request) -> web.Response:
               <button class="mini-btn" type="submit" name="admin_action" value="timeout">Timeout</button>
             </div>
             <button class="btn-gold" type="submit" name="admin_action" value="broadcast">{('Send Broadcast' if is_en else 'إرسال بث')}</button>
+            <div class="grid-2" style="margin-top:10px;margin-bottom:0;">
+              <button class="btn-dark" style="margin:0;" type="submit" name="admin_action" value="sync_all_guilds">{('Force Sync All Servers' if is_en else 'مزامنة كل السيرفرات')}</button>
+              <button class="btn-danger" style="margin:0;" type="submit" name="admin_action" value="global_emergency">{('Emergency Lock All' if is_en else 'طوارئ شاملة للسيرفرات')}</button>
+            </div>
           </form>
         </div>
       </div>
@@ -4849,22 +4938,24 @@ async def handle_admin(request: web.Request) -> web.Response:
             <input class="inp" type="text" name="sim_scenario" value="Permissions & Roles Check">
             <button class="btn-dark" type="submit" name="admin_action" value="simulate">{('Run Safety Check' if is_en else 'تشغيل الفحص')}</button>
           </form>
+
           <form method="post">
             {_new_form_sec()}
-            <div class="action-pair" style="margin-bottom:10px;">
-              <button class="btn-gold" type="submit" name="admin_action" value="create_backup">{('Create Backup' if is_en else 'إنشاء نسخة')}</button>
+            <div class="action-pair">
+              <button class="btn-gold" type="submit" name="admin_action" value="create_backup">{('Create Backup' if is_en else 'إنشاء نسخة احتياطية')}</button>
               <button class="btn-dark" type="submit" name="admin_action" value="test_restore">{('Test Restore' if is_en else 'اختبار الاستعادة')}</button>
             </div>
-            {b_rows}
+            <button class="btn-danger" style="margin-top:8px;" type="submit" name="admin_action" value="clear_logs">{('Clear Old Logs & Incidents' if is_en else 'تنظيف السجلات لتوفير المساحة')}</button>
           </form>
+          <div style="margin-top:12px;">{b_rows}</div>
         </div>
 
         <div class="panel-section" style="margin-bottom:0;">
           <div class="panel-section-head">
-            <h3 class="panel-section-title">{('Servers' if is_en else 'السيرفرات')} ({len(guilds)})</h3>
-            <span class="ok-pill">SYNCED</span>
+            <h3 class="panel-section-title">{('Synced Servers' if is_en else 'السيرفرات المتصلة')}</h3>
+            <span class="ok-pill">{len(guilds)}</span>
           </div>
-          <input class="inp" type="text" placeholder="{('Search by name or ID...' if is_en else 'ابحث بالاسم أو الآيدي...')}" oninput="filterGuildsList(this.value)">
+          <input class="inp" type="text" placeholder="{('Search server name or ID...' if is_en else 'ابحث باسم السيرفر أو الآيدي...')}" oninput="filterGuildsList(this.value)">
           {g_rows}
         </div>
       </div>
@@ -4878,59 +4969,48 @@ async def handle_services(request: web.Request) -> web.Response:
     user = get_discord_session(request)
     is_prem = is_premium_user(user)
     prem_rec = _get_premium_record(str(user.get("id", "")).strip()) if user else None
-    prem_status_txt = (
-        f"PRO / {format_remaining_time(prem_rec, is_en=is_en)}"
-        if (is_prem and prem_rec)
-        else ("Standard" if is_en else "أساسي")
+    rem_txt = format_remaining_time(prem_rec, is_en=is_en) if (is_prem and prem_rec) else ""
+
+    safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
+    cta_href = "/premium" if is_prem else safe_support
+    cta_target = "" if is_prem else " target='_blank' rel='noopener noreferrer'"
+    cta_lbl = (
+        f"{('Open Premium Studio' if is_en else 'فتح استوديو البريميوم')} ({esc(rem_txt)})"
+        if is_prem
+        else ("Subscribe via Support Server" if is_en else "الاشتراك عبر سيرفر الدعم")
     )
-    items = [
-        (
-            "shield",
-            "Anti-Sabotage Guard" if is_en else "حماية التخريب",
-            "Monitors role edits, permission escalations, channel overwrites, and destructive actions."
-            if is_en
-            else "مراقبة تعديل الرتب ورفع الصلاحيات وتعديل صلاحيات الرومات والإجراءات التخريبية.",
-            "ACTIVE",
-        ),
-        (
-            "raid",
-            "Anti-Raid & Account Guard" if is_en else "حماية الرايد والحسابات الحديثة",
-            "Controls sudden join waves, new accounts, and unauthorized bot additions."
-            if is_en
-            else "مراقبة موجات الدخول المفاجئ والحسابات الحديثة وإضافة البوتات.",
-            "ACTIVE",
-        ),
-        (
-            "snap",
-            "Snapshots & Rollback" if is_en else "اللقطات والاسترجاع",
-            "Stores security snapshots and restores saved rules and whitelist configurations."
-            if is_en
-            else "حفظ لقطات للإعدادات والرتب واستعادتها عند الحاجة.",
-            "READY",
-        ),
-        (
-            "star",
-            "Bot Profile & Perks (Premium)" if is_en else "تخصيص البوت ومزايا البريميوم",
-            "Customize bot bio up to 270 characters, avatar, banner, and alert settings."
-            if is_en
-            else "تخصيص نبذة البوت حتى 270 حرفاً والأفتار والبنر وإعدادات التنبيه.",
-            prem_status_txt,
-        ),
+
+    perks_list_en = [
+        "Server Icon Protection & Anti-Selfbot Guard",
+        "Custom Bot Bio (up to 270 chars), Avatar & Banner per server",
+        "Alert Channel & Webhook notifications",
+        "High Shield Mode & Instant Rollback",
     ]
-    rows_html = "".join(
-        f"<div class='list-row'><div class='row-main'><span class='mark-badge'>{_symbol_svg(ico_k, 15)}</span><div><div style='font-weight:800;font-size:14.5px;'>{esc(t)}</div><div class='muted' style='margin-top:2px;'>{esc(d)}</div></div></div><span class='ok-pill'>{esc(b)}</span></div>"
-        for ico_k, t, d, b in items
+    perks_list_ar = [
+        "حماية صورة السيرفر ومنع الحسابات الآلية",
+        "تخصيص نبذة البوت (حتى 270 حرفاً) وصورة البوت والبنر لكل سيرفر",
+        "تنبيهات فورية عبر روم مخصص أو ويبهوك",
+        "وضع الحماية الفائقة والاسترجاع الفوري",
+    ]
+    items_html = "".join(
+        f"<div class='list-row'><span>{esc(txt)}</span><span class='prem-pill'>PRO</span></div>"
+        for txt in (perks_list_en if is_en else perks_list_ar)
     )
+
     body = f"""
     <div class='page-card'>
       <div class='section-head-bar'>
         <div>
-          <h2 class='section-head-title'>{('Services' if is_en else 'الخدمات')}</h2>
-          <div class='muted'>{('Available protection modules and account features' if is_en else 'وحدات الحماية والمزايا المتاحة في النظام')}</div>
+          <h2 class='section-head-title'>{('Services & Premium' if is_en else 'الخدمات والبريميوم')}</h2>
+          <div class='muted'>{('Server protection and subscription perks' if is_en else 'أنظمة الحماية ومزايا اشتراك البريميوم')}</div>
         </div>
-        <span class='prem-pill'>{esc(prem_status_txt)}</span>
+        <span class='prem-pill'>{('ACTIVE PRO' if is_prem else 'STANDARD')}</span>
       </div>
-      {rows_html}
+      {items_html}
+      <div class='action-pair' style='margin-top:14px;'>
+        <a class='btn-gold' href='{cta_href}'{cta_target}>{cta_lbl}</a>
+        <a class='btn-dark' href='/guild'>{('Open Security Panel' if is_en else 'لوحة الحماية')}</a>
+      </div>
     </div>
     """
     return web.Response(text=render_page("Services" if is_en else "الخدمات", "services", body, request), content_type="text/html")
@@ -4938,69 +5018,29 @@ async def handle_services(request: web.Request) -> web.Response:
 
 async def handle_updates(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
-    user = get_discord_session(request)
-    is_admin = is_site_admin(user)
     logs = get_recent_logs(40)
-    incidents = get_recent_incidents(30)
-
-    if not logs:
-        logs = [
-            {
-                "time": _now_str(),
-                "level": "SYSTEM",
-                "guild_id": "-",
-                "message": "System online." if is_en else "النظام يعمل.",
-            }
-        ]
-
-    if is_admin:
-        logs_rows = "".join(
-            f"<div class='log-entry-row'><div class='row-main'><span class='tag'>{esc(l.get('level'))}</span><span class='log-entry-msg'>{esc(l.get('message'))}</span></div><span class='log-entry-time'>{esc(l.get('time'))}</span></div>"
+    if logs:
+        rows = "".join(
+            f"<div class='log-entry-row log-filter-item' data-log='{esc((str(l.get('message', '')) + ' ' + str(l.get('level', '')) + ' ' + str(l.get('guild_id', ''))).lower())}'>"
+            f"<div><div class='log-entry-msg'>{esc(l.get('message', ''))}</div>"
+            f"<div class='muted row-sub'><code>{esc(l.get('level', 'WEB'))}</code> {('Guild:' if is_en else 'سيرفر:')} <code>{esc(l.get('guild_id') or '-')}</code></div></div>"
+            f"<div class='log-entry-time'>{esc(l.get('time', ''))}</div></div>"
             for l in logs
         )
-        inc_rows = (
-            "".join(
-                f"<div class='log-entry-row'><div class='row-main'><span class='warn-pill'>{esc(i.get('severity'))}</span><span class='log-entry-msg'>{esc(i.get('summary'))}</span></div><span class='log-entry-time'>{esc(i.get('time'))}</span></div>"
-                for i in incidents
-            )
-            if incidents
-            else f"<p class='muted'>{('No incidents recorded.' if is_en else 'لا توجد تنبيهات مسجلة.')}</p>"
-        )
-        extra_inc_section = f"""
-        <div class='panel-section' style='margin-top:16px;'>
-          <div class='panel-section-head'>
-            <h3 class='panel-section-title'>{('Security Incidents' if is_en else 'التنبيهات الأمنية')}</h3>
-            <span class='warn-pill'>{len(incidents)}</span>
-          </div>
-          {inc_rows}
-        </div>
-        """
     else:
-        logs_rows = "".join(
-            f"<div class='log-entry-row'><div class='row-main'><span class='tag'>{esc(l.get('level'))}</span><span class='log-entry-msg'>{esc(l.get('message'))}</span></div><span class='log-entry-time'>{esc(l.get('time'))}</span></div>"
-            for l in logs[:12]
-        )
-        extra_inc_section = ""
+        rows = f"<p class='muted'>{('No recent activity logs yet.' if is_en else 'لا توجد سجلات نشاط حالياً.')}</p>"
 
     body = f"""
     <div class='page-card'>
       <div class='section-head-bar'>
         <div>
-          <h2 class='section-head-title'>{('Updates & Logs' if is_en else 'التحديثات والسجلات')}</h2>
-          <div class='muted'>{('Recent system activity and sync events' if is_en else 'سجل النشاط وأحداث المزامنة الحديثة')}</div>
+          <h2 class='section-head-title'>{('Updates & Activity Logs' if is_en else 'التحديثات وسجل النشاط')}</h2>
+          <div class='muted'>{('Recent platform and security activity' if is_en else 'آخر الأنشطة والتنبيهات في المنصة')}</div>
         </div>
-        <span class='ok-pill'>{len(logs)} {'entries' if is_en else 'سجل'}</span>
+        <span class='ok-pill'>{len(logs)}</span>
       </div>
-
-      <div class='panel-section' style='margin-bottom:0;'>
-        <div class='panel-section-head'>
-          <h3 class='panel-section-title'>{('Activity Log' if is_en else 'سجل النشاط')}</h3>
-          <span class='tag'>LIVE</span>
-        </div>
-        {logs_rows}
-      </div>
-
-      {extra_inc_section}
+      <input class='inp' type='text' placeholder="{('Filter logs...' if is_en else 'ابحث في السجلات...')}" oninput="filterLogsList(this.value)">
+      {rows}
     </div>
     """
     return web.Response(text=render_page("Updates & Logs" if is_en else "التحديثات والسجلات", "updates", body, request), content_type="text/html")
@@ -5008,93 +5048,92 @@ async def handle_updates(request: web.Request) -> web.Response:
 
 async def handle_links(request: web.Request) -> web.Response:
     is_en = get_lang(request) == "en"
-    user = get_discord_session(request)
-    is_prem = is_premium_user(user)
-    is_admin = is_site_admin(user)
     safe_support = esc(sanitize_http_url(SUPPORT_SERVER_URL) or "https://discord.com")
-    entries = [
-        ("hub", "Home" if is_en else "الرئيسية", "/", "Overview, status, and quick actions" if is_en else "نظرة عامة والحالة والوصول السريع", False),
-        ("shield", "Security Panel" if is_en else "لوحة الحماية", "/guild", "Configure guards, limits, whitelist, and snapshots" if is_en else "ضبط الحمايات والحدود والموثوقين واللقطات", False),
-    ]
-    if is_prem:
-        entries.append(("star", "Premium" if is_en else "البريميوم", "/premium", "Bot bio, avatar, banner, and alert channels" if is_en else "نبذة البوت والأفتار والبنر وقنوات التنبيه", False))
-    if is_admin:
-        entries.append(("server", "Admin Panel" if is_en else "لوحة الإدارة", "/admin", "Subscriptions, staff permissions, remote actions, and backups" if is_en else "الاشتراكات والصلاحيات والأوامر عن بُعد والنسخ", False))
-    entries.extend(
-        [
-            ("pulse", "Services" if is_en else "الخدمات", "/services", "Protection modules and features" if is_en else "وحدات الحماية والمزايا المتاحة", False),
-            ("snap", "Updates & Logs" if is_en else "التحديثات والسجلات", "/updates", "Activity log and system events" if is_en else "سجل النشاط وأحداث النظام", False),
-            ("link", "Invite Bot" if is_en else "إضافة بوت الحماية", "/invite", "Add protection bot to your Discord server" if is_en else "إضافة بوت الحماية إلى سيرفر ديسكورد", True),
-            ("link", "Support Server" if is_en else "سيرفر الدعم الفني", safe_support, "Official Discord community and support" if is_en else "سيرفر الدعم الفني والتحديثات", True),
-        ]
-    )
-    open_txt = "Open" if is_en else "فتح"
-    cards_html = "".join(
-        f"<a class='link-banner-card' href='{esc(u)}' {'target=\"_blank\" rel=\"noopener noreferrer\"' if ext else ''}>"
-        f"<div class='row-main'><span class='mark-badge'>{_symbol_svg(ico_k, 16)}</span><div><div class='link-card-title'>{esc(t)}</div><div class='link-card-sub'>{esc(sub)}</div></div></div>"
-        f"<span class='link-arrow'>{esc(open_txt)}</span></a>"
-        for ico_k, t, u, sub, ext in entries
-    )
+    arrow_sym = "→" if is_en else "←"
     body = f"""
     <div class='page-card'>
       <div class='section-head-bar'>
         <div>
-          <h2 class='section-head-title'>{('Links' if is_en else 'الروابط')}</h2>
-          <div class='muted'>{('Direct access to panels and official links' if is_en else 'وصول مباشر للوحات التحكم والروابط الرسمية')}</div>
+          <h2 class='section-head-title'>{('Quick Links' if is_en else 'الروابط السريعة')}</h2>
+          <div class='muted'>{('Bot invitation, support server, and control panels' if is_en else 'إضافة البوت، سيرفر الدعم، ولوحات التحكم')}</div>
         </div>
-        <span class='tag'>{len(entries)}</span>
+        <span class='tag'>LINKS</span>
       </div>
-      <div class='link-hub-stack'>{cards_html}</div>
+      <div class='link-hub-stack'>
+        <a class='link-banner-card' href='/invite'>
+          <div>
+            <div class='link-card-title'>{('Invite Bot' if is_en else 'إضافة بوت الحماية')}</div>
+            <div class='link-card-sub'>{('Add the bot to your Discord server' if is_en else 'إضافة البوت إلى سيرفر ديسكورد الخاص بك')}</div>
+          </div>
+          <span class='link-arrow'>{arrow_sym}</span>
+        </a>
+        <a class='link-banner-card' href='{safe_support}' target='_blank' rel='noopener noreferrer'>
+          <div>
+            <div class='link-card-title'>{('Support Server' if is_en else 'سيرفر الدعم الفني')}</div>
+            <div class='link-card-sub'>{('Join our official Discord server for support and updates' if is_en else 'انضم إلى سيرفر الدعم للحصول على المساعدة والتحديثات')}</div>
+          </div>
+          <span class='link-arrow'>{arrow_sym}</span>
+        </a>
+        <a class='link-banner-card' href='/guild'>
+          <div>
+            <div class='link-card-title'>{('Security Panel' if is_en else 'لوحة الحماية')}</div>
+            <div class='link-card-sub'>{('Configure server protection rules and snapshots' if is_en else 'إعداد قواعد الحماية ولقطات الصلاحيات')}</div>
+          </div>
+          <span class='link-arrow'>{arrow_sym}</span>
+        </a>
+      </div>
     </div>
     """
     return web.Response(text=render_page("Links" if is_en else "الروابط", "links", body, request), content_type="text/html")
 
 
 async def login_handler(request: web.Request) -> web.Response:
-    is_en = get_lang(request) == "en"
-    next_url = sanitize_next_url(request.query.get("next", "/"))
+    ip = get_client_ip(request)
+    if is_rate_limited(ip, is_sensitive=True):
+        return web.Response(text="Too many login requests. Please wait a minute.", status=429)
+
     if not DISCORD_CLIENT_ID:
-        return web.Response(
-            text=("DISCORD_CLIENT_ID is not configured." if is_en else "لم يتم ضبط DISCORD_CLIENT_ID بعد."),
-            status=503,
-        )
+        return web.Response(text="DISCORD_CLIENT_ID is missing in environment.", status=500)
+
+    next_url = sanitize_next_url(request.query.get("next", "/"))
+    state = issue_oauth_state(next_url=next_url)
     redirect_uri = detect_redirect_uri(request)
-    state_val = issue_oauth_state(next_url=next_url)
     params = urlencode(
         {
             "client_id": DISCORD_CLIENT_ID,
             "redirect_uri": redirect_uri,
             "response_type": "code",
             "scope": "identify guilds",
-            "state": state_val,
+            "state": state,
+            "prompt": "consent",
         }
     )
     raise web.HTTPFound(f"https://discord.com/api/oauth2/authorize?{params}")
 
 
-async def oauth_callback_handler(request: web.Request) -> web.Response:
+async def callback_handler(request: web.Request) -> web.Response:
+    ip = get_client_ip(request)
+    if is_rate_limited(ip, is_sensitive=True):
+        return web.Response(text="Too many auth callbacks. Please wait a minute.", status=429)
+
     is_en = get_lang(request) == "en"
-    code = str(request.query.get("code", "")).strip()
-    state_val = str(request.query.get("state", "")).strip()
+    if request.query.get("error"):
+        return web.Response(text="Discord authorization was cancelled.", status=400)
 
-    state_ok, next_url = consume_oauth_state(state_val)
+    state_ok, next_url = consume_oauth_state(request.query.get("state"))
     if not state_ok:
-        return web.Response(
-            text=(
-                "Invalid or expired login state. Please start login again."
-                if is_en
-                else "جلسة تسجيل الدخول غير صالحة أو منتهية، أعد المحاولة من زر الدخول."
-            ),
-            status=400,
-        )
+        return web.Response(text="Invalid or expired OAuth state. Please start login again.", status=400)
 
-    if not code or not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
-        return web.Response(
-            text=("OAuth configuration missing." if is_en else "إعدادات تسجيل الدخول غير مكتملة."),
-            status=400,
-        )
+    code = str(request.query.get("code", "")).strip()
+    if not code:
+        return web.Response(text="Missing OAuth code.", status=400)
+
+    if not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
+        return web.Response(text="Discord OAuth credentials are not configured.", status=500)
+
     redirect_uri = detect_redirect_uri(request)
     timeout = ClientTimeout(total=12)
+
     try:
         async with ClientSession(timeout=timeout) as session:
             async with session.post(
@@ -5107,211 +5146,143 @@ async def oauth_callback_handler(request: web.Request) -> web.Response:
                     "redirect_uri": redirect_uri,
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
-            ) as resp:
-                if resp.status != 200:
-                    return web.Response(
-                        text=(
-                            f"Discord token exchange failed ({resp.status})."
-                            if is_en
-                            else f"فشل التحقق من رمز ديسكورد ({resp.status})."
-                        ),
-                        status=400,
-                    )
-                tok_data = await resp.json()
+            ) as token_resp:
+                if token_resp.status != 200:
+                    return web.Response(text=f"Discord token error ({token_resp.status}).", status=400)
+                token_data = await token_resp.json()
 
-            access_token = str(tok_data.get("access_token", "")).strip()
+            access_token = str(token_data.get("access_token", "")).strip()
             if not access_token:
-                return web.Response(
-                    text=("Missing access token." if is_en else "لم يتم استلام رمز الوصول."),
-                    status=400,
-                )
+                return web.Response(text="Failed to obtain Discord access token.", status=400)
 
-            auth_hdr = {"Authorization": f"Bearer {access_token}"}
-            async with session.get("https://discord.com/api/users/@me", headers=auth_hdr) as u_resp:
+            auth_headers = {"Authorization": f"Bearer {access_token}"}
+            async with session.get("https://discord.com/api/users/@me", headers=auth_headers) as u_resp:
                 if u_resp.status != 200:
-                    return web.Response(
-                        text=("Failed to load Discord profile." if is_en else "تعذر جلب بيانات حساب ديسكورد."),
-                        status=400,
-                    )
-                u_data = await u_resp.json()
+                    return web.Response(text="Failed to fetch Discord user profile.", status=400)
+                user_data = await u_resp.json()
 
-            guilds_data = []
-            async with session.get("https://discord.com/api/users/@me/guilds", headers=auth_hdr) as g_resp:
+            guilds_data: list[dict] = []
+            async with session.get("https://discord.com/api/users/@me/guilds", headers=auth_headers) as g_resp:
                 if g_resp.status == 200:
-                    raw_g = await g_resp.json()
-                    if isinstance(raw_g, list):
-                        guilds_data = [
-                            {
-                                "id": str(g.get("id", "")),
-                                "name": str(g.get("name", ""))[:100],
-                                "icon": str(g.get("icon", "") or "")[:80],
-                                "owner": bool(g.get("owner", False)),
-                                "permissions": int(g.get("permissions", 0) or 0),
-                            }
-                            for g in raw_g
-                            if isinstance(g, dict) and str(g.get("id", "")).isdigit()
-                        ]
+                    raw_guilds = await g_resp.json()
+                    if isinstance(raw_guilds, list):
+                        for g in raw_guilds:
+                            if isinstance(g, dict) and str(g.get("id", "")).isdigit():
+                                guilds_data.append(
+                                    {
+                                        "id": str(g["id"]),
+                                        "name": str(g.get("name", ""))[:100],
+                                        "icon": str(g.get("icon", "") or ""),
+                                        "owner": bool(g.get("owner", False)),
+                                        "permissions": int(g.get("permissions", 0) or 0),
+                                    }
+                                )
     except (ClientError, asyncio.TimeoutError, Exception):
-        return web.Response(
-            text=(
-                "Network error while contacting Discord."
-                if is_en
-                else "حدث خطأ في الاتصال بخوادم ديسكورد، أعد المحاولة."
-            ),
-            status=502,
-        )
+        return web.Response(text="Network timeout while contacting Discord API.", status=502)
 
-    uid = str(u_data.get("id", "")).strip()
+    uid = str(user_data.get("id", "")).strip()
     if not uid.isdigit():
-        return web.Response(
-            text=("Invalid Discord user ID." if is_en else "معرف مستخدم ديسكورد غير صالح."),
-            status=400,
-        )
+        return web.Response(text="Invalid Discord user ID.", status=400)
 
-    uname = str(u_data.get("global_name") or u_data.get("username") or "User")[:40]
-    uhandle = str(u_data.get("username") or uname)[:40]
-    uava = str(u_data.get("avatar", "") or "")[:80]
+    username = str(user_data.get("global_name") or user_data.get("username") or "User").strip()[:40]
+    avatar = str(user_data.get("avatar") or "").strip()[:80]
 
     if uid == ADMIN_USER_ID:
-        existing_owner = _normalize_premium_doc(MEM_PREMIUM.get(ADMIN_USER_ID) or {})
-        MEM_PREMIUM[ADMIN_USER_ID] = {
-            "user_id": ADMIN_USER_ID,
-            "username": uname,
-            "handle": f"@{uhandle}",
-            "avatar": uava,
-            "granted_by": "owner",
-            "source": "owner",
-            "granted_at": existing_owner.get("granted_at") or _now_str(),
-            "expires_at": 0.0,
-            "permanent": True,
-        }
-        _invalidate_perm_cache(ADMIN_USER_ID)
-        if premium_col is not None:
-            try:
-                premium_col.update_one(
-                    {"user_id": ADMIN_USER_ID},
-                    {"$set": MEM_PREMIUM[ADMIN_USER_ID]},
-                    upsert=True,
-                )
-            except PyMongoError:
-                pass
-    elif uid in MEM_PREMIUM:
-        existing_rec = _normalize_premium_doc(MEM_PREMIUM[uid])
-        existing_rec["username"] = uname
-        existing_rec["handle"] = f"@{uhandle}"
-        if uava:
-            existing_rec["avatar"] = uava
-        MEM_PREMIUM[uid] = existing_rec
-        if premium_col is not None:
-            try:
-                premium_col.update_one(
-                    {"user_id": uid},
-                    {"$set": {"username": uname, "handle": f"@{uhandle}", **({"avatar": uava} if uava else {})}},
-                )
-            except PyMongoError:
-                pass
+        owner_prem = _normalize_premium_doc(MEM_PREMIUM.get(ADMIN_USER_ID) or {"user_id": ADMIN_USER_ID})
+        owner_prem["username"] = username
+        owner_prem["handle"] = f"@{str(user_data.get('username') or username).strip()[:36]}"
+        owner_prem["avatar"] = avatar
+        owner_prem["permanent"] = True
+        MEM_PREMIUM[ADMIN_USER_ID] = owner_prem
 
-    cookie_val = sign_session(
+    token = sign_session(
         {
             "id": uid,
-            "username": uname,
-            "avatar": uava,
+            "username": username,
+            "avatar": avatar,
             "guilds": guilds_data,
             "exp": time.time() + 86400 * 7,
         }
     )
-    log_event(f"User logged in ({uname} / {uid})", level="AUTH")
-    resp = web.HTTPFound(next_url)
+
+    msg = f"Signed in as {username}" if is_en else f"تم تسجيل الدخول بحساب {username}"
+    sep = "&" if "?" in next_url else "?"
+    target_redirect = f"{next_url}{sep}msg={quote(msg)}"
+    resp = web.HTTPFound(target_redirect)
     resp.set_cookie(
         "arab_sec_session",
-        cookie_val,
-        max_age=86400 * 7,
+        token,
         httponly=True,
-        samesite="Lax",
         secure=should_use_secure_cookie(request),
+        samesite="Lax",
+        max_age=86400 * 7,
         path="/",
     )
+    log_event(f"User {username} ({uid}) signed in via Discord OAuth", level="AUTH")
     return resp
 
 
 async def logout_handler(request: web.Request) -> web.Response:
-    sess_pair = get_discord_session_with_id(request)
-    if sess_pair:
-        _delete_session_record(sess_pair[0])
-    resp = web.HTTPFound("/")
+    is_en = get_lang(request) == "en"
+    pair = get_discord_session_with_id(request)
+    if pair:
+        _delete_session_record(pair[0])
+    msg = "Signed out." if is_en else "تم تسجيل الخروج."
+    resp = web.HTTPFound(f"/?msg={quote(msg)}")
     resp.del_cookie("arab_sec_session", path="/")
     return resp
 
 
 async def health_handler(request: web.Request) -> web.Response:
-    return web.json_response({"ok": True, "status": "healthy", "time": _now_str()})
+    return web.json_response(
+        {
+            "ok": True,
+            "service": SITE_NAME,
+            "db_connected": db is not None,
+            "bot_sync": MEM_BOT_HEARTBEAT.get("status", "ONLINE"),
+        }
+    )
 
 
 @web.middleware
 async def security_and_metrics_middleware(request: web.Request, handler):
     ip = get_client_ip(request)
-    is_sensitive = request.path in ("/login", "/callback", "/logout") or request.method == "POST"
-    if is_rate_limited(ip, is_sensitive=is_sensitive):
-        return web.json_response({"ok": False, "error": "Too many requests"}, status=429)
+    is_sens = request.path in ("/login", "/callback", "/logout")
+    if is_rate_limited(ip, is_sensitive=is_sens):
+        return web.json_response({"ok": False, "error": "Rate limit exceeded"}, status=429)
 
     record_site_visit(request)
-    try:
-        response = await handler(request)
-    except web.HTTPException as ex:
-        response = ex
-    except Exception:
-        response = web.json_response({"ok": False, "error": "Internal server error"}, status=500)
-
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "img-src 'self' https://cdn.discordapp.com data: blob:; "
-        "style-src 'self' 'unsafe-inline'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "connect-src 'self'; "
-        "frame-ancestors 'self'"
-    )
+    response = await handler(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     return response
 
 
 def create_app() -> web.Application:
-    app = web.Application(middlewares=[security_and_metrics_middleware], client_max_size=16_000_000)
+    app = web.Application(middlewares=[security_and_metrics_middleware], client_max_size=16 * 1024 * 1024)
     app.router.add_get("/", home_handler)
-    app.router.add_get("/health", health_handler)
-    app.router.add_get("/invite", handle_invite_redirect)
-    app.router.add_route("*", "/guild", handle_guild)
-    app.router.add_route("*", "/premium", handle_premium)
-    app.router.add_route("*", "/admin", handle_admin)
+    app.router.add_get("/index.html", home_handler)
+    app.router.add_get("/guild", handle_guild)
+    app.router.add_post("/guild", handle_guild)
+    app.router.add_get("/premium", handle_premium)
+    app.router.add_post("/premium", handle_premium)
+    app.router.add_get("/admin", handle_admin)
+    app.router.add_post("/admin", handle_admin)
     app.router.add_get("/services", handle_services)
     app.router.add_get("/updates", handle_updates)
     app.router.add_get("/links", handle_links)
+    app.router.add_get("/invite", handle_invite_redirect)
     app.router.add_get("/login", login_handler)
-    app.router.add_get("/callback", oauth_callback_handler)
+    app.router.add_get("/callback", callback_handler)
     app.router.add_get("/logout", logout_handler)
-
+    app.router.add_get("/health", health_handler)
     app.router.add_post("/api/bot/sync-guilds", api_bot_sync_guilds)
-    app.router.add_post("/api/bot/sync-boosts", api_bot_boost_sync)
-    app.router.add_get("/api/bot/commands", api_bot_pending_commands)
-    app.router.add_post("/api/bot/commands", api_bot_pending_commands)
+    app.router.add_post("/api/bot/boost-sync", api_bot_boost_sync)
+    app.router.add_get("/api/bot/pending-commands", api_bot_pending_commands)
     return app
 
 
-async def _run_server() -> None:
-    app = create_app()
-    runner = web.AppRunner(app, access_log=None)
-    await runner.setup()
-    site = web.TCPSite(runner, HOST, PORT)
-    await site.start()
-    print(f"[WEB] {SITE_NAME} running on http://{HOST}:{PORT}")
-    try:
-        while True:
-            await asyncio.sleep(3600)
-    finally:
-        flush_visits_if_needed(force=True)
-        await runner.cleanup()
-
-
 if __name__ == "__main__":
-    asyncio.run(_run_server())
+    web.run_app(create_app(), host=HOST, port=PORT)
